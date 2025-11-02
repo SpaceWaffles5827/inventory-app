@@ -1,0 +1,291 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// User model for authentication
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String
+  passwordResetToken String?  @map("password_reset_token")
+  passwordResetExpires DateTime? @map("password_reset_expires")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ADD THESE TWO FIELDS for 2FA
+  two_factor_enabled Boolean @default(false)
+  two_factor_code    String?
+
+  // Relations
+  workspaceMembers  WorkspaceMember[]
+  stockTransactions StockTransaction[]
+
+  @@map("users")
+}
+
+model AuthEvent {
+  id           String   @id @default(cuid())
+  occurredAt   DateTime @default(now()) @map("occurred_at")
+  eventType    String   @map("event_type")
+  outcome      String?  // "success", "failure", etc.
+  userId       String?  @map("user_id")
+  sessionRef   Bytes?   @map("session_ref") @db.VarBinary(32)
+  ip           Bytes?   @db.VarBinary(16) // Stores INET6_ATON result
+  uaHash       Bytes?   @map("ua_hash") @db.Binary(16)
+  reasonCode   String?  @map("reason_code")
+  requestId    String?  @map("request_id")
+  details      Json?
+  ipVersion    Int?     @map("ip_version")
+  ip4Prefix24  Bytes?   @map("ip4_prefix24") @db.VarBinary(3)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@index([outcome])
+  @@map("auth_event")
+}
+
+// Workspace model (replaces Company)
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  members       WorkspaceMember[]
+  invitations   Invitation[]
+  items         Item[]
+  categories    Category[]
+  locations     Location[]
+  suppliers     Supplier[]
+  transactions  StockTransaction[]
+  subscription  Subscription?
+
+  @@map("workspaces")
+}
+
+// Junction table for users in workspaces
+model WorkspaceMember {
+  id        String   @id @default(cuid())
+  role      Role     @default(MEMBER)
+  joinedAt  DateTime @default(now())
+  lastActive DateTime @default(now())
+
+  // Foreign keys
+  userId      String
+  workspaceId String
+
+  // Relations
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@map("workspace_members")
+}
+
+// Invitation model for pending workspace invites
+model Invitation {
+  id        String   @id @default(cuid())
+  email     String
+  role      Role     @default(MEMBER)
+  status    InvitationStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  // Foreign keys
+  workspaceId String
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("invitations")
+}
+
+// Category model for item categorization
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  itemCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Foreign keys
+  workspaceId String
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items     Item[]
+
+  @@map("categories")
+}
+
+// Location model for warehouse storage locations
+model Location {
+  id          String   @id @default(cuid())
+  code        String   // e.g., "A-01-01-A"
+  zone        String   // e.g., "A"
+  aisle       String   // e.g., "01"
+  shelf       String   // e.g., "01"
+  bin         String   // e.g., "A"
+  capacity    Int      @default(100)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Foreign keys
+  workspaceId String
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items     Item[]
+
+  @@unique([workspaceId, code])
+  @@map("locations")
+}
+
+// Supplier model
+model Supplier {
+  id            String   @id @default(cuid())
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Foreign keys
+  workspaceId String
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items     Item[]
+
+  @@map("suppliers")
+}
+
+// Item model for inventory items
+model Item {
+  id          String   @id @default(cuid())
+  itemNumber  String   // e.g., "ITM-001"
+  name        String
+  barcode     String?
+  description String?
+  onHand      Int      @default(0)
+  cost        Float    @default(0)
+  status      ItemStatus @default(IN_STOCK)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Foreign keys
+  workspaceId String
+  categoryId  String?
+  locationId  String?
+  supplierId  String?
+
+  // Relations
+  workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category      Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  location      Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  supplier      Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  transactions  StockTransaction[]
+
+  @@unique([workspaceId, itemNumber])
+  @@map("items")
+}
+
+// Stock transaction model for audit trail
+model StockTransaction {
+  id            String            @id @default(cuid())
+  type          TransactionType   // INPUT or OUTPUT
+  quantity      Int
+  previousStock Int
+  newStock      Int
+  reason        String
+  createdAt     DateTime          @default(now())
+
+  // Foreign keys
+  itemId      String
+  workspaceId String
+  userId      String
+
+  // Relations
+  item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("stock_transactions")
+}
+
+// Subscription model for workspace billing
+model Subscription {
+  id              String           @id @default(cuid())
+  plan            SubscriptionPlan @default(STARTER)
+  status          SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean       @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Foreign keys
+  workspaceId String @unique
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+// Enums
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum ItemStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+}
+
+enum TransactionType {
+  INPUT
+  OUTPUT
+}
+
+enum SubscriptionPlan {
+  STARTER
+  PROFESSIONAL
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  PAST_DUE
+  TRIALING
+}

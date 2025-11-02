@@ -31,7 +31,10 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
+.env*.local
 .env*
+.dev.env
+.local.env
 
 # vercel
 .vercel
@@ -39,3 +42,36 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# logs
+/logs
+
+# db and minio stuff
+/dev/
+
+# MinIO runtime state (common local paths)
+minio/data/
+minio/config/
+minio/.env
+minio/certs/*.key
+minio/certs/*.crt
+minio/certs/CAs/
+.mc/    
+
+# MySql
+mysql/data/
+mysql/_data/
+mysql/config/
+mysql/.env
+
+# Redis
+redis/data/
+redis/config/
+redis/.env
+
+# Prisma
+.secrets
+/generated/prisma
+
+# Backups
+/backups/

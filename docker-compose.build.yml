@@ -1,0 +1,20 @@
+# docker-compose.build.yml
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        BACKEND_ORIGIN: ${BACKEND_ORIGIN}
+    # tag the locally built image to the same name your prod file uses
+    image: ghcr.io/spacewaffles5827/inventory-app:latest
+    pull_policy: never
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    image: ghcr.io/spacewaffles5827/inventory-app-server:latest
+    pull_policy: never

@@ -1,0 +1,64 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Force lowercase owner
+        id: repo
+        run: echo "owner_lc=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build & push frontend
+      - name: Build & push app image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.app
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ steps.repo.outputs.owner_lc }}/inventory-app:latest
+            ghcr.io/${{ steps.repo.outputs.owner_lc }}/inventory-app:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || 'http://localhost:5001' }}
+            NEXT_PUBLIC_APP_URL=${{ vars.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}
+            BACKEND_ORIGIN=${{ vars.BACKEND_ORIGIN || 'http://localhost:5001' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Build & push backend
+      - name: Build & push server image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.server
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ steps.repo.outputs.owner_lc }}/inventory-app-server:latest
+            ghcr.io/${{ steps.repo.outputs.owner_lc }}/inventory-app-server:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

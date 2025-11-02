@@ -1,0 +1,90 @@
+name: Deploy to Production
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          # Ports
+          TRAEFIK_HTTP_PORT=${{ vars.TRAEFIK_HTTP_PORT || '3069' }}
+          TRAEFIK_DASHBOARD_PORT=${{ vars.TRAEFIK_DASHBOARD_PORT || '8082' }}
+          APP_INTERNAL_PORT=3000
+          SERVER_INTERNAL_PORT=5001
+          MYSQL_PORT=${{ vars.MYSQL_PORT || '3308' }}
+          REDIS_PORT=${{ vars.REDIS_PORT || '6382' }}
+          MINIO_API_PORT=${{ vars.MINIO_API_PORT || '9000' }}
+          MINIO_CONSOLE_PORT=${{ vars.MINIO_CONSOLE_PORT || '9003' }}
+
+          # MySQL
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_DATABASE=${{ secrets.MYSQL_DATABASE }}
+          MYSQL_USER=${{ secrets.MYSQL_USER }}
+          MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}
+          MYSQL_ROOT_HOST=%
+          MYSQL_HOST=localhost
+
+          # Redis
+          REDIS_HOST=127.0.0.1
+
+          # MinIO
+          MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
+          BUCKET_NAME=${{ secrets.BUCKET_NAME }}
+          BUCKET_REGION=us-east-1
+          MINIO_ENDPOINT=http://localhost:\${MINIO_API_PORT}
+
+          # Disaster Recovery
+          DR_ENDPOINT=${{ secrets.DR_ENDPOINT }}
+          DR_MINIO_ROOT_USER=${{ secrets.DR_MINIO_ROOT_USER }}
+          DR_MINIO_ROOT_PASSWORD=${{ secrets.DR_MINIO_ROOT_PASSWORD }}
+          DR_BUCKET_NAME=${{ secrets.DR_BUCKET_NAME }}
+          BACKUP_BUCKET_NAME=${{ secrets.BACKUP_BUCKET_NAME }}
+          BACKUP_CRON=${{ vars.BACKUP_CRON || '0 3 * * *' }}
+          MC_INSECURE=${{ vars.MC_INSECURE || '0' }}
+
+          # App Configuration
+          DEV_MODE=false
+          NODE_ENV=production
+          SESSION_SECRET=${{ secrets.SESSION_SECRET }}
+          USER_ID_ADMIN_MYSQL=${{ secrets.USER_ID_ADMIN_MYSQL }}
+          NEXT_PUBLIC_APP_VERSION=${{ github.ref_name }}
+
+          # URLs
+          NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_APP_URL }}
+          BACKEND_ORIGIN=${{ secrets.BACKEND_ORIGIN }}
+
+          # Email
+          DONOTREPLY_EMAIL=${{ secrets.DONOTREPLY_EMAIL }}
+          GOOGLE_EMAIL_USER=${{ secrets.GOOGLE_EMAIL_USER }}
+          GOOGLE_APP_PASSWORD=${{ secrets.GOOGLE_APP_PASSWORD }}
+          EOF
+
+      - name: Pull latest images
+        run: docker compose -p inventory-app-prod pull
+
+      - name: Stop existing containers
+        run: docker compose -p inventory-app-prod down
+
+      - name: Start services
+        run: docker compose -p inventory-app-prod -f docker-compose.yml up -d
+
+      - name: Clean up old images
+        run: docker image prune -af --filter "until=24h"
+
+      - name: Health check
+        run: |
+          sleep 10
+          curl -f http://localhost:${{ vars.TRAEFIK_HTTP_PORT || '3069' }}/api/alive || exit 1

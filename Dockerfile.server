@@ -1,0 +1,38 @@
+# Dockerfile.server
+FROM node:22.15
+
+WORKDIR /app
+
+# Enable pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy manifests first for caching
+COPY package.json pnpm-lock.yaml ./
+
+# Avoid running prisma generate during install (schema not copied yet)
+ENV PRISMA_SKIP_POSTINSTALL_GENERATE=1
+
+# Install deps with a cached pnpm store
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Copy root tsconfig (needed by server/tsconfig.json which extends it)
+COPY tsconfig.json ./
+
+# Bring in schema and the rest of the source
+COPY prisma ./prisma
+COPY server ./server
+
+# Generate Prisma Client (schema is present now)
+RUN pnpm dlx prisma generate --schema prisma/schema.prisma
+
+# Build TypeScript server code with verbose output
+WORKDIR /app/server
+RUN npx tsc --listFiles || (echo "TypeScript compilation failed" && npx tsc 2>&1 && exit 1)
+
+ENV NODE_ENV=production
+ENV PORT=5001
+EXPOSE 5001
+
+WORKDIR /app
+CMD ["node", "server/dist/index.js"]
