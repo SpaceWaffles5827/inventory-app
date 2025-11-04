@@ -69,8 +69,8 @@ Create a `.dev.env` file in the root directory based on the example below:
 
 ```env
 # Application Ports
-APP_INTERNAL_PORT=3000
-SERVER_INTERNAL_PORT=5001
+APP_PORT=3000
+SERVER_PORT=5001
 TRAEFIK_HTTP_PORT=3069
 TRAEFIK_DASHBOARD_PORT=8080
 

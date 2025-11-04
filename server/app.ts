@@ -51,6 +51,7 @@ const RedisStore = ConnectRedis(expressSession);
 
 app.use(
   expressSession({
+    name: "inventory.sid",
     store: new RedisStore({ client: redisClient }),
     secret: process.env.SESSION_SECRET || "your-secret-key",
     resave: false,
@@ -172,7 +173,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/api/alive", (req, res) => {
-  res.status(200).json({ message: "server is alive" });
+  res.status(200).json({ message: "server is alive invnetory" });
 });
 
 export default app;
