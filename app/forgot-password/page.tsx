@@ -7,28 +7,49 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Package, ArrowLeft, Mail } from "lucide-react"
+import { Package, ArrowLeft, Mail, AlertCircle } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { forgotPasswordApi } from "@/lib/api/auth.api"
 
 export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [email, setEmail] = useState("")
+  const [error, setError] = useState("")
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (loading) return
 
     setLoading(true)
+    setError("")
 
     const formData = new FormData(e.currentTarget)
     const emailValue = formData.get("email") as string
     setEmail(emailValue)
 
-    // TODO: Implement actual password reset email
-    setTimeout(() => {
+    try {
+      await forgotPasswordApi(emailValue)
       setSubmitted(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send reset email")
+    } finally {
       setLoading(false)
-    }, 1000)
+    }
+  }
+
+  async function handleResend() {
+    setError("")
+    setLoading(true)
+
+    try {
+      await forgotPasswordApi(email)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resend email")
+      setSubmitted(false)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -90,6 +111,12 @@ export default function ForgotPasswordPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {error && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
               {submitted ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-center p-4 bg-accent/10 rounded-lg">
@@ -100,8 +127,12 @@ export default function ForgotPasswordPage() {
                   </p>
                   <p className="text-sm text-muted-foreground text-center">
                     Didn&apos;t receive the email? Check your spam folder or{" "}
-                    <button onClick={() => setSubmitted(false)} className="text-accent hover:underline font-medium">
-                      try again
+                    <button
+                      onClick={handleResend}
+                      disabled={loading}
+                      className="text-accent hover:underline font-medium disabled:opacity-50"
+                    >
+                      {loading ? "Sending..." : "try again"}
                     </button>
                   </p>
                   <Link href="/login" className="block">

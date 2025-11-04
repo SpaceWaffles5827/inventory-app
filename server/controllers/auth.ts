@@ -634,7 +634,7 @@ const authController = {
           },
         });
 
-        let resetUrl = `${process.env.NEXT_PUBLIC_APP_URL}/forgot-password?token=${passwordResetToken}`;
+        let resetUrl = `${process.env.NEXT_PUBLIC_APP_URL}/reset-password?token=${passwordResetToken}`;
         resetUrl += `&pemail=${encodeURIComponent(normalizedEmail)}`;
 
         // Include inviteCompanyId if it exists

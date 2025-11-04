@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Package, CheckCircle2 } from "lucide-react"
+import { resetPasswordApi } from "@/lib/api/auth.api"
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -41,14 +42,17 @@ export default function ResetPasswordPage() {
       return
     }
 
-    // TODO: Implement actual password reset
-    setTimeout(() => {
+    try {
+      await resetPasswordApi(token, password, confirmPassword)
       setSuccess(true)
-      setLoading(false)
       setTimeout(() => {
         router.push("/login")
       }, 2000)
-    }, 1000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset password")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
