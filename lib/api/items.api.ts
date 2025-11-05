@@ -61,6 +61,7 @@ export type CreateItemRequest = {
 };
 
 export type UpdateItemRequest = {
+  itemNumber?: string;
   name?: string;
   barcode?: string;
   description?: string;

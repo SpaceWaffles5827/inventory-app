@@ -5,6 +5,7 @@ const router = Router();
 
 // Workspace structure endpoints
 router.get("/workspace-structure", locationsController.getWorkspaceStructure);
+
 router.put(
   "/workspace-structure",
   locationsController.updateWorkspaceStructure

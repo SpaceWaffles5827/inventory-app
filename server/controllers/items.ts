@@ -281,7 +281,7 @@ const itemsController = {
         where: {
           userId: userId,
           workspaceId: item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] }, // Only owners and admins can update
+          role: { in: ["OWNER", "ADMIN"] },
         },
       });
 
@@ -293,6 +293,7 @@ const itemsController = {
       }
 
       const {
+        itemNumber, // Add this
         name,
         barcode,
         description,
@@ -302,9 +303,29 @@ const itemsController = {
         supplierId,
       } = req.body;
 
+      // Check if itemNumber is being changed and if it's unique
+      if (itemNumber && itemNumber !== item.itemNumber) {
+        const existingItem = await prisma.item.findFirst({
+          where: {
+            workspaceId: item.workspaceId,
+            itemNumber: itemNumber,
+            id: { not: id }, // Exclude current item
+          },
+        });
+
+        if (existingItem) {
+          return res.status(400).json({
+            status: "error",
+            message:
+              "An item with this item number already exists in your workspace",
+          });
+        }
+      }
+
       const updatedItem = await prisma.item.update({
         where: { id },
         data: {
+          itemNumber: itemNumber !== undefined ? itemNumber : item.itemNumber, // Add this
           name: name || item.name,
           barcode: barcode !== undefined ? barcode : item.barcode,
           description:

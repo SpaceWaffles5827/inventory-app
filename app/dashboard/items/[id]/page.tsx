@@ -29,6 +29,7 @@ export default function ItemDetailPage() {
   const [locations, setLocations] = useState<LocationWithCount[]>([])
   const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
   const [formData, setFormData] = useState({
+    itemNumber: "",
     name: "",
     barcode: "",
     description: "",
@@ -55,6 +56,7 @@ export default function ItemDetailPage() {
         if (response.data?.item) {
           setItem(response.data.item as ItemWithDetails)
           setFormData({
+            itemNumber: response.data.item.itemNumber,
             name: response.data.item.name,
             barcode: response.data.item.barcode || "",
             description: response.data.item.description || "",
@@ -111,14 +113,15 @@ export default function ItemDetailPage() {
   }
 
   const handleSave = async () => {
-    if (!formData.name.trim() || !formData.cost) {
-      alert("Name and cost are required")
+    if (!formData.name.trim() || !formData.cost || !formData.itemNumber.trim()) {
+      alert("Item number, name, and cost are required")
       return
     }
 
     setIsSaving(true)
     try {
       const response = await updateItemApi(itemId, {
+        itemNumber: formData.itemNumber,
         name: formData.name,
         barcode: formData.barcode || undefined,
         description: formData.description || undefined,
@@ -143,6 +146,7 @@ export default function ItemDetailPage() {
   const handleCancel = () => {
     if (item) {
       setFormData({
+        itemNumber: item.itemNumber,
         name: item.name,
         barcode: item.barcode || "",
         description: item.description || "",
@@ -239,7 +243,14 @@ export default function ItemDetailPage() {
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="itemNumber">Item Number</Label>
-                    <Input id="itemNumber" value={item.itemNumber} disabled className="font-mono bg-muted" />
+                    <Input
+                      id="itemNumber"
+                      value={formData.itemNumber}
+                      onChange={(e) => setFormData({ ...formData, itemNumber: e.target.value })}
+                      disabled={!isEditing}
+                      className={!isEditing ? "font-mono bg-muted" : "font-mono"}
+                      placeholder="Enter item number"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="barcode" className="flex items-center gap-2">
@@ -385,7 +396,14 @@ export default function ItemDetailPage() {
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border/50">
                   <span className="text-sm text-muted-foreground">Total Value</span>
-                  <span className="font-semibold">${(item.onHand * item.cost).toFixed(2)}</span>
+                  <span className="font-semibold">
+                    {new Intl.NumberFormat('en-US', {
+                      style: 'currency',
+                      currency: 'USD',
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }).format(item.onHand * item.cost)}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm text-muted-foreground">Last Updated</span>
