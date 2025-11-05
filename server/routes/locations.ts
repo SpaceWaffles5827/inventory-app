@@ -3,6 +3,13 @@ import locationsController from "../controllers/locations";
 
 const router = Router();
 
+// Workspace structure endpoints
+router.get("/workspace-structure", locationsController.getWorkspaceStructure);
+router.put(
+  "/workspace-structure",
+  locationsController.updateWorkspaceStructure
+);
+
 // Get all locations in a workspace
 router.get("/", locationsController.getLocations);
 

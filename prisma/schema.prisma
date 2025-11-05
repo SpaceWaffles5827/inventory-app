@@ -60,6 +60,7 @@ model Workspace {
   id          String   @id @default(cuid())
   name        String
   description String?
+  defaultLocationStructure Json @default("{\"levels\":[{\"label\":\"Zone\"},{\"label\":\"Aisle\"},{\"label\":\"Shelf\"},{\"label\":\"Bin\"}]}") @map("default_location_structure")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -135,11 +136,8 @@ model Category {
 // Location model for warehouse storage locations
 model Location {
   id          String   @id @default(cuid())
-  code        String   // e.g., "A-01-01-A"
-  zone        String   // e.g., "A"
-  aisle       String   // e.g., "01"
-  shelf       String   // e.g., "01"
-  bin         String   // e.g., "A"
+  code        String   // e.g., "A-01-01-A" or "NORTH-3-205" or "BLDG1-FL2-RM305"
+  structure   Json     // Flexible structure: [{ label: "Zone", value: "A" }, { label: "Aisle", value: "01" }]
   capacity    Int      @default(100)
   description String?
   createdAt   DateTime @default(now())

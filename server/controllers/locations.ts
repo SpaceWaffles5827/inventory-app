@@ -2,15 +2,134 @@ import { Request, Response } from "express";
 import prisma from "../utils/prisma";
 
 const locationsController = {
+  // Get workspace default structure
+  getWorkspaceStructure: async (req: Request, res: Response) => {
+    try {
+      const { workspaceId } = req.query;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized",
+        });
+      }
+
+      if (!workspaceId) {
+        return res.status(400).json({
+          status: "error",
+          message: "Workspace ID is required",
+        });
+      }
+
+      // Verify user has access to this workspace
+      const workspaceMember = await prisma.workspaceMember.findFirst({
+        where: {
+          userId: userId,
+          workspaceId: workspaceId as string,
+        },
+      });
+
+      if (!workspaceMember) {
+        return res.status(403).json({
+          status: "error",
+          message: "You don't have access to this workspace",
+        });
+      }
+
+      // Get workspace with structure
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId as string },
+        select: { defaultLocationStructure: true },
+      });
+
+      return res.status(200).json({
+        status: "success",
+        data: { structure: workspace?.defaultLocationStructure || null },
+      });
+    } catch (error) {
+      console.error("Get workspace structure error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to retrieve workspace structure",
+      });
+    }
+  },
+
+  // Update workspace default structure
+  updateWorkspaceStructure: async (req: Request, res: Response) => {
+    try {
+      const { workspaceId, structure } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized",
+        });
+      }
+
+      if (!workspaceId) {
+        return res.status(400).json({
+          status: "error",
+          message: "Workspace ID is required",
+        });
+      }
+
+      // Verify user has admin/owner access
+      const workspaceMember = await prisma.workspaceMember.findFirst({
+        where: {
+          userId: userId,
+          workspaceId: workspaceId,
+          role: { in: ["OWNER", "ADMIN"] },
+        },
+      });
+
+      if (!workspaceMember) {
+        return res.status(403).json({
+          status: "error",
+          message: "You don't have permission to update workspace settings",
+        });
+      }
+
+      // Validate structure format
+      if (
+        structure &&
+        (!structure.levels || !Array.isArray(structure.levels))
+      ) {
+        return res.status(400).json({
+          status: "error",
+          message: "Invalid structure format",
+        });
+      }
+
+      // Update workspace structure
+      const workspace = await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { defaultLocationStructure: structure },
+        select: { defaultLocationStructure: true },
+      });
+
+      return res.status(200).json({
+        status: "success",
+        message: "Workspace structure updated successfully",
+        data: { structure: workspace.defaultLocationStructure },
+      });
+    } catch (error) {
+      console.error("Update workspace structure error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to update workspace structure",
+      });
+    }
+  },
+
   // Create a new location
   createLocation: async (req: Request, res: Response) => {
     try {
       const {
         code,
-        zone,
-        aisle,
-        shelf,
-        bin,
+        structure, // Array of { label: string, value: string }
         capacity,
         description,
         workspaceId,
@@ -46,6 +165,14 @@ const locationsController = {
         });
       }
 
+      // Validate structure
+      if (!structure || !Array.isArray(structure) || structure.length === 0) {
+        return res.status(400).json({
+          status: "error",
+          message: "Location structure is required",
+        });
+      }
+
       // Check if location code already exists in this workspace
       const existingLocation = await prisma.location.findFirst({
         where: {
@@ -65,10 +192,7 @@ const locationsController = {
       const location = await prisma.location.create({
         data: {
           code,
-          zone,
-          aisle,
-          shelf,
-          bin,
+          structure,
           capacity: capacity || 100,
           description: description || null,
           workspaceId: workspaceId,
@@ -237,16 +361,7 @@ const locationsController = {
   updateLocation: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const {
-        code,
-        zone,
-        aisle,
-        shelf,
-        bin,
-        capacity,
-        description,
-        workspaceId,
-      } = req.body;
+      const { code, structure, capacity, description, workspaceId } = req.body;
       const userId = req.user?.id;
 
       if (!userId) {
@@ -316,10 +431,7 @@ const locationsController = {
         where: { id: id },
         data: {
           ...(code && { code }),
-          ...(zone && { zone }),
-          ...(aisle && { aisle }),
-          ...(shelf && { shelf }),
-          ...(bin && { bin }),
+          ...(structure && { structure }),
           ...(capacity !== undefined && { capacity }),
           ...(description !== undefined && {
             description: description || null,

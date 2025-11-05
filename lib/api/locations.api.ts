@@ -3,6 +3,19 @@ import type { Location, Item, Prisma } from "@prisma/client";
 import type { ApiResponse } from "./types";
 
 // ============================================
+// Location structure type
+// ============================================
+
+export type LocationStructure = {
+  label: string;
+  value: string;
+}[];
+
+export type LocationTemplate = {
+  levels: { label: string }[];
+};
+
+// ============================================
 // Use Prisma's generated types directly
 // ============================================
 
@@ -43,10 +56,7 @@ export type LocationWithItemsAlt = Prisma.LocationGetPayload<{
 
 export type CreateLocationRequest = {
   code: string;
-  zone: string;
-  aisle: string;
-  shelf: string;
-  bin: string;
+  structure: LocationStructure;
   capacity?: number;
   description?: string;
   workspaceId: string;
@@ -54,13 +64,15 @@ export type CreateLocationRequest = {
 
 export type UpdateLocationRequest = {
   code?: string;
-  zone?: string;
-  aisle?: string;
-  shelf?: string;
-  bin?: string;
+  structure?: LocationStructure;
   capacity?: number;
   description?: string;
   workspaceId: string;
+};
+
+export type UpdateWorkspaceStructureRequest = {
+  workspaceId: string;
+  structure: LocationTemplate;
 };
 
 // ============================================
@@ -71,6 +83,62 @@ export type LocationApiResponse = ApiResponse<{
   location?: LocationWithCount | LocationWithItems;
   locations?: LocationWithCount[];
 }>;
+
+export type WorkspaceStructureApiResponse = ApiResponse<{
+  structure: LocationTemplate | null;
+}>;
+
+/**
+ * Get workspace default location structure
+ */
+export async function getWorkspaceStructureApi(
+  workspaceId: string
+): Promise<WorkspaceStructureApiResponse> {
+  const response = await fetch(
+    `/api/locations/workspace-structure?workspaceId=${encodeURIComponent(
+      workspaceId
+    )}`,
+    {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.message || "Failed to fetch workspace structure");
+  }
+
+  return result;
+}
+
+/**
+ * Update workspace default location structure
+ */
+export async function updateWorkspaceStructureApi(
+  data: UpdateWorkspaceStructureRequest
+): Promise<WorkspaceStructureApiResponse> {
+  const response = await fetch("/api/locations/workspace-structure", {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.message || "Failed to update workspace structure");
+  }
+
+  return result;
+}
 
 /**
  * Get all locations in a workspace

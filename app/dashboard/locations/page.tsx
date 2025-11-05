@@ -16,14 +16,27 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Pencil, Trash2, MapPin, Search, Warehouse } from "lucide-react"
+import { Plus, Pencil, Trash2, MapPin, Warehouse, Settings2, X, Search } from "lucide-react"
 import {
   getLocationsApi,
   createLocationApi,
   updateLocationApi,
   deleteLocationApi,
+  getWorkspaceStructureApi,
+  updateWorkspaceStructureApi,
+  LocationStructure,
+  LocationWithCount,
 } from "@/lib/api/locations.api"
-import { LocationWithCount } from "@/lib/api/locations.api"
+
+interface LocationLevel {
+  id: string
+  label: string
+  value: string
+}
+
+interface LocationTemplate {
+  levels: { label: string }[]
+}
 
 export default function LocationsPage() {
   const [locations, setLocations] = useState<LocationWithCount[]>([])
@@ -31,15 +44,44 @@ export default function LocationsPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingLocation, setEditingLocation] = useState<LocationWithCount | null>(null)
+
+  const [isConfigureStructureOpen, setIsConfigureStructureOpen] = useState(false)
+  const [defaultStructure, setDefaultStructure] = useState<LocationTemplate | null>(null)
+  const [tempStructureLevels, setTempStructureLevels] = useState<{ id: string; label: string }[]>([
+    { id: "1", label: "Zone" },
+    { id: "2", label: "Aisle" },
+  ])
+
+  const [locationLevels, setLocationLevels] = useState<LocationLevel[]>([
+    { id: "1", label: "Zone", value: "" },
+    { id: "2", label: "Aisle", value: "" },
+  ])
+
   const [formData, setFormData] = useState({
-    zone: "",
-    aisle: "",
-    shelf: "",
-    bin: "",
+    name: "",
     capacity: "",
     description: "",
   })
+
   const workspaceId = typeof window !== 'undefined' ? localStorage.getItem("currentWorkspaceId") || "" : ""
+
+  // Load default structure from database
+  useEffect(() => {
+    if (!workspaceId) return
+
+    const fetchWorkspaceStructure = async () => {
+      try {
+        const response = await getWorkspaceStructureApi(workspaceId)
+        if (response.data?.structure) {
+          setDefaultStructure(response.data.structure)
+        }
+      } catch (error) {
+        console.error("Failed to fetch workspace structure:", error)
+      }
+    }
+
+    fetchWorkspaceStructure()
+  }, [workspaceId])
 
   // Fetch locations when workspaceId is available
   useEffect(() => {
@@ -62,24 +104,170 @@ export default function LocationsPage() {
   const filteredLocations = locations.filter(
     (location) =>
       location.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      location.zone.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (location.structure as LocationStructure).some(s => s.value.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (location.description || "").toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  const generateLocationCode = (zone: string, aisle: string, shelf: string, bin: string) => {
-    return `${zone}-${aisle}-${shelf}-${bin}`.toUpperCase()
+  const generateLocationCode = () => {
+    const parts = locationLevels.map((level) => {
+      const value = level.value.trim()
+      if (value) {
+        return value.toUpperCase()
+      }
+      // Use first letter of label as default
+      const label = level.label.trim()
+      return label ? label.charAt(0).toUpperCase() + "0" : "00"
+    })
+    return parts.join("-")
+  }
+
+  const addLocationLevel = () => {
+    setLocationLevels([...locationLevels, { id: Date.now().toString(), label: "", value: "" }])
+  }
+
+  const removeLocationLevel = (id: string) => {
+    if (locationLevels.length > 1) {
+      setLocationLevels(locationLevels.filter((level) => level.id !== id))
+    }
+  }
+
+  const updateLocationLevel = (id: string, field: "label" | "value", newValue: string) => {
+    setLocationLevels(locationLevels.map((level) => (level.id === id ? { ...level, [field]: newValue } : level)))
+  }
+
+  const addTempStructureLevel = () => {
+    setTempStructureLevels([...tempStructureLevels, { id: Date.now().toString(), label: "" }])
+  }
+
+  const removeTempStructureLevel = (id: string) => {
+    if (tempStructureLevels.length > 1) {
+      setTempStructureLevels(tempStructureLevels.filter((level) => level.id !== id))
+    }
+  }
+
+  const updateTempStructureLevel = (id: string, label: string) => {
+    setTempStructureLevels(tempStructureLevels.map((level) => (level.id === id ? { ...level, label } : level)))
+  }
+
+  const saveDefaultStructure = async () => {
+    const structure: LocationTemplate = {
+      levels: tempStructureLevels.filter((l) => l.label.trim()).map((l) => ({ label: l.label.trim() })),
+    }
+
+    if (structure.levels.length === 0) {
+      alert("Please add at least one level to your structure")
+      return
+    }
+
+    try {
+      await updateWorkspaceStructureApi({
+        workspaceId,
+        structure,
+      })
+
+      setDefaultStructure(structure)
+
+      // Update locationLevels if create dialog is open
+      if (isCreateOpen) {
+        setLocationLevels(
+          structure.levels.map((level, idx) => ({
+            id: Date.now().toString() + idx,
+            label: level.label,
+            value: "",
+          })),
+        )
+      }
+
+      setIsConfigureStructureOpen(false)
+    } catch (error) {
+      console.error("Failed to save workspace structure:", error)
+      alert(error instanceof Error ? error.message : "Failed to save structure")
+    }
+  }
+
+  const saveDefaultStructureFromModal = async () => {
+    const structure: LocationTemplate = {
+      levels: locationLevels.filter((l) => l.label.trim()).map((l) => ({ label: l.label.trim() })),
+    }
+
+    if (structure.levels.length === 0) {
+      alert("Please add at least one level to your structure")
+      return
+    }
+
+    try {
+      await updateWorkspaceStructureApi({
+        workspaceId,
+        structure,
+      })
+
+      setDefaultStructure(structure)
+
+      // Keep the current locationLevels but clear values
+      setLocationLevels(
+        locationLevels.map((level) => ({
+          ...level,
+          value: "",
+        })),
+      )
+
+      alert("Default structure saved successfully!")
+    } catch (error) {
+      console.error("Failed to save workspace structure:", error)
+      alert(error instanceof Error ? error.message : "Failed to save structure")
+    }
+  }
+
+  const openCreateDialog = () => {
+    if (defaultStructure && defaultStructure.levels.length > 0) {
+      setLocationLevels(
+        defaultStructure.levels.map((level, idx) => ({
+          id: Date.now().toString() + idx,
+          label: level.label,
+          value: "",
+        })),
+      )
+    } else {
+      setLocationLevels([
+        { id: "1", label: "Zone", value: "" },
+        { id: "2", label: "Aisle", value: "" },
+      ])
+    }
+    setIsCreateOpen(true)
+  }
+
+  const openConfigureDialog = () => {
+    if (defaultStructure && defaultStructure.levels.length > 0) {
+      setTempStructureLevels(
+        defaultStructure.levels.map((level, idx) => ({
+          id: idx.toString(),
+          label: level.label,
+        })),
+      )
+    } else {
+      setTempStructureLevels([
+        { id: "1", label: "Zone" },
+        { id: "2", label: "Aisle" },
+      ])
+    }
+    setIsConfigureStructureOpen(true)
   }
 
   const handleCreate = async () => {
-    if (!formData.zone.trim() || !formData.aisle.trim() || !formData.shelf.trim() || !formData.bin.trim()) return
+    const code = generateLocationCode()
+    if (!code) return
 
     try {
+      const structure: LocationStructure = locationLevels
+        .filter((level) => level.value.trim())
+        .map((level) => ({
+          label: level.label || "Level",
+          value: level.value.trim().toUpperCase(),
+        }))
+
       const response = await createLocationApi({
-        code: generateLocationCode(formData.zone, formData.aisle, formData.shelf, formData.bin),
-        zone: formData.zone.toUpperCase(),
-        aisle: formData.aisle.padStart(2, "0"),
-        shelf: formData.shelf.padStart(2, "0"),
-        bin: formData.bin.toUpperCase(),
+        code,
+        structure,
         capacity: Number.parseInt(formData.capacity) || 100,
         description: formData.description,
         workspaceId: workspaceId,
@@ -87,7 +275,7 @@ export default function LocationsPage() {
 
       if (response.data?.location) {
         setLocations([...locations, response.data.location])
-        setFormData({ zone: "", aisle: "", shelf: "", bin: "", capacity: "", description: "" })
+        resetForm()
         setIsCreateOpen(false)
       }
     } catch (error) {
@@ -97,22 +285,22 @@ export default function LocationsPage() {
   }
 
   const handleEdit = async () => {
-    if (
-      !editingLocation ||
-      !formData.zone.trim() ||
-      !formData.aisle.trim() ||
-      !formData.shelf.trim() ||
-      !formData.bin.trim()
-    )
-      return
+    if (!editingLocation) return
+
+    const code = generateLocationCode()
+    if (!code) return
 
     try {
+      const structure: LocationStructure = locationLevels
+        .filter((level) => level.value.trim())
+        .map((level) => ({
+          label: level.label || "Level",
+          value: level.value.trim().toUpperCase(),
+        }))
+
       const response = await updateLocationApi(editingLocation.id, {
-        code: generateLocationCode(formData.zone, formData.aisle, formData.shelf, formData.bin),
-        zone: formData.zone.toUpperCase(),
-        aisle: formData.aisle.padStart(2, "0"),
-        shelf: formData.shelf.padStart(2, "0"),
-        bin: formData.bin.toUpperCase(),
+        code,
+        structure,
         capacity: Number.parseInt(formData.capacity) || 100,
         description: formData.description,
         workspaceId: workspaceId,
@@ -120,7 +308,7 @@ export default function LocationsPage() {
 
       if (response.data?.location) {
         setLocations(locations.map((loc) => (loc.id === editingLocation.id ? response.data.location! : loc)))
-        setFormData({ zone: "", aisle: "", shelf: "", bin: "", capacity: "", description: "" })
+        resetForm()
         setEditingLocation(null)
         setIsEditOpen(false)
       }
@@ -146,27 +334,47 @@ export default function LocationsPage() {
 
   const openEditDialog = (location: LocationWithCount) => {
     setEditingLocation(location)
+
+    const structure = location.structure as LocationStructure
+    const levels: LocationLevel[] = structure.map((item, idx) => ({
+      id: idx.toString(),
+      label: item.label,
+      value: item.value,
+    }))
+
+    setLocationLevels(levels.length > 0 ? levels : [{ id: "1", label: "Zone", value: "" }])
+
     setFormData({
-      zone: location.zone,
-      aisle: location.aisle,
-      shelf: location.shelf,
-      bin: location.bin,
+      name: location.code,
       capacity: location.capacity.toString(),
       description: location.description || "",
     })
     setIsEditOpen(true)
   }
 
+  const resetForm = () => {
+    setFormData({ name: "", capacity: "", description: "" })
+    setLocationLevels([
+      { id: "1", label: "Zone", value: "" },
+      { id: "2", label: "Aisle", value: "" },
+    ])
+  }
+
   const totalCapacity = locations.reduce((sum, loc) => sum + loc.capacity, 0)
   const totalItems = locations.reduce((sum, loc) => sum + (loc._count?.items || 0), 0)
   const utilizationRate = totalCapacity > 0 ? Math.round((totalItems / totalCapacity) * 100) : 0
 
+  const isFormValid = locationLevels.some((level) => level.value.trim())
+
+  const getLocationStructure = (location: LocationWithCount) => {
+    return (location.structure as LocationStructure) || []
+  }
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background">
       <div className="px-8 py-8">
-        {/* Header Stats */}
         <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
+          <Card className="border-border/50 bg-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Locations</CardTitle>
               <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -179,7 +387,7 @@ export default function LocationsPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
+          <Card className="border-border/50 bg-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Capacity</CardTitle>
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -192,7 +400,7 @@ export default function LocationsPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
+          <Card className="border-border/50 bg-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Items Stored</CardTitle>
               <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -205,7 +413,7 @@ export default function LocationsPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
+          <Card className="border-border/50 bg-card">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Utilization Rate</CardTitle>
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -219,136 +427,251 @@ export default function LocationsPage() {
           </Card>
         </div>
 
-        {/* Locations Table */}
         <Card className="border-border/50">
-          <CardHeader>
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
-                <CardTitle className="text-2xl">Storage Locations</CardTitle>
-                <CardDescription>Manage warehouse storage locations and track capacity</CardDescription>
+          <CardHeader className="border-b border-border/50">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="space-y-2">
+                <CardTitle className="text-2xl font-bold tracking-tight text-foreground">Storage Locations</CardTitle>
+                <CardDescription className="text-sm leading-relaxed text-muted-foreground">
+                  Manage warehouse storage locations and track capacity
+                  {defaultStructure && (
+                    <span className="block mt-1.5 text-xs font-medium text-primary">
+                      Active structure: {defaultStructure.levels.map((l) => l.label).join(" → ")}
+                    </span>
+                  )}
+                </CardDescription>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1 md:w-80">
+
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search locations..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
+                    className="pl-9 h-9 sm:h-10 bg-background border-border/50 focus:border-primary/50 transition-colors"
                   />
                 </div>
 
-                {/* Create Location Dialog */}
+                <Button
+                  variant="outline"
+                  onClick={openConfigureDialog}
+                  className="shadow-sm hover:bg-accent/10 hover:border-accent/50 transition-all bg-transparent h-9 sm:h-10"
+                >
+                  <Settings2 className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Configure</span>
+                </Button>
+
                 <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                   <DialogTrigger asChild>
-                    <Button className="shadow-lg shadow-accent/20">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Location
+                    <Button
+                      className="shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90 h-9 sm:h-10"
+                      onClick={openCreateDialog}
+                    >
+                      <Plus className="h-4 w-4 sm:mr-2" />
+                      <span className="hidden sm:inline">Add Location</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Create New Location</DialogTitle>
-                      <DialogDescription>
-                        Add a new storage location to your warehouse. Location code will be auto-generated.
+                  <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader className="pb-4 border-b border-border/50">
+                      <DialogTitle className="flex items-center gap-2 text-xl">
+                        <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Settings2 className="h-5 w-5 text-primary" />
+                        </div>
+                        Create Location
+                      </DialogTitle>
+                      <DialogDescription className="text-base mt-2">
+                        Build a custom location structure for your warehouse
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="grid grid-cols-4 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="zone">Zone *</Label>
-                          <Input
-                            id="zone"
-                            placeholder="A"
-                            value={formData.zone}
-                            onChange={(e) => setFormData({ ...formData, zone: e.target.value })}
-                            maxLength={2}
-                          />
+
+                    <div className="grid lg:grid-cols-2 gap-8 py-6">
+                      <div className="space-y-5">
+                        <div className="flex items-center justify-between pb-3 border-b border-border/30">
+                          <div>
+                            <h3 className="text-base font-semibold text-foreground">Location Structure</h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">Define your location hierarchy</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={saveDefaultStructureFromModal}
+                              className="h-9 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all shadow-sm"
+                            >
+                              <Settings2 className="h-4 w-4 sm:mr-2" />
+                              <span className="hidden sm:inline">Save as Default</span>
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={addLocationLevel}
+                              className="h-9 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all shadow-sm"
+                            >
+                              <Plus className="h-3.5 w-3.5 mr-1.5" />
+                              Add Level
+                            </Button>
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="aisle">Aisle *</Label>
-                          <Input
-                            id="aisle"
-                            placeholder="01"
-                            value={formData.aisle}
-                            onChange={(e) => setFormData({ ...formData, aisle: e.target.value })}
-                            maxLength={2}
-                          />
+
+                        <div className="space-y-3">
+                          {locationLevels.map((level, index) => (
+                            <div
+                              key={level.id}
+                              className="group flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all"
+                            >
+                              <div className="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-bold text-xs flex-shrink-0 shadow-sm">
+                                {index + 1}
+                              </div>
+                              <div className="flex-1 flex gap-2">
+                                <div className="flex-1 space-y-1">
+                                  <Label className="text-xs text-muted-foreground">Level Name</Label>
+                                  <Input
+                                    placeholder="Zone, Floor..."
+                                    value={level.label}
+                                    onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
+                                    className="h-9 text-sm bg-background border-border/50 focus:border-primary/50 transition-colors"
+                                  />
+                                </div>
+                                <div className="w-32 space-y-1">
+                                  <Label className="text-xs text-muted-foreground">Code</Label>
+                                  <Input
+                                    placeholder="A, 01..."
+                                    value={level.value}
+                                    onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
+                                    maxLength={10}
+                                    className="h-9 text-sm font-mono bg-background border-border/50 focus:border-primary/50 transition-colors"
+                                  />
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeLocationLevel(level.id)}
+                                disabled={locationLevels.length === 1}
+                                className="h-9 w-9 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="shelf">Shelf *</Label>
-                          <Input
-                            id="shelf"
-                            placeholder="01"
-                            value={formData.shelf}
-                            onChange={(e) => setFormData({ ...formData, shelf: e.target.value })}
-                            maxLength={2}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="bin">Bin *</Label>
-                          <Input
-                            id="bin"
-                            placeholder="A"
-                            value={formData.bin}
-                            onChange={(e) => setFormData({ ...formData, bin: e.target.value })}
-                            maxLength={2}
-                          />
-                        </div>
+
+                        {isFormValid && (
+                          <div className="relative overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent p-4 shadow-sm">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -mr-16 -mt-16" />
+                            <div className="relative flex items-start gap-3">
+                              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 flex-shrink-0">
+                                <MapPin className="h-5 w-5 text-primary" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-muted-foreground mb-1.5">Generated Code</p>
+                                <p className="text-xl font-mono font-bold text-primary truncate tracking-wide">
+                                  {generateLocationCode()}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
-                      {formData.zone && formData.aisle && formData.shelf && formData.bin && (
-                        <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
-                          <p className="text-sm text-muted-foreground mb-1">Generated Location Code:</p>
-                          <p className="text-lg font-mono font-bold text-accent">
-                            {generateLocationCode(formData.zone, formData.aisle, formData.shelf, formData.bin)}
-                          </p>
+                      <div className="flex flex-col space-y-5">
+                        <div className="pb-3 border-b border-border/30">
+                          <h3 className="text-base font-semibold text-foreground">Location Details</h3>
+                          <p className="text-xs text-muted-foreground mt-0.5">Additional information and metadata</p>
                         </div>
-                      )}
 
-                      <div className="space-y-2">
-                        <Label htmlFor="capacity">Storage Capacity</Label>
-                        <Input
-                          id="capacity"
-                          type="number"
-                          placeholder="100"
-                          value={formData.capacity}
-                          onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
-                        />
-                      </div>
+                        <div className="flex flex-col flex-1 space-y-5">
+                          <div className="space-y-2.5">
+                            <Label
+                              htmlFor="name"
+                              className="text-sm font-medium text-foreground flex items-center gap-2"
+                            >
+                              Location Name
+                              <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                            </Label>
+                            <Input
+                              id="name"
+                              placeholder="e.g., Main Warehouse - Section A"
+                              value={formData.name}
+                              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                              className="h-11 bg-background border-border/50 focus:border-primary/50 transition-colors"
+                            />
+                            <p className="text-xs text-muted-foreground">A friendly name to identify this location</p>
+                          </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="description">Description</Label>
-                        <Textarea
-                          id="description"
-                          placeholder="Brief description of this location..."
-                          value={formData.description}
-                          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                          rows={3}
-                        />
+                          <div className="space-y-2.5">
+                            <Label
+                              htmlFor="capacity"
+                              className="text-sm font-medium text-foreground flex items-center gap-2"
+                            >
+                              Capacity
+                              <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                            </Label>
+                            <Input
+                              id="capacity"
+                              type="number"
+                              placeholder="100"
+                              value={formData.capacity}
+                              onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+                              className="h-11 bg-background border-border/50 focus:border-primary/50 transition-colors"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Maximum number of items this location can hold
+                            </p>
+                          </div>
+
+                          <div className="flex flex-col flex-1 space-y-2.5">
+                            <Label
+                              htmlFor="description"
+                              className="text-sm font-medium text-foreground flex items-center gap-2"
+                            >
+                              Description
+                              <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                            </Label>
+                            <Textarea
+                              id="description"
+                              placeholder="Brief description of this location..."
+                              value={formData.description}
+                              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                              className="flex-1 resize-none bg-background border-border/50 focus:border-primary/50 transition-colors"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Additional notes or details about this location
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+
+                    <DialogFooter className="pt-4 border-t border-border/50">
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsCreateOpen(false)}
+                        className="h-10 px-6 hover:bg-accent/10 transition-all"
+                      >
                         Cancel
                       </Button>
-                      <Button onClick={handleCreate}>Create Location</Button>
+                      <Button
+                        onClick={handleCreate}
+                        disabled={!isFormValid}
+                        className="h-10 px-6 shadow-md hover:shadow-lg transition-all"
+                      >
+                        Create Location
+                      </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </div>
             </div>
           </CardHeader>
+
           <CardContent>
             <div className="rounded-lg border border-border/50 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
                     <TableHead className="font-semibold">Location Code</TableHead>
-                    <TableHead className="font-semibold">Zone</TableHead>
-                    <TableHead className="font-semibold">Aisle</TableHead>
-                    <TableHead className="font-semibold">Shelf</TableHead>
-                    <TableHead className="font-semibold">Bin</TableHead>
+                    <TableHead className="font-semibold">Structure</TableHead>
                     <TableHead className="text-center font-semibold">Capacity</TableHead>
                     <TableHead className="text-center font-semibold">Items</TableHead>
                     <TableHead className="text-center font-semibold">Utilization</TableHead>
@@ -358,7 +681,7 @@ export default function LocationsPage() {
                 <TableBody>
                   {filteredLocations.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         No locations found. Create your first location to get started.
                       </TableCell>
                     </TableRow>
@@ -372,13 +695,17 @@ export default function LocationsPage() {
                         <TableRow key={location.id} className="hover:bg-muted/30 transition-colors">
                           <TableCell className="font-mono font-semibold text-accent">{location.code}</TableCell>
                           <TableCell>
-                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-primary/10 text-primary">
-                              {location.zone}
-                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {getLocationStructure(location).map((part, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground"
+                                >
+                                  {part.label}: {part.value}
+                                </span>
+                              ))}
+                            </div>
                           </TableCell>
-                          <TableCell className="font-mono text-muted-foreground">{location.aisle}</TableCell>
-                          <TableCell className="font-mono text-muted-foreground">{location.shelf}</TableCell>
-                          <TableCell className="font-mono text-muted-foreground">{location.bin}</TableCell>
                           <TableCell className="text-center text-muted-foreground">{location.capacity}</TableCell>
                           <TableCell className="text-center text-muted-foreground">{currentItems}</TableCell>
                           <TableCell className="text-center">
@@ -421,93 +748,228 @@ export default function LocationsPage() {
           </CardContent>
         </Card>
 
-        {/* Edit Location Dialog */}
         <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-3xl">
             <DialogHeader>
-              <DialogTitle>Edit Location</DialogTitle>
-              <DialogDescription>Update the location details. Location code will be regenerated.</DialogDescription>
+              <DialogTitle className="flex items-center gap-2">
+                <Settings2 className="h-5 w-5 text-primary" />
+                Edit Location
+              </DialogTitle>
+              <DialogDescription>Modify your location structure and details</DialogDescription>
             </DialogHeader>
+
             <div className="space-y-4 py-4">
-              <div className="grid grid-cols-4 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-zone">Zone *</Label>
-                  <Input
-                    id="edit-zone"
-                    placeholder="A"
-                    value={formData.zone}
-                    onChange={(e) => setFormData({ ...formData, zone: e.target.value })}
-                    maxLength={2}
-                  />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Location Structure</Label>
+                  <Button variant="outline" size="sm" onClick={addLocationLevel} className="h-8 text-xs bg-transparent">
+                    <Plus className="h-3 w-3 mr-1" />
+                    Add Level
+                  </Button>
                 </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="edit-aisle">Aisle *</Label>
-                  <Input
-                    id="edit-aisle"
-                    placeholder="01"
-                    value={formData.aisle}
-                    onChange={(e) => setFormData({ ...formData, aisle: e.target.value })}
-                    maxLength={2}
-                  />
+                  {locationLevels.map((level, index) => (
+                    <div
+                      key={level.id}
+                      className="flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-muted/20"
+                    >
+                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-semibold text-xs flex-shrink-0">
+                        {index + 1}
+                      </span>
+                      <div className="flex-1 space-y-1">
+                        <Label className="text-xs text-muted-foreground">Level Name</Label>
+                        <Input
+                          placeholder="Zone, Floor..."
+                          value={level.label}
+                          onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
+                          className="h-9 text-sm"
+                        />
+                      </div>
+                      <div className="w-32 space-y-1">
+                        <Label className="text-xs text-muted-foreground">Code</Label>
+                        <Input
+                          placeholder="A, 01..."
+                          value={level.value}
+                          onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
+                          maxLength={10}
+                          className="h-9 text-sm font-mono"
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeLocationLevel(level.id)}
+                        disabled={locationLevels.length === 1}
+                        className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-shelf">Shelf *</Label>
-                  <Input
-                    id="edit-shelf"
-                    placeholder="01"
-                    value={formData.shelf}
-                    onChange={(e) => setFormData({ ...formData, shelf: e.target.value })}
-                    maxLength={2}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-bin">Bin *</Label>
-                  <Input
-                    id="edit-bin"
-                    placeholder="A"
-                    value={formData.bin}
-                    onChange={(e) => setFormData({ ...formData, bin: e.target.value })}
-                    maxLength={2}
-                  />
-                </div>
+
+                {isFormValid && (
+                  <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
+                    <MapPin className="h-4 w-4 text-primary flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-muted-foreground mb-0.5">Updated Code</p>
+                      <p className="text-lg font-mono font-bold text-primary truncate">{generateLocationCode()}</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {formData.zone && formData.aisle && formData.shelf && formData.bin && (
-                <div className="p-3 bg-muted/50 rounded-lg border border-border/50">
-                  <p className="text-sm text-muted-foreground mb-1">New Location Code:</p>
-                  <p className="text-lg font-mono font-bold text-accent">
-                    {generateLocationCode(formData.zone, formData.aisle, formData.shelf, formData.bin)}
-                  </p>
+              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border/50">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-name" className="text-sm">
+                    Location Name
+                  </Label>
+                  <Input
+                    id="edit-name"
+                    placeholder="e.g., Main Warehouse - Section A"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="h-9 text-sm"
+                  />
                 </div>
-              )}
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-capacity">Storage Capacity</Label>
-                <Input
-                  id="edit-capacity"
-                  type="number"
-                  placeholder="100"
-                  value={formData.capacity}
-                  onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
-                />
-              </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-capacity" className="text-sm">
+                    Capacity
+                  </Label>
+                  <Input
+                    id="edit-capacity"
+                    type="number"
+                    placeholder="100"
+                    value={formData.capacity}
+                    onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
+                    className="h-9 text-sm"
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-description">Description</Label>
-                <Textarea
-                  id="edit-description"
-                  placeholder="Brief description of this location..."
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                />
+                <div className="space-y-1.5 col-span-2">
+                  <Label htmlFor="edit-description" className="text-sm">
+                    Description (Optional)
+                  </Label>
+                  <Textarea
+                    id="edit-description"
+                    placeholder="Brief description..."
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows={2}
+                    className="resize-none text-sm"
+                  />
+                </div>
               </div>
             </div>
+
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditOpen(false)}>
+              <Button variant="outline" onClick={() => setIsEditOpen(false)} size="sm">
                 Cancel
               </Button>
-              <Button onClick={handleEdit}>Save Changes</Button>
+              <Button onClick={handleEdit} disabled={!isFormValid} size="sm">
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isConfigureStructureOpen} onOpenChange={setIsConfigureStructureOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Settings2 className="h-5 w-5 text-primary" />
+                Configure Default Location Structure
+              </DialogTitle>
+              <DialogDescription>
+                Set up your standard location structure. This will be used as the template for all new locations.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
+                <p className="text-sm text-muted-foreground">
+                  <strong>How it works:</strong> Define the levels of your location structure (e.g., Building, Floor,
+                  Room, Shelf). When creating new locations, you&apos;ll only need to fill in the values for each level.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Structure Levels</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addTempStructureLevel}
+                    className="h-8 text-xs bg-transparent"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Add Level
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  {tempStructureLevels.map((level, index) => (
+                    <div
+                      key={level.id}
+                      className="flex items-center gap-3 p-3 rounded-lg border border-border/50 bg-card"
+                    >
+                      <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-medium text-sm flex-shrink-0">
+                        {index + 1}
+                      </span>
+                      <div className="flex-1">
+                        <Input
+                          placeholder="Level name (e.g., Building, Floor, Zone, Aisle, Shelf...)"
+                          value={level.label}
+                          onChange={(e) => updateTempStructureLevel(level.id, e.target.value)}
+                          className="h-10 text-sm"
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeTempStructureLevel(level.id)}
+                        disabled={tempStructureLevels.length === 1}
+                        className="h-9 w-9 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                {tempStructureLevels.some((l) => l.label.trim()) && (
+                  <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
+                    <p className="text-xs text-muted-foreground mb-2">Preview Structure:</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {tempStructureLevels
+                        .filter((l) => l.label.trim())
+                        .map((level, idx, arr) => (
+                          <div key={level.id} className="flex items-center gap-2">
+                            <span className="px-3 py-1.5 rounded-md bg-primary/10 text-primary font-medium text-sm">
+                              {level.label}
+                            </span>
+                            {idx < arr.length - 1 && <span className="text-muted-foreground">→</span>}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsConfigureStructureOpen(false)} size="sm">
+                Cancel
+              </Button>
+              <Button
+                onClick={saveDefaultStructure}
+                disabled={!tempStructureLevels.some((l) => l.label.trim())}
+                size="sm"
+              >
+                Save as Default
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
