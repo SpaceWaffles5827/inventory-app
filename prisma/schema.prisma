@@ -71,6 +71,7 @@ model Workspace {
   categories    Category[]
   locations     Location[]
   suppliers     Supplier[]
+  customers     Customer[]
   transactions  StockTransaction[]
   subscription  Subscription?
 
@@ -176,6 +177,58 @@ model Supplier {
   @@map("suppliers")
 }
 
+// Customer model
+model Customer {
+  id            String   @id @default(cuid())
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  company       String?
+  orderCount    Int      @default(0)
+  totalSpent    Float    @default(0)
+  status        CustomerStatus @default(ACTIVE)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Foreign keys
+  workspaceId String
+
+  // Relations
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  items     ItemCustomer[]
+
+  @@map("customers")
+}
+
+// Junction table for items and customers (many-to-many)
+model ItemCustomer {
+  id          String   @id @default(cuid())
+  quantity    Int      @default(0)
+  lastOrderDate DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Foreign keys
+  itemId      String
+  customerId  String
+
+  // Relations
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  customer  Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, customerId])
+  @@map("item_customers")
+}
+
+// Add CustomerStatus enum
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
 // Item model for inventory items
 model Item {
   id          String   @id @default(cuid())
@@ -188,6 +241,8 @@ model Item {
   status      ItemStatus @default(IN_STOCK)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  unit        UnitOfMeasurement @default(PCS)
+  unitQuantity Float @default(1)
 
   // Foreign keys
   workspaceId String
@@ -200,6 +255,7 @@ model Item {
   category      Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   location      Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
   supplier      Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  customers     ItemCustomer[]
   transactions  StockTransaction[]
 
   @@unique([workspaceId, itemNumber])
@@ -254,6 +310,54 @@ enum Role {
   OWNER
   ADMIN
   MEMBER
+}
+
+enum UnitOfMeasurement {
+  // --- Basic count units ---
+  PCS       // Pieces (default general unit)
+  EACH      // Each (alternative to PCS)
+  BOX       // Box or carton
+  PACK      // Pack of items
+  DOZEN     // 12 items
+
+  // --- Weight units ---
+  MG        // Milligram
+  G         // Gram
+  KG        // Kilogram
+  LB        // Pound
+  TON       // Metric ton
+
+  // --- Volume units ---
+  ML        // Milliliter
+  L         // Liter
+  GAL       // Gallon
+  QT        // Quart
+  PT        // Pint
+  FL_OZ     // Fluid ounce
+
+  // --- Length / dimension units ---
+  MM        // Millimeter
+  CM        // Centimeter
+  M         // Meter
+  IN        // Inch
+  FT        // Foot
+  YD        // Yard
+
+  // --- Area units ---
+  SQ_CM     // Square centimeter
+  SQ_M      // Square meter
+  SQ_FT     // Square foot
+
+  // --- Other / miscellaneous ---
+  ROLL      // Roll (e.g., tape, fabric)
+  SHEET     // Sheet (paper, metal)
+  SET       // Set (group of parts)
+  CASE      // Case (bulk container)
+  PALLET    // Palletized load
+  BAG       // Bag (bulk materials)
+  CAN       // Can or tin
+  BOTTLE    // Bottle
+  TUBE      // Tube (e.g., toothpaste)
 }
 
 enum InvitationStatus {

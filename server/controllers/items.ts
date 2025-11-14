@@ -16,6 +16,7 @@ const itemsController = {
         locationId,
         supplierId,
         workspaceId,
+        customerIds,
       } = req.body;
 
       const userId = req.user?.id;
@@ -64,6 +65,23 @@ const itemsController = {
         });
       }
 
+      // Verify all customers belong to the workspace (if customerIds provided)
+      if (customerIds && customerIds.length > 0) {
+        const customers = await prisma.customer.findMany({
+          where: {
+            id: { in: customerIds },
+            workspaceId: workspaceId,
+          },
+        });
+
+        if (customers.length !== customerIds.length) {
+          return res.status(400).json({
+            status: "error",
+            message: "One or more customers not found in this workspace",
+          });
+        }
+      }
+
       // Create the item
       const item = await prisma.item.create({
         data: {
@@ -78,11 +96,25 @@ const itemsController = {
           supplierId: supplierId || null,
           workspaceId: workspaceId,
           status: onHand > 0 ? "IN_STOCK" : "OUT_OF_STOCK",
+          ...(customerIds &&
+            customerIds.length > 0 && {
+              customers: {
+                create: customerIds.map((customerId: string) => ({
+                  customerId: customerId,
+                  quantity: 0,
+                })),
+              },
+            }),
         },
         include: {
           category: true,
           location: true,
           supplier: true,
+          customers: {
+            include: {
+              customer: true,
+            },
+          },
         },
       });
 
@@ -160,6 +192,11 @@ const itemsController = {
           category: true,
           location: true,
           supplier: true,
+          customers: {
+            include: {
+              customer: true,
+            },
+          },
         },
         orderBy: {
           createdAt: "desc",
@@ -199,6 +236,11 @@ const itemsController = {
           location: true,
           supplier: true,
           workspace: true,
+          customers: {
+            include: {
+              customer: true,
+            },
+          },
           transactions: {
             orderBy: {
               createdAt: "desc",
@@ -293,7 +335,7 @@ const itemsController = {
       }
 
       const {
-        itemNumber, // Add this
+        itemNumber,
         name,
         barcode,
         description,
@@ -301,6 +343,7 @@ const itemsController = {
         categoryId,
         locationId,
         supplierId,
+        customerIds,
       } = req.body;
 
       // Check if itemNumber is being changed and if it's unique
@@ -322,10 +365,27 @@ const itemsController = {
         }
       }
 
+      // Verify all customers belong to the workspace (if customerIds provided)
+      if (customerIds !== undefined && customerIds.length > 0) {
+        const customers = await prisma.customer.findMany({
+          where: {
+            id: { in: customerIds },
+            workspaceId: item.workspaceId,
+          },
+        });
+
+        if (customers.length !== customerIds.length) {
+          return res.status(400).json({
+            status: "error",
+            message: "One or more customers not found in this workspace",
+          });
+        }
+      }
+
       const updatedItem = await prisma.item.update({
         where: { id },
         data: {
-          itemNumber: itemNumber !== undefined ? itemNumber : item.itemNumber, // Add this
+          itemNumber: itemNumber !== undefined ? itemNumber : item.itemNumber,
           name: name || item.name,
           barcode: barcode !== undefined ? barcode : item.barcode,
           description:
@@ -334,11 +394,25 @@ const itemsController = {
           categoryId: categoryId !== undefined ? categoryId : item.categoryId,
           locationId: locationId !== undefined ? locationId : item.locationId,
           supplierId: supplierId !== undefined ? supplierId : item.supplierId,
+          ...(customerIds !== undefined && {
+            customers: {
+              deleteMany: {},
+              create: customerIds.map((customerId: string) => ({
+                customerId: customerId,
+                quantity: 0,
+              })),
+            },
+          }),
         },
         include: {
           category: true,
           location: true,
           supplier: true,
+          customers: {
+            include: {
+              customer: true,
+            },
+          },
         },
       });
 

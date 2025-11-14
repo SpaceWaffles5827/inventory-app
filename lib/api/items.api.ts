@@ -13,6 +13,11 @@ export const itemWithRelationsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()(
       category: true,
       location: true,
       supplier: true,
+      customers: {
+        include: {
+          customer: true,
+        },
+      },
     },
   }
 );
@@ -24,6 +29,11 @@ export const itemWithDetailsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()({
     location: true,
     supplier: true,
     workspace: true,
+    customers: {
+      include: {
+        customer: true,
+      },
+    },
     transactions: {
       include: {
         user: {
@@ -58,6 +68,7 @@ export type CreateItemRequest = {
   categoryId?: string;
   locationId?: string;
   supplierId?: string;
+  customerIds?: string[];
 };
 
 export type UpdateItemRequest = {
@@ -69,6 +80,7 @@ export type UpdateItemRequest = {
   categoryId?: string;
   locationId?: string;
   supplierId?: string;
+  customerIds?: string[];
 };
 
 export type AdjustStockRequest = {

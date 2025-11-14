@@ -165,6 +165,9 @@ app.use("/api/categories", isAuth, categoriesRoutes);
 import suppliersRoutes from "./routes/suppliers";
 app.use("/api/suppliers", isAuth, suppliersRoutes);
 
+import customersRoutes from "./routes/customers";
+app.use("/api/customers", isAuth, customersRoutes);
+
 import groupRoutes from "./routes/workspace";
 app.use("/api/workspaces", isAuth, groupRoutes);
 

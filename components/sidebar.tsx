@@ -9,10 +9,13 @@ import {
   Settings,
   LogOut,
   BarChart3,
-  Users,
+  Bot,
+  Truck,
   FolderOpen,
   MapPin,
   Building2,
+  ShoppingCart,
+  UserCog,
   ChevronDown,
   Plus,
   Check,
@@ -58,7 +61,7 @@ export function Sidebar() {
 
   const navItems = [
     {
-      name: "Dashboard",
+      name: "Inventory",
       href: "/dashboard",
       icon: LayoutDashboard,
     },
@@ -72,21 +75,36 @@ export function Sidebar() {
       href: "/dashboard/locations",
       icon: MapPin,
     },
-    {
-      name: "Analytics",
-      href: "/dashboard/analytics",
-      icon: BarChart3,
-    },
+    // {
+    //   name: "Lots",
+    //   href: "/dashboard/lots",
+    //   icon: Package,
+    // },
+    // {
+    //   name: "Analytics",
+    //   href: "/dashboard/analytics",
+    //   icon: BarChart3,
+    // },
     {
       name: "Suppliers",
       href: "/dashboard/suppliers",
-      icon: Users,
+      icon: Truck,
+    },
+    {
+      name: "Customers",
+      href: "/dashboard/customers",
+      icon: ShoppingCart,
     },
     {
       name: "Members",
       href: "/dashboard/members",
-      icon: Users,
+      icon: UserCog,
     },
+    // {
+    //   name: "AI Chat",
+    //   href: "/dashboard/chat",
+    //   icon: Bot,
+    // },
     {
       name: "Subscription",
       href: "/dashboard/subscription",
