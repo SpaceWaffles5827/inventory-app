@@ -21,7 +21,7 @@ COPY prisma ./prisma
 COPY . .
 
 # Now generate Prisma Client (schema is present)
-RUN pnpm dlx prisma generate --schema prisma/schema.prisma
+RUN pnpm prisma generate --schema prisma/schema.prisma
 
 # Build Next.js app
 RUN pnpm run build

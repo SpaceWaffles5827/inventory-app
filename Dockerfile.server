@@ -24,7 +24,7 @@ COPY prisma ./prisma
 COPY server ./server
 
 # Generate Prisma Client (schema is present now)
-RUN pnpm dlx prisma generate --schema prisma/schema.prisma
+RUN pnpm prisma generate --schema prisma/schema.prisma
 
 # Build TypeScript server code with verbose output
 WORKDIR /app/server
