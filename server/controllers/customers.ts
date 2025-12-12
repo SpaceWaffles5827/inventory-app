@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
+import { Prisma } from "@prisma/client";
 
 const customersController = {
   // Create a new customer
@@ -141,12 +142,12 @@ const customersController = {
       }
 
       // Build filter conditions
-      const whereConditions: any = {
+      const whereConditions: Prisma.CustomerWhereInput = {
         workspaceId: workspaceId as string,
       };
 
       if (status) {
-        whereConditions.status = status;
+        whereConditions.status = status as "ACTIVE" | "INACTIVE";
       }
 
       if (search) {

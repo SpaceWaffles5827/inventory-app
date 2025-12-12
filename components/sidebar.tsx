@@ -8,8 +8,6 @@ import {
   LayoutDashboard,
   Settings,
   LogOut,
-  BarChart3,
-  Bot,
   Truck,
   FolderOpen,
   MapPin,

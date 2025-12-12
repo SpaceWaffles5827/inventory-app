@@ -40,6 +40,7 @@ import {
     updateCustomerApi,
     deleteCustomerApi,
     type CustomerWithCount,
+    type GetCustomersParams,
     type CreateCustomerRequest,
     type UpdateCustomerRequest,
 } from "@/lib/api/customers.api"
@@ -70,9 +71,9 @@ export default function CustomersPage() {
         status: "ACTIVE" as "ACTIVE" | "INACTIVE",
     })
 
-    const handleCustomerClick = (customerId: string) => {
+    const handleCustomerClick = useCallback((customerId: string) => {
         router.push(`/dashboard/customers/${customerId}`)
-    }
+    }, [router])
 
     // Email validation function
     const validateEmail = (email: string): boolean => {
@@ -90,22 +91,11 @@ export default function CustomersPage() {
         setFormData(prev => ({ ...prev, status: value }))
     }, [])
 
-    // Load customers and stats
-    useEffect(() => {
-        const workspaceId = localStorage.getItem("currentWorkspaceId")
-        if (workspaceId) {
-            setWorkspaceId(workspaceId)
-            loadCustomers(workspaceId)
-        } else {
-            setIsLoading(false)
-        }
-    }, [])
-
-    const loadCustomers = async (workspaceId: string) => {
+    const loadCustomers = useCallback(async (workspaceId: string) => {
         try {
             setIsLoading(true)
 
-            const params: any = {
+            const params: GetCustomersParams = {
                 workspaceId,
             }
 
@@ -126,7 +116,18 @@ export default function CustomersPage() {
         } finally {
             setIsLoading(false)
         }
-    }
+    }, [statusFilter])
+
+    // Load customers and stats
+    useEffect(() => {
+        const workspaceId = localStorage.getItem("currentWorkspaceId")
+        if (workspaceId) {
+            setWorkspaceId(workspaceId)
+            loadCustomers(workspaceId)
+        } else {
+            setIsLoading(false)
+        }
+    }, [loadCustomers])
 
     const filteredCustomers = useMemo(() => {
         return customers.filter(
@@ -296,7 +297,7 @@ export default function CustomersPage() {
         }
     }
 
-    const toggleStatus = async (customer: CustomerWithCount) => {
+    const toggleStatus = useCallback(async (customer: CustomerWithCount) => {
         try {
             const newStatus = customer.status === "ACTIVE" ? "INACTIVE" : "ACTIVE"
             const response = await updateCustomerApi(customer.id, {
@@ -313,7 +314,7 @@ export default function CustomersPage() {
                 description: error instanceof Error ? error.message : "An unexpected error occurred"
             })
         }
-    }
+    }, [workspaceId, loadCustomers])
 
     const openEditDialog = (customer: CustomerWithCount) => {
         setEditingCustomer(customer)
@@ -439,7 +440,7 @@ export default function CustomersPage() {
                 </Table>
             </div>
         )
-    }, [paginatedCustomers, searchQuery])
+    }, [paginatedCustomers, searchQuery, handleCustomerClick, toggleStatus])
 
     return (
         <div className="min-h-screen bg-background">
