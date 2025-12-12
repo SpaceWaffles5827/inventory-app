@@ -1,11 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
     Dialog,
@@ -23,14 +22,23 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Users, Search, Mail, Phone, Building2, Loader2 } from "lucide-react"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Plus, Pencil, Trash2, Users, Search, Mail, Phone, Building2, Loader2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
 import {
     getCustomersApi,
     createCustomerApi,
     updateCustomerApi,
     deleteCustomerApi,
-    getCustomerStatsApi,
     type CustomerWithCount,
     type CreateCustomerRequest,
     type UpdateCustomerRequest,
@@ -48,27 +56,39 @@ export default function CustomersPage() {
     const [isEditOpen, setIsEditOpen] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [editingCustomer, setEditingCustomer] = useState<CustomerWithCount | null>(null)
+    const [emailError, setEmailError] = useState("")
+    const [currentPage, setCurrentPage] = useState(1)
+    const [itemsPerPage, setItemsPerPage] = useState(10)
+    const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+    const [customerToDelete, setCustomerToDelete] = useState<CustomerWithCount | null>(null)
     const [formData, setFormData] = useState({
         name: "",
         contactPerson: "",
         email: "",
         phone: "",
         address: "",
-        company: "",
         status: "ACTIVE" as "ACTIVE" | "INACTIVE",
-    })
-
-    // Stats
-    const [stats, setStats] = useState({
-        totalCustomers: 0,
-        activeCustomers: 0,
-        totalOrders: 0,
-        totalRevenue: 0,
     })
 
     const handleCustomerClick = (customerId: string) => {
         router.push(`/dashboard/customers/${customerId}`)
     }
+
+    // Email validation function
+    const validateEmail = (email: string): boolean => {
+        if (!email.trim()) return true // Empty email is allowed
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        return emailRegex.test(email.trim())
+    }
+
+    // Memoized input handlers
+    const handleInputChange = useCallback((field: keyof typeof formData, value: string) => {
+        setFormData(prev => ({ ...prev, [field]: value }))
+    }, [])
+
+    const handleStatusChange = useCallback((value: "ACTIVE" | "INACTIVE") => {
+        setFormData(prev => ({ ...prev, status: value }))
+    }, [])
 
     // Load customers and stats
     useEffect(() => {
@@ -108,34 +128,41 @@ export default function CustomersPage() {
         }
     }
 
-    const loadStats = async () => {
-        try {
-            const response = await getCustomerStatsApi(workspaceId)
-            if (response.status === "success" && response.data) {
-                setStats({
-                    totalCustomers: response.data.totalCustomers,
-                    activeCustomers: response.data.activeCustomers,
-                    totalOrders: response.data.totalOrders,
-                    totalRevenue: response.data.totalRevenue,
-                })
-            }
-        } catch (error) {
-            console.error("Failed to load stats:", error)
-        }
+    const filteredCustomers = useMemo(() => {
+        return customers.filter(
+            (customer) =>
+                customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                customer.contactPerson?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                customer.email?.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+    }, [customers, searchQuery])
+
+    const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage)
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    const paginatedCustomers = filteredCustomers.slice(startIndex, endIndex)
+
+    const handleSearchChange = (value: string) => {
+        setSearchQuery(value)
+        setCurrentPage(1)
     }
 
-    const filteredCustomers = customers.filter(
-        (customer) =>
-            customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            customer.contactPerson?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            customer.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            customer.company?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-
     const handleCreate = async () => {
-        if (!formData.name.trim() || !formData.email.trim()) {
+        // Reset email error
+        setEmailError("")
+
+        // Validation
+        if (!formData.name.trim()) {
             toast.error("Validation Error", {
-                description: "Customer name and email are required"
+                description: "Customer name is required"
+            })
+            return
+        }
+
+        if (formData.email.trim() && !validateEmail(formData.email)) {
+            setEmailError("Please enter a valid email address")
+            toast.error("Validation Error", {
+                description: "Please enter a valid email address"
             })
             return
         }
@@ -145,10 +172,9 @@ export default function CustomersPage() {
             const createData: CreateCustomerRequest = {
                 name: formData.name.trim(),
                 contactPerson: formData.contactPerson.trim() || undefined,
-                email: formData.email.trim(),
+                email: formData.email.trim() || undefined,
                 phone: formData.phone.trim() || undefined,
                 address: formData.address.trim() || undefined,
-                company: formData.company.trim() || formData.name.trim(),
                 status: formData.status,
                 workspaceId: workspaceId,
             }
@@ -163,12 +189,11 @@ export default function CustomersPage() {
                     email: "",
                     phone: "",
                     address: "",
-                    company: "",
                     status: "ACTIVE",
                 })
+                setEmailError("")
                 setIsCreateOpen(false)
                 loadCustomers(workspaceId)
-                loadStats()
             }
         } catch (error) {
             toast.error("Failed to create customer", {
@@ -180,22 +205,35 @@ export default function CustomersPage() {
     }
 
     const handleEdit = async () => {
-        if (!editingCustomer || !formData.name.trim() || !formData.email.trim()) {
+        // Reset email error
+        setEmailError("")
+
+        // Validation
+        if (!formData.name.trim()) {
             toast.error("Validation Error", {
-                description: "Customer name and email are required"
+                description: "Customer name is required"
             })
             return
         }
+
+        if (formData.email.trim() && !validateEmail(formData.email)) {
+            setEmailError("Please enter a valid email address")
+            toast.error("Validation Error", {
+                description: "Please enter a valid email address"
+            })
+            return
+        }
+
+        if (!editingCustomer) return
 
         try {
             setIsSubmitting(true)
             const updateData: UpdateCustomerRequest = {
                 name: formData.name.trim(),
                 contactPerson: formData.contactPerson.trim() || undefined,
-                email: formData.email.trim(),
+                email: formData.email.trim() || undefined,
                 phone: formData.phone.trim() || undefined,
                 address: formData.address.trim() || undefined,
-                company: formData.company.trim() || formData.name.trim(),
                 status: formData.status,
                 workspaceId,
             }
@@ -210,13 +248,12 @@ export default function CustomersPage() {
                     email: "",
                     phone: "",
                     address: "",
-                    company: "",
                     status: "ACTIVE",
                 })
+                setEmailError("")
                 setEditingCustomer(null)
                 setIsEditOpen(false)
                 loadCustomers(workspaceId)
-                loadStats()
             }
         } catch (error) {
             toast.error("Failed to update customer", {
@@ -235,22 +272,27 @@ export default function CustomersPage() {
             return
         }
 
-        if (!confirm(`Are you sure you want to delete ${customer.name}? This action cannot be undone.`)) {
-            return
-        }
+        setCustomerToDelete(customer)
+        setDeleteConfirmOpen(true)
+    }
+
+    const confirmDelete = async () => {
+        if (!customerToDelete) return
 
         try {
-            const response = await deleteCustomerApi(customer.id, workspaceId)
+            const response = await deleteCustomerApi(customerToDelete.id, workspaceId)
 
             if (response.status === "success") {
                 toast.success("Customer deleted successfully")
                 loadCustomers(workspaceId)
-                loadStats()
             }
         } catch (error) {
             toast.error("Failed to delete customer", {
                 description: error instanceof Error ? error.message : "An unexpected error occurred"
             })
+        } finally {
+            setDeleteConfirmOpen(false)
+            setCustomerToDelete(null)
         }
     }
 
@@ -265,7 +307,6 @@ export default function CustomersPage() {
             if (response.status === "success") {
                 toast.success(`Customer status changed to ${newStatus}`)
                 loadCustomers(workspaceId)
-                loadStats()
             }
         } catch (error) {
             toast.error("Failed to update customer status", {
@@ -282,9 +323,9 @@ export default function CustomersPage() {
             email: customer.email || "",
             phone: customer.phone || "",
             address: customer.address || "",
-            company: customer.company || "",
             status: customer.status,
         })
+        setEmailError("")
         setIsEditOpen(true)
     }
 
@@ -295,10 +336,110 @@ export default function CustomersPage() {
             email: "",
             phone: "",
             address: "",
-            company: "",
             status: "ACTIVE",
         })
+        setEmailError("")
     }
+
+    const customersTable = useMemo(() => {
+        return (
+            <div className="rounded-lg border border-border/50 overflow-hidden">
+                <Table>
+                    <TableHeader>
+                        <TableRow className="bg-muted/50">
+                            <TableHead className="font-semibold">Customer Name</TableHead>
+                            <TableHead className="font-semibold">Contact Person</TableHead>
+                            <TableHead className="font-semibold">Contact Info</TableHead>
+                            <TableHead className="text-center font-semibold">Status</TableHead>
+                            <TableHead className="text-right font-semibold pr-[18px]">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {paginatedCustomers.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                    {searchQuery
+                                        ? "No customers found matching your search."
+                                        : "No customers found. Create your first customer to get started."}
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            paginatedCustomers.map((customer) => (
+                                <TableRow
+                                    key={customer.id}
+                                    className="hover:bg-muted/30 transition-colors cursor-pointer"
+                                    onClick={() => handleCustomerClick(customer.id)}
+                                >
+                                    <TableCell>
+                                        <p className="font-medium">{customer.name}</p>
+                                    </TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                        {customer.contactPerson || "—"}
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="space-y-1 text-sm">
+                                            {customer.email && (
+                                                <div className="flex items-center gap-2 text-muted-foreground">
+                                                    <Mail className="h-3 w-3" />
+                                                    <span className="truncate max-w-[200px]">{customer.email}</span>
+                                                </div>
+                                            )}
+                                            {customer.phone && (
+                                                <div className="flex items-center gap-2 text-muted-foreground">
+                                                    <Phone className="h-3 w-3" />
+                                                    <span>{customer.phone}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell className="text-center">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                toggleStatus(customer)
+                                            }}
+                                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 transition-colors ${customer.status === "ACTIVE"
+                                                ? "bg-primary/10 text-primary ring-primary/20 hover:bg-primary/20"
+                                                : "bg-muted text-muted-foreground ring-border hover:bg-muted/80"
+                                                }`}
+                                        >
+                                            {customer.status === "ACTIVE" ? "Active" : "Inactive"}
+                                        </button>
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <div className="flex items-center justify-end gap-2">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="hover:bg-accent/10 hover:text-accent"
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    openEditDialog(customer)
+                                                }}
+                                            >
+                                                <Pencil className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="hover:bg-destructive/10 hover:text-destructive"
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    handleDelete(customer)
+                                                }}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
+        )
+    }, [paginatedCustomers, searchQuery])
 
     return (
         <div className="min-h-screen bg-background">
@@ -312,10 +453,6 @@ export default function CustomersPage() {
                                 <Users className="h-4 w-4 text-accent" />
                             </div>
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold text-card-foreground">{stats.totalCustomers}</div>
-                            <p className="text-xs text-muted-foreground mt-1">Registered customers</p>
-                        </CardContent>
                     </Card>
 
                     <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
@@ -325,10 +462,6 @@ export default function CustomersPage() {
                                 <Users className="h-4 w-4 text-primary" />
                             </div>
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold text-card-foreground">{stats.activeCustomers}</div>
-                            <p className="text-xs text-muted-foreground mt-1">Currently active</p>
-                        </CardContent>
                     </Card>
 
                     <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
@@ -338,10 +471,6 @@ export default function CustomersPage() {
                                 <Building2 className="h-4 w-4 text-accent" />
                             </div>
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold text-card-foreground">{stats.totalOrders}</div>
-                            <p className="text-xs text-muted-foreground mt-1">From all customers</p>
-                        </CardContent>
                     </Card>
 
                     <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
@@ -351,12 +480,6 @@ export default function CustomersPage() {
                                 <Users className="h-4 w-4 text-primary" />
                             </div>
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold text-card-foreground">
-                                ${stats.totalRevenue.toLocaleString()}
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">Lifetime value</p>
-                        </CardContent>
                     </Card>
                 </div>
 
@@ -388,7 +511,7 @@ export default function CustomersPage() {
                                     <Input
                                         placeholder="Search customers..."
                                         value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        onChange={(e) => handleSearchChange(e.target.value)}
                                         className="pl-9"
                                     />
                                 </div>
@@ -419,40 +542,37 @@ export default function CustomersPage() {
                                                         id="name"
                                                         placeholder="e.g., Acme Corporation"
                                                         value={formData.name}
-                                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                                        onChange={(e) => handleInputChange('name', e.target.value)}
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="company">Company Name</Label>
+                                                    <Label htmlFor="contactPerson">Contact Person</Label>
                                                     <Input
-                                                        id="company"
-                                                        placeholder="e.g., Acme Corp"
-                                                        value={formData.company}
-                                                        onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                                                        id="contactPerson"
+                                                        placeholder="e.g., John Smith"
+                                                        value={formData.contactPerson}
+                                                        onChange={(e) => handleInputChange('contactPerson', e.target.value)}
                                                     />
                                                 </div>
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="contactPerson">Contact Person</Label>
-                                                <Input
-                                                    id="contactPerson"
-                                                    placeholder="e.g., John Smith"
-                                                    value={formData.contactPerson}
-                                                    onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-                                                />
-                                            </div>
+
                                             <div className="grid md:grid-cols-2 gap-4">
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="email">
-                                                        Email <span className="text-destructive">*</span>
-                                                    </Label>
+                                                    <Label htmlFor="email">Email</Label>
                                                     <Input
                                                         id="email"
                                                         type="email"
                                                         placeholder="contact@customer.com"
                                                         value={formData.email}
-                                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                                        onChange={(e) => handleInputChange('email', e.target.value)}
+                                                        className={emailError ? "border-destructive" : ""}
                                                     />
+                                                    {emailError && (
+                                                        <div className="flex items-center gap-1 text-xs text-destructive">
+                                                            <AlertCircle className="h-3 w-3" />
+                                                            <span>{emailError}</span>
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label htmlFor="phone">Phone</Label>
@@ -460,27 +580,24 @@ export default function CustomersPage() {
                                                         id="phone"
                                                         placeholder="+1 (555) 123-4567"
                                                         value={formData.phone}
-                                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                                        onChange={(e) => handleInputChange('phone', e.target.value)}
                                                     />
                                                 </div>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="address">Address</Label>
-                                                <Textarea
+                                                <Input
                                                     id="address"
                                                     placeholder="Full address including street, city, state, and zip code"
                                                     value={formData.address}
-                                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                                    rows={2}
+                                                    onChange={(e) => handleInputChange('address', e.target.value)}
                                                 />
                                             </div>
                                             <div className="space-y-2">
                                                 <Label htmlFor="status">Status</Label>
                                                 <Select
                                                     value={formData.status}
-                                                    onValueChange={(value: "ACTIVE" | "INACTIVE") =>
-                                                        setFormData({ ...formData, status: value })
-                                                    }
+                                                    onValueChange={handleStatusChange}
                                                 >
                                                     <SelectTrigger>
                                                         <SelectValue placeholder="Select status" />
@@ -512,103 +629,90 @@ export default function CustomersPage() {
                                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                             </div>
                         ) : (
-                            <div className="rounded-lg border border-border/50 overflow-hidden">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow className="bg-muted/50">
-                                            <TableHead className="font-semibold">Customer Name</TableHead>
-                                            <TableHead className="font-semibold">Contact Person</TableHead>
-                                            <TableHead className="font-semibold">Contact Info</TableHead>
-                                            <TableHead className="text-center font-semibold">Orders</TableHead>
-                                            <TableHead className="text-right font-semibold">Total Spent</TableHead>
-                                            <TableHead className="text-center font-semibold">Status</TableHead>
-                                            <TableHead className="text-right font-semibold">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {filteredCustomers.length === 0 ? (
-                                            <TableRow>
-                                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                                                    No customers found. Create your first customer to get started.
-                                                </TableCell>
-                                            </TableRow>
-                                        ) : (
-                                            filteredCustomers.map((customer) => (
-                                                <TableRow
-                                                    key={customer.id}
-                                                    className="hover:bg-muted/30 transition-colors cursor-pointer"
-                                                    onClick={() => handleCustomerClick(customer.id)}
+                            <>
+                                {customersTable}
+
+                                {/* Pagination Controls */}
+                                {filteredCustomers.length > 0 && (
+                                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t">
+                                        <div className="text-sm text-muted-foreground">
+                                            Showing <span className="font-medium text-foreground">{startIndex + 1}</span> to{" "}
+                                            <span className="font-medium text-foreground">{Math.min(endIndex, filteredCustomers.length)}</span> of{" "}
+                                            <span className="font-medium text-foreground">{filteredCustomers.length}</span> customers
+                                        </div>
+
+                                        <div className="flex items-center gap-6">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page:</span>
+                                                <Select
+                                                    value={itemsPerPage.toString()}
+                                                    onValueChange={(value) => {
+                                                        setItemsPerPage(Number(value))
+                                                        setCurrentPage(1)
+                                                    }}
                                                 >
-                                                    <TableCell>
-                                                        <div>
-                                                            <p className="font-medium">{customer.name}</p>
-                                                            <p className="text-xs text-muted-foreground">{customer.company}</p>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-muted-foreground">
-                                                        {customer.contactPerson || "—"}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="space-y-1 text-sm">
-                                                            {customer.email && (
-                                                                <div className="flex items-center gap-2 text-muted-foreground">
-                                                                    <Mail className="h-3 w-3" />
-                                                                    <span className="truncate max-w-[200px]">{customer.email}</span>
-                                                                </div>
-                                                            )}
-                                                            {customer.phone && (
-                                                                <div className="flex items-center gap-2 text-muted-foreground">
-                                                                    <Phone className="h-3 w-3" />
-                                                                    <span>{customer.phone}</span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
-                                                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-accent/10 text-accent ring-1 ring-accent/20">
-                                                            {customer.orderCount} orders
-                                                        </span>
-                                                    </TableCell>
-                                                    <TableCell className="text-right font-medium">
-                                                        ${customer.totalSpent.toLocaleString()}
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
-                                                        <button
-                                                            onClick={() => toggleStatus(customer)}
-                                                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 transition-colors ${customer.status === "ACTIVE"
-                                                                ? "bg-primary/10 text-primary ring-primary/20 hover:bg-primary/20"
-                                                                : "bg-muted text-muted-foreground ring-border hover:bg-muted/80"
-                                                                }`}
-                                                        >
-                                                            {customer.status === "ACTIVE" ? "Active" : "Inactive"}
-                                                        </button>
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="hover:bg-accent/10 hover:text-accent"
-                                                                onClick={() => openEditDialog(customer)}
-                                                            >
-                                                                <Pencil className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="hover:bg-destructive/10 hover:text-destructive"
-                                                                onClick={() => handleDelete(customer)}
-                                                            >
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </Button>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
-                            </div>
+                                                    <SelectTrigger className="h-9 w-[70px]">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="5">5</SelectItem>
+                                                        <SelectItem value="10">10</SelectItem>
+                                                        <SelectItem value="25">25</SelectItem>
+                                                        <SelectItem value="50">50</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="flex items-center gap-1">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                                                    disabled={currentPage === 1}
+                                                    className="h-9 w-9 p-0"
+                                                >
+                                                    <ChevronLeft className="h-4 w-4" />
+                                                </Button>
+
+                                                <div className="flex items-center gap-1">
+                                                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                                        .filter((page) => {
+                                                            // Show first page, last page, current page, and pages around current
+                                                            return (
+                                                                page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)
+                                                            )
+                                                        })
+                                                        .map((page, index, array) => (
+                                                            <div key={page} className="flex items-center">
+                                                                {index > 0 && array[index - 1] !== page - 1 && (
+                                                                    <span className="px-2 text-muted-foreground">...</span>
+                                                                )}
+                                                                <Button
+                                                                    variant={currentPage === page ? "default" : "outline"}
+                                                                    size="sm"
+                                                                    onClick={() => setCurrentPage(page)}
+                                                                    className="h-9 w-9 p-0"
+                                                                >
+                                                                    {page}
+                                                                </Button>
+                                                            </div>
+                                                        ))}
+                                                </div>
+
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                                                    disabled={currentPage === totalPages}
+                                                    className="h-9 w-9 p-0"
+                                                >
+                                                    <ChevronRight className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </CardContent>
                 </Card>
@@ -636,40 +740,37 @@ export default function CustomersPage() {
                                         id="edit-name"
                                         placeholder="e.g., Acme Corporation"
                                         value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                        onChange={(e) => handleInputChange('name', e.target.value)}
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="edit-company">Company Name</Label>
+                                    <Label htmlFor="edit-contactPerson">Contact Person</Label>
                                     <Input
-                                        id="edit-company"
-                                        placeholder="e.g., Acme Corp"
-                                        value={formData.company}
-                                        onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                                        id="edit-contactPerson"
+                                        placeholder="e.g., John Smith"
+                                        value={formData.contactPerson}
+                                        onChange={(e) => handleInputChange('contactPerson', e.target.value)}
                                     />
                                 </div>
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="edit-contactPerson">Contact Person</Label>
-                                <Input
-                                    id="edit-contactPerson"
-                                    placeholder="e.g., John Smith"
-                                    value={formData.contactPerson}
-                                    onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-                                />
-                            </div>
+
                             <div className="grid md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="edit-email">
-                                        Email <span className="text-destructive">*</span>
-                                    </Label>
+                                    <Label htmlFor="edit-email">Email</Label>
                                     <Input
                                         id="edit-email"
                                         type="email"
                                         placeholder="contact@customer.com"
                                         value={formData.email}
-                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                        onChange={(e) => handleInputChange('email', e.target.value)}
+                                        className={emailError ? "border-destructive" : ""}
                                     />
+                                    {emailError && (
+                                        <div className="flex items-center gap-1 text-xs text-destructive">
+                                            <AlertCircle className="h-3 w-3" />
+                                            <span>{emailError}</span>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="edit-phone">Phone</Label>
@@ -677,27 +778,24 @@ export default function CustomersPage() {
                                         id="edit-phone"
                                         placeholder="+1 (555) 123-4567"
                                         value={formData.phone}
-                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                        onChange={(e) => handleInputChange('phone', e.target.value)}
                                     />
                                 </div>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="edit-address">Address</Label>
-                                <Textarea
+                                <Input
                                     id="edit-address"
                                     placeholder="Full address including street, city, state, and zip code"
                                     value={formData.address}
-                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                    rows={2}
+                                    onChange={(e) => handleInputChange('address', e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="edit-status">Status</Label>
                                 <Select
                                     value={formData.status}
-                                    onValueChange={(value: "ACTIVE" | "INACTIVE") =>
-                                        setFormData({ ...formData, status: value })
-                                    }
+                                    onValueChange={handleStatusChange}
                                 >
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select status" />
@@ -720,6 +818,28 @@ export default function CustomersPage() {
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
+
+                {/* Delete Confirmation Dialog */}
+                <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will permanently delete <span className="font-semibold">{customerToDelete?.name}</span>.
+                                This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                                onClick={confirmDelete}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            >
+                                Delete Customer
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>
         </div>
     )

@@ -11,7 +11,6 @@ const customersController = {
         email,
         phone,
         address,
-        company,
         status,
         workspaceId,
       } = req.body;
@@ -87,7 +86,6 @@ const customersController = {
           email: email?.trim() || null,
           phone: phone?.trim() || null,
           address: address?.trim() || null,
-          company: company?.trim() || name.trim(),
           status: status || "ACTIVE",
           workspaceId: workspaceId,
         },
