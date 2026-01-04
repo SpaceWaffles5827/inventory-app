@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin } from "lucide-react"
 import { getItemByIdApi, updateItemApi, type ItemWithDetails } from "@/lib/api/items.api"
 import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
 import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
@@ -43,6 +43,9 @@ export default function ItemDetailPage() {
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([])
   const [isManageCustomersOpen, setIsManageCustomersOpen] = useState(false)
   const [newCustomerId, setNewCustomerId] = useState("")
+  const [isManageLocationsOpen, setIsManageLocationsOpen] = useState(false)
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
+  const [newLocationId, setNewLocationId] = useState("")
   const [formData, setFormData] = useState({
     itemNumber: "",
     name: "",
@@ -50,7 +53,6 @@ export default function ItemDetailPage() {
     description: "",
     cost: "",
     categoryId: "",
-    locationId: "",
     supplierId: "",
   })
 
@@ -76,6 +78,7 @@ export default function ItemDetailPage() {
           const itemData = response.data.item as ItemWithDetails
           console.log("Item data:", JSON.stringify(itemData, null, 2))
           console.log("Item customers:", JSON.stringify(itemData.customers, null, 2))
+          console.log("Item locations:", JSON.stringify(itemData.locations, null, 2))
 
           setItem(itemData)
           setFormData({
@@ -85,7 +88,6 @@ export default function ItemDetailPage() {
             description: itemData.description || "",
             cost: itemData.cost.toString(),
             categoryId: itemData.categoryId || "",
-            locationId: itemData.locationId || "",
             supplierId: itemData.supplierId || "",
           })
 
@@ -93,6 +95,11 @@ export default function ItemDetailPage() {
           const customerIds = itemData.customers?.map(c => c.customerId) || []
           console.log("Extracted customer IDs:", customerIds)
           setSelectedCustomerIds(customerIds)
+
+          // Extract location IDs from the locations array
+          const locationIds = itemData.locations?.map(loc => loc.locationId) || []
+          console.log("Extracted location IDs:", locationIds)
+          setSelectedLocationIds(locationIds)
         }
       } catch (error) {
         console.error("Failed to load item:", error)
@@ -180,6 +187,31 @@ export default function ItemDetailPage() {
     setSelectedCustomerIds(updatedIds)
   }
 
+  const handleAddLocation = () => {
+    console.log("=== ADD LOCATION ===")
+    console.log("Selected location ID:", newLocationId)
+    console.log("Current selectedLocationIds:", selectedLocationIds)
+
+    if (newLocationId && !selectedLocationIds.includes(newLocationId)) {
+      const updatedIds = [...selectedLocationIds, newLocationId]
+      console.log("Updated location IDs:", updatedIds)
+      setSelectedLocationIds(updatedIds)
+      setNewLocationId("")
+    } else {
+      console.log("Location not added - either empty or already selected")
+    }
+  }
+
+  const handleRemoveLocation = (locationId: string) => {
+    console.log("=== REMOVE LOCATION ===")
+    console.log("Removing location ID:", locationId)
+    console.log("Before removal:", selectedLocationIds)
+
+    const updatedIds = selectedLocationIds.filter((id) => id !== locationId)
+    console.log("After removal:", updatedIds)
+    setSelectedLocationIds(updatedIds)
+  }
+
   const handleUpdateCustomers = async () => {
     console.log("=== UPDATE CUSTOMERS ===")
     console.log("Final selected customer IDs:", selectedCustomerIds)
@@ -208,6 +240,34 @@ export default function ItemDetailPage() {
     }
   }
 
+  const handleUpdateLocations = async () => {
+    console.log("=== UPDATE LOCATIONS ===")
+    console.log("Final selected location IDs:", selectedLocationIds)
+
+    setIsSaving(true)
+    try {
+      const updateData = {
+        locationIds: selectedLocationIds,
+      }
+
+      console.log("Updating item with location data:", updateData)
+
+      const response = await updateItemApi(itemId, updateData)
+      console.log("Update response:", JSON.stringify(response, null, 2))
+
+      if (response.data?.item) {
+        setItem(response.data.item as ItemWithDetails)
+        setIsManageLocationsOpen(false)
+        toast.success("Locations updated successfully!")
+      }
+    } catch (error) {
+      console.error("Failed to update locations:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to update locations")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const handleSave = async () => {
     if (!formData.name.trim() || !formData.cost || !formData.itemNumber.trim()) {
       toast.error("Item number, name, and cost are required")
@@ -226,7 +286,6 @@ export default function ItemDetailPage() {
         description: formData.description || undefined,
         cost: parseFloat(formData.cost),
         categoryId: formData.categoryId || undefined,
-        locationId: formData.locationId || undefined,
         supplierId: formData.supplierId || undefined,
         customerIds: selectedCustomerIds,
       }
@@ -258,12 +317,14 @@ export default function ItemDetailPage() {
         description: item.description || "",
         cost: item.cost.toString(),
         categoryId: item.categoryId || "",
-        locationId: item.locationId || "",
         supplierId: item.supplierId || "",
       })
       // Reset customer selection
       const customerIds = item.customers?.map(c => c.customerId) || []
       setSelectedCustomerIds(customerIds)
+      // Reset location selection
+      const locationIds = item.locations?.map(loc => loc.locationId) || []
+      setSelectedLocationIds(locationIds)
     }
     setIsEditing(false)
   }
@@ -277,6 +338,17 @@ export default function ItemDetailPage() {
     setSelectedCustomerIds(currentCustomerIds)
     setNewCustomerId("")
     setIsManageCustomersOpen(true)
+  }
+
+  const handleOpenManageLocations = () => {
+    console.log("=== OPENING MANAGE LOCATIONS ===")
+    const currentLocationIds = item?.locations?.map(loc => loc.locationId) || []
+    console.log("Current item locations:", currentLocationIds)
+    console.log("Available locations:", locations.length)
+
+    setSelectedLocationIds(currentLocationIds)
+    setNewLocationId("")
+    setIsManageLocationsOpen(true)
   }
 
   if (loading) {
@@ -312,8 +384,11 @@ export default function ItemDetailPage() {
   }
 
   const selectedCustomers = customers.filter(c => selectedCustomerIds.includes(c.id))
+  const selectedLocations = locations.filter(l => selectedLocationIds.includes(l.id))
   console.log("Rendering - selectedCustomerIds:", selectedCustomerIds)
   console.log("Rendering - selectedCustomers:", selectedCustomers.map(c => ({ id: c.id, name: c.name })))
+  console.log("Rendering - selectedLocationIds:", selectedLocationIds)
+  console.log("Rendering - selectedLocations:", selectedLocations.map(l => ({ id: l.id, code: l.code })))
 
   return (
     <div className="min-h-screen">
@@ -506,24 +581,34 @@ export default function ItemDetailPage() {
                   </div>
                 </div>
 
+                {/* Location Management Section */}
                 <div className="space-y-2">
-                  <Label htmlFor="storageLocation">Storage Location</Label>
-                  {isEditing ? (
-                    <Select value={formData.locationId} onValueChange={(value) => setFormData({ ...formData, locationId: value })}>
-                      <SelectTrigger id="storageLocation">
-                        <SelectValue placeholder="Select location" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {locations.map((location) => (
-                          <SelectItem key={location.id} value={location.id}>
-                            {location.code}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="flex items-center justify-between">
+                    <Label>Storage Locations</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenManageLocations}
+                      disabled={isEditing}
+                    >
+                      <MapPin className="h-4 w-4 mr-2" />
+                      Manage Locations
+                    </Button>
+                  </div>
+                  {selectedLocations.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {selectedLocations.map((location) => (
+                        <Badge key={location.id} variant="secondary" className="bg-accent/10 text-accent border-accent/20">
+                          {location.code}
+                        </Badge>
+                      ))}
+                    </div>
                   ) : (
-                    <Input id="storageLocation" value={item.location?.code || "Unassigned"} disabled className="bg-muted" />
+                    <p className="text-sm text-muted-foreground">No locations assigned to this item</p>
                   )}
+                  <p className="text-xs text-muted-foreground">
+                    Assign this item to one or more warehouse locations for better organization
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -563,6 +648,10 @@ export default function ItemDetailPage() {
                   <span className="text-sm text-muted-foreground">Linked Customers</span>
                   <span className="font-semibold">{item.customers?.length || 0}</span>
                 </div>
+                <div className="flex items-center justify-between py-2 border-b border-border/50">
+                  <span className="text-sm text-muted-foreground">Locations</span>
+                  <span className="font-semibold">{selectedLocations.length}</span>
+                </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm text-muted-foreground">Last Updated</span>
                   <span className="text-sm">{new Date(item.updatedAt).toLocaleDateString()}</span>
@@ -584,7 +673,7 @@ export default function ItemDetailPage() {
                   {item.transactions && item.transactions.length > 0 ? (
                     item.transactions.map((transaction: TransactionWithUser) => (
                       <div key={transaction.id} className="flex gap-3 pb-4 border-b border-border/50 last:border-0 last:pb-0">
-                        <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center flex-0">
+                        <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center p-2">
                           <History className="h-4 w-4 text-accent" />
                         </div>
                         <div className="flex-1 min-w-0">
@@ -720,6 +809,123 @@ export default function ItemDetailPage() {
               Cancel
             </Button>
             <Button onClick={handleUpdateCustomers} disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage Locations Dialog */}
+      <Dialog open={isManageLocationsOpen} onOpenChange={setIsManageLocationsOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="h-9 w-9 rounded-lg bg-accent/10 flex items-center justify-center">
+                <MapPin className="h-5 w-5 text-accent" />
+              </div>
+              Manage Storage Locations
+            </DialogTitle>
+            <DialogDescription>
+              Assign this item to one or more warehouse locations. This helps organize inventory and track where items are stored.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Current Locations */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Assigned Locations ({selectedLocationIds.length})</Label>
+              {selectedLocationIds.length === 0 ? (
+                <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-lg">
+                  No locations assigned yet
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {selectedLocations.map((location) => (
+                    <div
+                      key={location.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/30"
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <span className="font-medium font-mono">{location.code}</span>
+                          {location.name && (
+                            <p className="text-xs text-muted-foreground">{location.name}</p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => handleRemoveLocation(location.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add Location */}
+            <div className="space-y-2">
+              <Label htmlFor="addLocation" className="text-sm font-medium">
+                Add Location
+              </Label>
+              <div className="flex gap-2">
+                <Select value={newLocationId} onValueChange={(value) => {
+                  console.log("Selected new location ID:", value)
+                  setNewLocationId(value)
+                }}>
+                  <SelectTrigger id="addLocation" className="flex-1">
+                    <SelectValue placeholder="Select a location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locations
+                      .filter((l) => !selectedLocationIds.includes(l.id))
+                      .map((location) => (
+                        <SelectItem key={location.id} value={location.id}>
+                          <div>
+                            <div className="font-mono">{location.code}</div>
+                            {location.name && (
+                              <div className="text-xs text-muted-foreground">{location.name}</div>
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleAddLocation} disabled={!newLocationId} size="sm">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select from existing locations or create new ones in the Locations page
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsManageLocationsOpen(false)}
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateLocations} disabled={isSaving}>
               {isSaving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />

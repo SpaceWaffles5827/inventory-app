@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { LayoutGrid, List, TableIcon } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
+import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
@@ -25,18 +26,22 @@ import {
   Plus,
   Search,
   AlertCircle,
+  Trash2,
   DollarSign,
+  Loader2,
   X,
   SlidersHorizontal,
-  Minus,
   Diff,
+  MapPin,
 } from "lucide-react"
 import { getCategoriesApi } from "@/lib/api/categories.api"
 import { getLocationsApi } from "@/lib/api/locations.api"
-import { createItemApi, getItemsApi, adjustStockApi, type ItemWithRelations } from "@/lib/api/items.api"
+import { createItemApi, getItemsApi, adjustStockApi, deleteItemApi, type ItemWithRelations } from "@/lib/api/items.api"
 import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
 import { CategoryWithCount } from "@/lib/api/categories.api"
 import { LocationWithCount } from "@/lib/api/locations.api"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -57,9 +62,18 @@ export default function DashboardPage() {
     return "table"
   })
   const [isAddItemOpen, setIsAddItemOpen] = useState(false)
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean
+    item: ItemWithRelations | null
+  }>({
+    open: false,
+    item: null,
+  })
+  const [isDeleting, setIsDeleting] = useState(false)
   const [newItemForm, setNewItemForm] = useState({
     name: "",
     barcode: "",
+    unit: "", // Add this new field
     category: "",
     description: "",
     supplier: "",
@@ -77,6 +91,8 @@ export default function DashboardPage() {
   const [adjustmentQuantity, setAdjustmentQuantity] = useState("")
   const [newStockAmount, setNewStockAmount] = useState("")
   const [adjustmentReason, setAdjustmentReason] = useState("")
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("")
+  const [adjustmentNote, setAdjustmentNote] = useState("")
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState("")
 
@@ -169,10 +185,29 @@ export default function DashboardPage() {
     }
   }
 
+  const handleDeleteItem = async () => {
+    if (!deleteDialog.item) return
+
+    setIsDeleting(true)
+    try {
+      await deleteItemApi(deleteDialog.item.id)
+
+      // Remove item from local state
+      setInventory((prev) => prev.filter((item) => item.id !== deleteDialog.item?.id))
+
+      setDeleteDialog({ open: false, item: null })
+      toast.success("Item deleted successfully")
+    } catch (error) {
+      console.error("Failed to delete item:", error)
+      alert(error instanceof Error ? error.message : "Failed to delete item")
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const handleCreateItem = async () => {
     if (
       !newItemForm.name.trim() ||
-      !newItemForm.barcode.trim() ||
       !newItemForm.category.trim() ||
       !newItemForm.supplier.trim() ||
       !newItemForm.onHand ||
@@ -198,7 +233,8 @@ export default function DashboardPage() {
         workspaceId: currentWorkspaceId,
         itemNumber: nextItemNumber,
         name: newItemForm.name,
-        barcode: newItemForm.barcode,
+        barcode: newItemForm.barcode || undefined,
+        unit: newItemForm.unit || undefined, // Add unit field
         description: newItemForm.description || undefined,
         onHand: onHand,
         cost: cost,
@@ -214,6 +250,7 @@ export default function DashboardPage() {
       setNewItemForm({
         name: "",
         barcode: "",
+        unit: "", // Reset unit field
         category: "",
         description: "",
         supplier: "",
@@ -235,15 +272,36 @@ export default function DashboardPage() {
     setAdjustmentQuantity("")
     setNewStockAmount(String(item.onHand))
     setAdjustmentReason("")
+    setAdjustmentNote("")
+
+    // Auto-select location if item only has one location
+    if (item.locations && item.locations.length === 1) {
+      setSelectedLocationId(item.locations[0].locationId)
+    } else {
+      setSelectedLocationId("")
+    }
+  }
+
+  // Get current stock for selected location
+  const getCurrentLocationStock = () => {
+    if (!adjustmentDialog.item || !selectedLocationId) return 0
+
+    // Find the selected location in the item's locations
+    const itemLocation = adjustmentDialog.item.locations?.find(
+      loc => loc.locationId === selectedLocationId
+    )
+
+    return itemLocation?.quantity || 0
   }
 
   // Handle adjustment quantity changes and update new stock amount
   const handleAdjustmentQuantityChange = (value: string) => {
     setAdjustmentQuantity(value)
-    if (adjustmentDialog.item && value && value !== "-" && value !== "+") {
+    if (value && value !== "-" && value !== "+") {
       const qty = Number.parseInt(value)
       if (!isNaN(qty)) {
-        setNewStockAmount(String(adjustmentDialog.item.onHand + qty))
+        const currentStock = getCurrentLocationStock()
+        setNewStockAmount(String(currentStock + qty))
       }
     }
   }
@@ -251,10 +309,11 @@ export default function DashboardPage() {
   // Handle new stock amount changes and calculate adjustment quantity
   const handleNewStockAmountChange = (value: string) => {
     setNewStockAmount(value)
-    if (adjustmentDialog.item && value) {
+    if (value) {
       const newStock = Number.parseInt(value)
       if (!isNaN(newStock)) {
-        const adjustment = newStock - adjustmentDialog.item.onHand
+        const currentStock = getCurrentLocationStock()
+        const adjustment = newStock - currentStock
         setAdjustmentQuantity(String(adjustment))
       }
     } else {
@@ -267,7 +326,7 @@ export default function DashboardPage() {
       !adjustmentDialog.item ||
       !adjustmentQuantity ||
       adjustmentQuantity === "0" ||
-      !adjustmentReason.trim()
+      !selectedLocationId
     ) {
       return
     }
@@ -280,14 +339,13 @@ export default function DashboardPage() {
       const response = await adjustStockApi(itemId, {
         type: isInput ? "INPUT" : "OUTPUT",
         quantity: Math.abs(quantity),
-        reason: adjustmentReason,
+        reason: adjustmentNote || "Stock adjustment",
+        locationId: selectedLocationId,
       })
 
       if (response.data?.item) {
-        // Store the updated item in a variable to avoid "possibly undefined" error
         const updatedItem = response.data.item
 
-        // Update the local state with the new item data from the API
         setInventory((prev) =>
           prev.map((item) => (item.id === itemId ? updatedItem : item))
         )
@@ -297,6 +355,8 @@ export default function DashboardPage() {
       setAdjustmentQuantity("")
       setNewStockAmount("")
       setAdjustmentReason("")
+      setSelectedLocationId("")
+      setAdjustmentNote("")
     } catch (error) {
       console.error("Failed to adjust stock:", error)
       alert(error instanceof Error ? error.message : "Failed to adjust stock")
@@ -499,14 +559,14 @@ export default function DashboardPage() {
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label htmlFor="item-barcode">
-                              Barcode <span className="text-destructive">*</span>
+                            <Label htmlFor="item-unit">
+                              Unit
                             </Label>
                             <Input
-                              id="item-barcode"
-                              placeholder="e.g., 123456789012"
-                              value={newItemForm.barcode}
-                              onChange={(e) => setNewItemForm({ ...newItemForm, barcode: e.target.value })}
+                              id="item-unit"
+                              placeholder="e.g., EA, BOX, LB, KG, GAL"
+                              value={newItemForm.unit}
+                              onChange={(e) => setNewItemForm({ ...newItemForm, unit: e.target.value })}
                             />
                           </div>
                         </div>
@@ -623,7 +683,6 @@ export default function DashboardPage() {
                           disabled={
                             isCreating ||
                             !newItemForm.name.trim() ||
-                            !newItemForm.barcode.trim() ||
                             !newItemForm.category.trim() ||
                             !newItemForm.supplier.trim() ||
                             !newItemForm.onHand ||
@@ -786,7 +845,7 @@ export default function DashboardPage() {
                       <TableHead className="font-semibold">Product Name</TableHead>
                       <TableHead className="font-semibold">Category</TableHead>
                       <TableHead className="font-semibold">Supplier</TableHead>
-                      <TableHead className="font-semibold">Location</TableHead>
+                      <TableHead className="font-semibold">Locations</TableHead>
                       <TableHead className="text-center font-semibold">Stock</TableHead>
                       <TableHead className="text-right font-semibold">Cost</TableHead>
                       <TableHead className="font-semibold">Status</TableHead>
@@ -808,10 +867,10 @@ export default function DashboardPage() {
                           onClick={() => router.push(`/dashboard/items/${item.id}`)}
                         >
                           <TableCell className="font-mono text-sm text-muted-foreground">{item.itemNumber}</TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{item.name}</p>
-                              <p className="text-xs text-muted-foreground font-mono">{item.barcode || "—"}</p>
+                          <TableCell className="max-w-0 w-full">
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{item.name}</p>
+                              <p className="text-xs text-muted-foreground font-mono truncate">{item.barcode || "—"}</p>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -820,8 +879,20 @@ export default function DashboardPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-muted-foreground text-sm">{item.supplier?.name || "Unknown"}</TableCell>
-                          <TableCell className="text-muted-foreground text-sm max-w-[150px] truncate">
-                            {item.location?.code || "Unassigned"}
+                          <TableCell className="text-muted-foreground text-sm max-w-[150px]">
+                            {item.locations && item.locations.filter(loc => loc.quantity > 0).length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {item.locations
+                                  .filter(loc => loc.quantity > 0)
+                                  .map((loc, idx, arr) => (
+                                    <span key={loc.id} className="text-xs">
+                                      {loc.location.code} ({loc.quantity}){idx < arr.length - 1 ? ', ' : ''}
+                                    </span>
+                                  ))}
+                              </div>
+                            ) : (
+                              "Unassigned"
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center justify-center">
@@ -842,17 +913,28 @@ export default function DashboardPage() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center justify-center gap-2">
+                            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 variant="outline"
                                 size="icon"
-                                className="h-8 w-8 hover:bg-accent/10 hover:text-accent hover:border-accent/30 bg-transparent"
+                                className="flex-1 h-9 hover:bg-accent/10 hover:text-accent bg-transparent"
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   openAdjustmentDialog(item)
                                 }}
                               >
                                 <Diff className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="flex-1 h-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeleteDialog({ open: true, item })
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
                           </TableCell>
@@ -879,7 +961,9 @@ export default function DashboardPage() {
                         <CardHeader className="pb-3 flex-none">
                           <div className="flex items-start justify-between gap-2 mb-2">
                             <div className="flex-1 min-w-0">
-                              <CardTitle className="text-base font-semibold truncate">{item.name}</CardTitle>
+                              <CardTitle className="text-base font-semibold truncate" title={item.name}>
+                                {item.name}
+                              </CardTitle>
                               <p className="text-xs text-muted-foreground font-mono mt-0.5">{item.itemNumber}</p>
                             </div>
                             <Badge
@@ -911,13 +995,24 @@ export default function DashboardPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="flex-1 h-9 hover:bg-accent/10 hover:text-accent bg-transparent"
+                              className="h-9 w-9 hover:bg-accent/10 hover:text-accent bg-transparent"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 openAdjustmentDialog(item)
                               }}
                             >
                               <Diff className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setDeleteDialog({ open: true, item })
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </CardContent>
@@ -944,13 +1039,15 @@ export default function DashboardPage() {
                           <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-3 mb-2">
-                                <h3 className="font-semibold text-base truncate">{item.name}</h3>
+                                <h3 className="font-semibold text-base truncate" title={item.name}>
+                                  {item.name}
+                                </h3>
                                 <Badge
                                   variant={item.status === "IN_STOCK" ? "default" : "destructive"}
                                   className={
                                     item.status === "IN_STOCK"
-                                      ? "bg-accent/10 text-accent"
-                                      : "bg-destructive/10 text-destructive"
+                                      ? "bg-accent/10 text-accent flex-shrink-0"
+                                      : "bg-destructive/10 text-destructive flex-shrink-0"
                                   }
                                 >
                                   {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
@@ -959,13 +1056,14 @@ export default function DashboardPage() {
                               <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
                                 <span className="font-mono">{item.itemNumber}</span>
                                 <span>•</span>
-                                {/* <Badge variant="outline" className="text-xs font-normal">
-                                  {item.category?.name || "Uncategorized"}
-                                </Badge>
-                                <span>•</span>
-                                <span className="truncate">{item.supplier?.name || "Unknown"}</span>
-                                <span>•</span> */}
-                                <span className="text-xs truncate">{item.location?.code || "Unassigned"}</span>
+                                <span className="text-xs truncate">
+                                  {item.locations && item.locations.filter(loc => loc.quantity > 0).length > 0
+                                    ? item.locations
+                                      .filter(loc => loc.quantity > 0)
+                                      .map(loc => `${loc.location.code} (${loc.quantity})`)
+                                      .join(', ')
+                                    : "Unassigned"}
+                                </span>
                               </div>
                             </div>
                             <div className="flex items-center gap-6 flex-none">
@@ -989,6 +1087,17 @@ export default function DashboardPage() {
                                 >
                                   <Diff className="h-4 w-4" />
                                 </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setDeleteDialog({ open: true, item })
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                               </div>
                             </div>
                           </div>
@@ -1011,125 +1120,254 @@ export default function DashboardPage() {
             setAdjustmentQuantity("")
             setNewStockAmount("")
             setAdjustmentReason("")
+            setSelectedLocationId("")
+            setAdjustmentNote("")
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Update Quantity</DialogTitle>
-            <DialogDescription>
-              Adjust the stock quantity for this item.
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="sm:max-w-[540px] gap-0 p-0 overflow-hidden">
+          <div className="px-6 pt-6 pb-2">
+            <DialogHeader>
+              <DialogTitle className="text-lg">Update Quantity</DialogTitle>
+              <DialogDescription className="text-xs">
+                Adjust the stock quantity for this item at a specific location.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
 
           {adjustmentDialog.item && (
-            <div className="space-y-4 py-4">
-              <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-lg border">
-                <div className="w-16 h-16 bg-muted rounded-lg flex items-center justify-center">
-                  <Package className="h-8 w-8 text-muted-foreground" />
+            <div className="px-6 py-4 space-y-4 overflow-y-auto max-h-[calc(90vh-180px)]">
+              {/* Item Info - Compact */}
+              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
+                <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Package className="h-6 w-6 text-muted-foreground" />
                 </div>
-                <div>
-                  <h3 className="font-semibold">{adjustmentDialog.item.name}</h3>
-                  <p className="text-sm text-muted-foreground">
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm truncate">{adjustmentDialog.item.name}</h3>
+                  <p className="text-xs text-muted-foreground truncate">
                     {adjustmentDialog.item.onHand} units | ${(adjustmentDialog.item.cost * adjustmentDialog.item.onHand).toFixed(2)}
                   </p>
                 </div>
               </div>
 
+              {/* Location Selection - Compact */}
               <div className="space-y-2">
-                <Label htmlFor="quantity">Adjustment Quantity</Label>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={decrementQuantity}
-                    className="h-10 w-10 shrink-0"
-                  >
-                    <Minus className="h-4 w-4" />
-                  </Button>
+                <Label className="text-xs flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5" />
+                  Select Location
+                </Label>
+                <RadioGroup value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                  <div className="space-y-1.5">
+                    {adjustmentDialog.item.locations && adjustmentDialog.item.locations.length > 0 ? (
+                      adjustmentDialog.item.locations.map((itemLocation) => (
+                        <div
+                          key={itemLocation.id}
+                          className={`flex items-center space-x-2 p-2 rounded-lg border transition-colors ${selectedLocationId === itemLocation.locationId
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50"
+                            }`}
+                        >
+                          <RadioGroupItem
+                            value={itemLocation.locationId}
+                            id={`location-${itemLocation.locationId}`}
+                            className="flex-shrink-0"
+                          />
+                          <Label
+                            htmlFor={`location-${itemLocation.locationId}`}
+                            className="flex-1 cursor-pointer min-w-0"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-mono font-semibold text-xs truncate">{itemLocation.location.code}</p>
+                                {itemLocation.location.name && (
+                                  <p className="text-[10px] text-muted-foreground truncate">{itemLocation.location.name}</p>
+                                )}
+                              </div>
+                              <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">{itemLocation.quantity} units</p>
+                            </div>
+                          </Label>
+                        </div>
+                      ))
+                    ) : (
+                      <Alert className="py-2">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        <AlertDescription className="text-xs">No locations assigned to this item.</AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                </RadioGroup>
+              </div>
 
-                  <Input
-                    id="quantity"
-                    type="text"
-                    value={adjustmentQuantity}
-                    onChange={(e) => {
-                      const val = e.target.value
+              {!selectedLocationId && adjustmentDialog.item.locations && adjustmentDialog.item.locations.length > 0 && (
+                <Alert className="py-2">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  <AlertDescription className="text-xs">Please select a location to update stock quantity.</AlertDescription>
+                </Alert>
+              )}
 
-                      // Allow empty string
-                      if (val === "") {
-                        setAdjustmentQuantity("")
-                        if (adjustmentDialog.item) {
-                          setNewStockAmount(String(adjustmentDialog.item.onHand))
-                        }
-                        return
-                      }
+              {selectedLocationId && (
+                <>
+                  {/* Adjustment Controls */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Adjustment Quantity</Label>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={decrementQuantity}
+                        className="flex-shrink-0"
+                      >
+                        <span className="text-lg">−</span>
+                      </Button>
 
-                      // Allow just minus or plus sign
-                      if (val === "-" || val === "+") {
-                        setAdjustmentQuantity(val)
-                        return
-                      }
+                      <Input
+                        type="text"
+                        value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
+                        onChange={(e) => {
+                          const val = e.target.value
 
-                      // Remove any non-numeric characters except leading minus/plus
-                      const cleaned = val.replace(/[^0-9-+]/g, "")
-
-                      // Ensure only one minus/plus at the start
-                      const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
-                      const numbers = cleaned.replace(/[-+]/g, "")
-                      const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
-
-                      // Parse and update
-                      if (finalValue === "-" || finalValue === "+") {
-                        setAdjustmentQuantity(finalValue)
-                      } else {
-                        const num = Number.parseInt(finalValue)
-                        if (!isNaN(num)) {
-                          setAdjustmentQuantity(String(num))
-                          if (adjustmentDialog.item) {
-                            setNewStockAmount(String(adjustmentDialog.item.onHand + num))
+                          if (val === "") {
+                            setAdjustmentQuantity("")
+                            setNewStockAmount(String(getCurrentLocationStock()))
+                            return
                           }
-                        }
-                      }
-                    }}
-                    placeholder="0"
-                    className="text-center text-lg font-semibold"
-                  />
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={incrementQuantity}
-                    className="h-10 w-10 shrink-0"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+                          if (val === "-" || val === "+") {
+                            setAdjustmentQuantity(val)
+                            return
+                          }
 
-              <div className="space-y-2">
-                <Label htmlFor="newStock">New Quantity</Label>
-                <Input
-                  id="newStock"
-                  type="number"
-                  min="0"
-                  value={newStockAmount}
-                  onChange={(e) => handleNewStockAmountChange(e.target.value)}
-                  placeholder={String(adjustmentDialog.item.onHand)}
-                  className="text-lg font-semibold"
-                />
-              </div>
+                          const cleaned = val.replace(/[^0-9-+]/g, "")
+                          const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
+                          const numbers = cleaned.replace(/[-+]/g, "")
+                          const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
 
-              <div className="space-y-2">
-                <Label htmlFor="reason">Reason</Label>
+                          if (finalValue === "-" || finalValue === "+") {
+                            setAdjustmentQuantity(finalValue)
+                          } else {
+                            const num = Number.parseInt(finalValue)
+                            if (!isNaN(num)) {
+                              handleAdjustmentQuantityChange(String(num))
+                            }
+                          }
+                        }}
+                        className="text-center font-semibold flex-1 min-w-0"
+                      />
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={incrementQuantity}
+                        className="flex-shrink-0"
+                      >
+                        <span className="text-lg">+</span>
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Current stock at this location: {getCurrentLocationStock()} units
+                    </p>
+                  </div>
+
+                  {/* New Quantity Input */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="newStock" className="text-xs">New Quantity at Location</Label>
+                    <Input
+                      id="newStock"
+                      type="number"
+                      min="0"
+                      value={newStockAmount}
+                      onChange={(e) => handleNewStockAmountChange(e.target.value)}
+                      className="font-semibold"
+                    />
+                    {Number.parseInt(newStockAmount) < 0 && (
+                      <Alert variant="destructive" className="py-1.5">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Transaction Note */}
+              <div className="space-y-1.5">
+                <Label htmlFor="note" className="text-xs">Transaction Note (Optional)</Label>
                 <Textarea
-                  id="reason"
-                  placeholder="e.g., 'Received shipment', 'Damaged goods', 'Customer order'"
-                  value={adjustmentReason}
-                  onChange={(e) => setAdjustmentReason(e.target.value)}
-                  rows={3}
+                  id="note"
+                  placeholder="Add any additional notes..."
+                  value={adjustmentNote}
+                  onChange={(e) => setAdjustmentNote(e.target.value)}
+                  className="min-h-16 resize-none text-sm"
                 />
+              </div>
+            </div>
+          )}
+
+          <div className="px-6 pb-6 pt-4 border-t">
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAdjustmentDialog({ open: false, item: null })
+                  setAdjustmentQuantity("")
+                  setNewStockAmount("")
+                  setAdjustmentReason("")
+                  setSelectedLocationId("")
+                  setAdjustmentNote("")
+                }}
+                size="sm"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleStockAdjustment}
+                disabled={
+                  !adjustmentQuantity ||
+                  adjustmentQuantity === "0" ||
+                  !selectedLocationId ||
+                  Number.parseInt(newStockAmount) < 0
+                }
+                size="sm"
+              >
+                Update Stock
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteDialog({ open: false, item: null })
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              Delete Item
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this item? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteDialog.item && (
+            <div className="py-4">
+              <div className="p-4 rounded-lg border border-destructive/20 bg-destructive/5">
+                <p className="font-semibold text-sm">{deleteDialog.item.name}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Item #: {deleteDialog.item.itemNumber}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Current Stock: {deleteDialog.item.onHand} units
+                </p>
               </div>
             </div>
           )}
@@ -1137,20 +1375,27 @@ export default function DashboardPage() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => {
-                setAdjustmentDialog({ open: false, item: null })
-                setAdjustmentQuantity("")
-                setNewStockAmount("")
-                setAdjustmentReason("")
-              }}
+              onClick={() => setDeleteDialog({ open: false, item: null })}
+              disabled={isDeleting}
             >
               Cancel
             </Button>
             <Button
-              onClick={handleStockAdjustment}
-              disabled={!adjustmentQuantity || adjustmentQuantity === "0" || !adjustmentReason.trim()}
+              variant="destructive"
+              onClick={handleDeleteItem}
+              disabled={isDeleting}
             >
-              Update Stock
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Item
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

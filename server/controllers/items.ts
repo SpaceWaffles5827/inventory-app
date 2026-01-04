@@ -1,6 +1,31 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
 
+// Helper function to calculate total onHand from locations
+const calculateOnHand = (locations: { quantity: number }[]): number => {
+  return locations.reduce((total, loc) => total + loc.quantity, 0);
+};
+
+// Helper function to determine item status based on total quantity
+const determineStatus = (
+  onHand: number
+): "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" => {
+  if (onHand === 0) return "OUT_OF_STOCK";
+  if (onHand < 10) return "LOW_STOCK";
+  return "IN_STOCK";
+};
+
+// Helper function to add onHand to item
+const addOnHandToItem = <T extends { locations: { quantity: number }[] }>(
+  item: T
+) => {
+  const onHand = calculateOnHand(item.locations);
+  return {
+    ...item,
+    onHand,
+  };
+};
+
 const itemsController = {
   // Create a new item
   createItem: async (req: Request, res: Response) => {
@@ -9,11 +34,13 @@ const itemsController = {
         itemNumber,
         name,
         barcode,
+        unit,
         description,
         onHand,
         cost,
         categoryId,
         locationId,
+        locationIds,
         supplierId,
         workspaceId,
         customerIds,
@@ -82,20 +109,47 @@ const itemsController = {
         }
       }
 
+      // Determine which locations to use (support both single locationId and multiple locationIds)
+      const locationsToCreate =
+        locationIds && locationIds.length > 0
+          ? locationIds
+          : locationId
+          ? [locationId]
+          : [];
+
+      // Verify all locations belong to the workspace (if locations provided)
+      if (locationsToCreate.length > 0) {
+        const locations = await prisma.location.findMany({
+          where: {
+            id: { in: locationsToCreate },
+            workspaceId: workspaceId,
+          },
+        });
+
+        if (locations.length !== locationsToCreate.length) {
+          return res.status(400).json({
+            status: "error",
+            message: "One or more locations not found in this workspace",
+          });
+        }
+      }
+
+      const initialQuantity = onHand || 0;
+      const status = determineStatus(initialQuantity);
+
       // Create the item
       const item = await prisma.item.create({
         data: {
           itemNumber,
           name,
           barcode: barcode || null,
+          unit: unit || null,
           description: description || null,
-          onHand: onHand || 0,
           cost: cost || 0,
           categoryId: categoryId || null,
-          locationId: locationId || null,
           supplierId: supplierId || null,
           workspaceId: workspaceId,
-          status: onHand > 0 ? "IN_STOCK" : "OUT_OF_STOCK",
+          status: status,
           ...(customerIds &&
             customerIds.length > 0 && {
               customers: {
@@ -105,27 +159,41 @@ const itemsController = {
                 })),
               },
             }),
+          ...(locationsToCreate.length > 0 && {
+            locations: {
+              create: locationsToCreate.map((locId: string) => ({
+                locationId: locId,
+                quantity: initialQuantity || 0,
+                minStock: 0,
+                maxStock: 0,
+              })),
+            },
+          }),
         },
         include: {
           category: true,
-          location: true,
           supplier: true,
           customers: {
             include: {
               customer: true,
             },
           },
+          locations: {
+            include: {
+              location: true,
+            },
+          },
         },
       });
 
-      // Create initial stock transaction if onHand > 0
-      if (onHand && onHand > 0) {
+      // Create initial stock transaction if initialQuantity > 0
+      if (initialQuantity && initialQuantity > 0) {
         await prisma.stockTransaction.create({
           data: {
             type: "INPUT",
-            quantity: onHand,
+            quantity: initialQuantity,
             previousStock: 0,
-            newStock: onHand,
+            newStock: initialQuantity,
             reason: "Initial stock",
             itemId: item.id,
             workspaceId: workspaceId,
@@ -134,10 +202,13 @@ const itemsController = {
         });
       }
 
+      // Add calculated onHand to response
+      const itemWithOnHand = addOnHandToItem(item);
+
       return res.status(201).json({
         status: "success",
         message: "Item created successfully",
-        data: { item },
+        data: { item: itemWithOnHand },
       });
     } catch (error) {
       console.error("Create item error:", error);
@@ -190,11 +261,15 @@ const itemsController = {
         },
         include: {
           category: true,
-          location: true,
           supplier: true,
           customers: {
             include: {
               customer: true,
+            },
+          },
+          locations: {
+            include: {
+              location: true,
             },
           },
         },
@@ -203,9 +278,12 @@ const itemsController = {
         },
       });
 
+      // Add calculated onHand to each item
+      const itemsWithOnHand = items.map(addOnHandToItem);
+
       return res.status(200).json({
         status: "success",
-        data: { items },
+        data: { items: itemsWithOnHand },
       });
     } catch (error) {
       console.error("Get items error:", error);
@@ -233,12 +311,16 @@ const itemsController = {
         where: { id },
         include: {
           category: true,
-          location: true,
           supplier: true,
           workspace: true,
           customers: {
             include: {
               customer: true,
+            },
+          },
+          locations: {
+            include: {
+              location: true,
             },
           },
           transactions: {
@@ -281,9 +363,12 @@ const itemsController = {
         });
       }
 
+      // Add calculated onHand to response
+      const itemWithOnHand = addOnHandToItem(item);
+
       return res.status(200).json({
         status: "success",
-        data: { item },
+        data: { item: itemWithOnHand },
       });
     } catch (error) {
       console.error("Get item error:", error);
@@ -309,6 +394,9 @@ const itemsController = {
 
       const item = await prisma.item.findUnique({
         where: { id },
+        include: {
+          locations: true,
+        },
       });
 
       if (!item) {
@@ -338,10 +426,12 @@ const itemsController = {
         itemNumber,
         name,
         barcode,
+        unit,
         description,
         cost,
         categoryId,
         locationId,
+        locationIds,
         supplierId,
         customerIds,
       } = req.body;
@@ -382,17 +472,45 @@ const itemsController = {
         }
       }
 
+      // Determine which locations to use (support both single locationId and multiple locationIds)
+      const locationsToUpdate =
+        locationIds !== undefined && locationIds.length > 0
+          ? locationIds
+          : locationId !== undefined
+          ? [locationId]
+          : undefined;
+
+      // Verify all locations belong to the workspace (if locations provided)
+      if (locationsToUpdate !== undefined && locationsToUpdate.length > 0) {
+        const locations = await prisma.location.findMany({
+          where: {
+            id: { in: locationsToUpdate },
+            workspaceId: item.workspaceId,
+          },
+        });
+
+        if (locations.length !== locationsToUpdate.length) {
+          return res.status(400).json({
+            status: "error",
+            message: "One or more locations not found in this workspace",
+          });
+        }
+      }
+
+      // Calculate current onHand from existing locations
+      const currentOnHand = calculateOnHand(item.locations);
+
       const updatedItem = await prisma.item.update({
         where: { id },
         data: {
           itemNumber: itemNumber !== undefined ? itemNumber : item.itemNumber,
           name: name || item.name,
           barcode: barcode !== undefined ? barcode : item.barcode,
+          unit: unit !== undefined ? unit : item.unit,
           description:
             description !== undefined ? description : item.description,
           cost: cost !== undefined ? cost : item.cost,
           categoryId: categoryId !== undefined ? categoryId : item.categoryId,
-          locationId: locationId !== undefined ? locationId : item.locationId,
           supplierId: supplierId !== undefined ? supplierId : item.supplierId,
           ...(customerIds !== undefined && {
             customers: {
@@ -403,23 +521,54 @@ const itemsController = {
               })),
             },
           }),
+          ...(locationsToUpdate !== undefined && {
+            locations: {
+              deleteMany: {},
+              create: locationsToUpdate.map((locId: string) => ({
+                locationId: locId,
+                quantity: currentOnHand, // Preserve current total quantity
+                minStock: 0,
+                maxStock: 0,
+              })),
+            },
+          }),
         },
         include: {
           category: true,
-          location: true,
           supplier: true,
           customers: {
             include: {
               customer: true,
             },
           },
+          locations: {
+            include: {
+              location: true,
+            },
+          },
         },
       });
+
+      // Recalculate status based on new location quantities
+      const newOnHand = calculateOnHand(updatedItem.locations);
+      const newStatus = determineStatus(newOnHand);
+
+      // Update status if it changed
+      if (newStatus !== updatedItem.status) {
+        await prisma.item.update({
+          where: { id },
+          data: { status: newStatus },
+        });
+        updatedItem.status = newStatus;
+      }
+
+      // Add calculated onHand to response
+      const itemWithOnHand = addOnHandToItem(updatedItem);
 
       return res.status(200).json({
         status: "success",
         message: "Item updated successfully",
-        data: { item: updatedItem },
+        data: { item: itemWithOnHand },
       });
     } catch (error) {
       console.error("Update item error:", error);
@@ -491,7 +640,7 @@ const itemsController = {
   adjustStock: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { quantity, type, reason } = req.body; // type: 'INPUT' or 'OUTPUT'
+      const { quantity, type, reason, locationId } = req.body; // type: 'INPUT' or 'OUTPUT'
       const userId = req.user?.id;
 
       if (!userId) {
@@ -517,6 +666,9 @@ const itemsController = {
 
       const item = await prisma.item.findUnique({
         where: { id },
+        include: {
+          locations: true,
+        },
       });
 
       if (!item) {
@@ -541,7 +693,55 @@ const itemsController = {
         });
       }
 
-      const previousStock = item.onHand;
+      // Calculate previous total stock
+      const previousStock = calculateOnHand(item.locations);
+
+      // If locationId is provided, verify it exists for this item
+      if (locationId) {
+        const itemLocation = await prisma.itemLocation.findUnique({
+          where: {
+            itemId_locationId: {
+              itemId: id,
+              locationId: locationId,
+            },
+          },
+        });
+
+        if (!itemLocation) {
+          return res.status(400).json({
+            status: "error",
+            message: "Location not found for this item",
+          });
+        }
+
+        // Update location-specific quantity
+        const previousLocationStock = itemLocation.quantity;
+        const newLocationStock =
+          type === "INPUT"
+            ? previousLocationStock + quantity
+            : previousLocationStock - quantity;
+
+        if (newLocationStock < 0) {
+          return res.status(400).json({
+            status: "error",
+            message: "Insufficient stock at this location",
+          });
+        }
+
+        await prisma.itemLocation.update({
+          where: {
+            itemId_locationId: {
+              itemId: id,
+              locationId: locationId,
+            },
+          },
+          data: {
+            quantity: newLocationStock,
+          },
+        });
+      }
+
+      // Calculate new total stock
       const newStock =
         type === "INPUT" ? previousStock + quantity : previousStock - quantity;
 
@@ -552,17 +752,28 @@ const itemsController = {
         });
       }
 
-      // Update item stock
+      // Determine new status based on total quantity
+      const newStatus = determineStatus(newStock);
+
+      // Update item status
       const updatedItem = await prisma.item.update({
         where: { id },
         data: {
-          onHand: newStock,
-          status:
-            newStock === 0
-              ? "OUT_OF_STOCK"
-              : newStock < 10
-              ? "LOW_STOCK"
-              : "IN_STOCK",
+          status: newStatus,
+        },
+        include: {
+          locations: {
+            include: {
+              location: true,
+            },
+          },
+          category: true,
+          supplier: true,
+          customers: {
+            include: {
+              customer: true,
+            },
+          },
         },
       });
 
@@ -580,10 +791,13 @@ const itemsController = {
         },
       });
 
+      // Add calculated onHand to response
+      const itemWithOnHand = addOnHandToItem(updatedItem);
+
       return res.status(200).json({
         status: "success",
         message: "Stock adjusted successfully",
-        data: { item: updatedItem },
+        data: { item: itemWithOnHand },
       });
     } catch (error) {
       console.error("Adjust stock error:", error);

@@ -11,11 +11,15 @@ export const itemWithRelationsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()(
   {
     include: {
       category: true,
-      location: true,
       supplier: true,
       customers: {
         include: {
           customer: true,
+        },
+      },
+      locations: {
+        include: {
+          location: true,
         },
       },
     },
@@ -26,12 +30,16 @@ export const itemWithRelationsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()(
 export const itemWithDetailsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()({
   include: {
     category: true,
-    location: true,
     supplier: true,
     workspace: true,
     customers: {
       include: {
         customer: true,
+      },
+    },
+    locations: {
+      include: {
+        location: true,
       },
     },
     transactions: {
@@ -50,8 +58,11 @@ export const itemWithDetailsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()({
 
 export type ItemWithRelations = Prisma.ItemGetPayload<
   typeof itemWithRelationsArgs
->;
-export type ItemWithDetails = Prisma.ItemGetPayload<typeof itemWithDetailsArgs>;
+> & { onHand: number };
+
+export type ItemWithDetails = Prisma.ItemGetPayload<
+  typeof itemWithDetailsArgs
+> & { onHand: number };
 
 // ============================================
 // Request types
@@ -62,11 +73,13 @@ export type CreateItemRequest = {
   itemNumber: string;
   name: string;
   barcode?: string;
+  unit?: string;
   description?: string;
   onHand?: number;
   cost?: number;
   categoryId?: string;
   locationId?: string;
+  locationIds?: string[];
   supplierId?: string;
   customerIds?: string[];
 };
@@ -75,10 +88,12 @@ export type UpdateItemRequest = {
   itemNumber?: string;
   name?: string;
   barcode?: string;
+  unit?: string;
   description?: string;
   cost?: number;
   categoryId?: string;
   locationId?: string;
+  locationIds?: string[];
   supplierId?: string;
   customerIds?: string[];
 };
@@ -87,6 +102,7 @@ export type AdjustStockRequest = {
   type: "INPUT" | "OUTPUT";
   quantity: number;
   reason: string;
+  locationId?: string;
 };
 
 // ============================================
