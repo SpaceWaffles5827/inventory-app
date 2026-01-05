@@ -494,8 +494,8 @@ export default function DashboardPage() {
         </div>
 
         {/* Inventory Table */}
-        <Card className="border-border/50">
-          <CardHeader>
+        <Card className="border-border/50 gap-0">
+          <CardHeader className="gap-3">
             <div className="flex flex-col gap-4">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
@@ -957,19 +957,22 @@ export default function DashboardPage() {
                         onClick={() => router.push(`/dashboard/items/${item.id}`)}
                       >
                         <CardHeader className="pb-3 flex-none">
-                          <div className="flex items-start justify-between gap-2 mb-2">
-                            <div className="flex-1 min-w-0">
-                              <CardTitle className="text-base font-semibold truncate" title={item.name}>
+                          <div className="space-y-2">
+                            <div className="min-w-0 overflow-hidden h-[52px]">
+                              <CardTitle
+                                className="text-base font-semibold line-clamp-2 break-words"
+                                title={item.name}
+                              >
                                 {item.name}
                               </CardTitle>
-                              <p className="text-xs text-muted-foreground font-mono mt-0.5">{item.itemNumber}</p>
+                              <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">{item.itemNumber}</p>
                             </div>
                             <Badge
                               variant={item.status === "IN_STOCK" ? "default" : "destructive"}
                               className={
                                 item.status === "IN_STOCK"
-                                  ? "bg-accent/10 text-accent flex-none"
-                                  : "bg-destructive/10 text-destructive flex-none"
+                                  ? "bg-accent/10 text-accent w-fit"
+                                  : "bg-destructive/10 text-destructive w-fit"
                               }
                             >
                               {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out"}
