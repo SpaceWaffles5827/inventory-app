@@ -227,11 +227,9 @@ export default function DashboardPage() {
     try {
       const onHand = Number.parseInt(newItemForm.onHand)
       const cost = Number.parseFloat(newItemForm.cost)
-      const nextItemNumber = `ITM-${String(inventory.length + 1).padStart(3, "0")}`
 
       const response = await createItemApi({
         workspaceId: currentWorkspaceId,
-        itemNumber: nextItemNumber,
         name: newItemForm.name,
         barcode: newItemForm.barcode || undefined,
         unit: newItemForm.unit || undefined, // Add unit field

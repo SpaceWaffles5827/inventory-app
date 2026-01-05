@@ -31,7 +31,6 @@ const itemsController = {
   createItem: async (req: Request, res: Response) => {
     try {
       const {
-        itemNumber,
         name,
         barcode,
         unit,
@@ -77,20 +76,29 @@ const itemsController = {
         });
       }
 
-      // Check if item number already exists in this workspace
-      const existingItem = await prisma.item.findFirst({
+      // Generate next item number for this workspace
+      const lastItem = await prisma.item.findFirst({
         where: {
           workspaceId: workspaceId,
-          itemNumber: itemNumber,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          itemNumber: true,
         },
       });
 
-      if (existingItem) {
-        return res.status(400).json({
-          status: "error",
-          message: "Item number already exists in this workspace",
-        });
+      let nextNumber = 1;
+      if (lastItem) {
+        // Extract number from format ITM-001, ITM-002, etc.
+        const match = lastItem.itemNumber.match(/ITM-(\d+)/);
+        if (match) {
+          nextNumber = parseInt(match[1]) + 1;
+        }
       }
+
+      const itemNumber = `ITM-${String(nextNumber).padStart(3, "0")}`;
 
       // Verify all customers belong to the workspace (if customerIds provided)
       if (customerIds && customerIds.length > 0) {

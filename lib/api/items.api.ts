@@ -70,7 +70,6 @@ export type ItemWithDetails = Prisma.ItemGetPayload<
 
 export type CreateItemRequest = {
   workspaceId: string;
-  itemNumber: string;
   name: string;
   barcode?: string;
   unit?: string;
