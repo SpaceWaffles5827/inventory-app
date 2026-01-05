@@ -73,7 +73,7 @@ export default function DashboardPage() {
   const [newItemForm, setNewItemForm] = useState({
     name: "",
     barcode: "",
-    unit: "", // Add this new field
+    unit: "",
     category: "",
     description: "",
     supplier: "",
@@ -232,7 +232,7 @@ export default function DashboardPage() {
         workspaceId: currentWorkspaceId,
         name: newItemForm.name,
         barcode: newItemForm.barcode || undefined,
-        unit: newItemForm.unit || undefined, // Add unit field
+        unit: newItemForm.unit || undefined,
         description: newItemForm.description || undefined,
         onHand: onHand,
         cost: cost,
@@ -248,7 +248,7 @@ export default function DashboardPage() {
       setNewItemForm({
         name: "",
         barcode: "",
-        unit: "", // Reset unit field
+        unit: "",
         category: "",
         description: "",
         supplier: "",
@@ -839,6 +839,7 @@ export default function DashboardPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
+                      <TableHead className="w-[60px]"></TableHead>
                       <TableHead className="font-semibold">Item #</TableHead>
                       <TableHead className="font-semibold">Product Name</TableHead>
                       <TableHead className="font-semibold">Category</TableHead>
@@ -853,7 +854,7 @@ export default function DashboardPage() {
                   <TableBody>
                     {filteredInventory.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                        <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
                           No items found matching your filters
                         </TableCell>
                       </TableRow>
@@ -864,6 +865,15 @@ export default function DashboardPage() {
                           className="hover:bg-muted/30 transition-colors cursor-pointer"
                           onClick={() => router.push(`/dashboard/items/${item.id}`)}
                         >
+                          <TableCell>
+                            <div className="w-12 h-12 rounded-md bg-muted/50 border border-border flex items-center justify-center overflow-hidden">
+                              <img
+                                src="https://images.unsplash.com/photo-1545127398-14699f92334b?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8aXRlbXN8ZW58MHx8MHx8fDA%3D"
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          </TableCell>
                           <TableCell className="font-mono text-sm text-muted-foreground">{item.itemNumber}</TableCell>
                           <TableCell className="max-w-0 w-full">
                             <div className="min-w-0">
@@ -953,10 +963,17 @@ export default function DashboardPage() {
                     {filteredInventory.map((item) => (
                       <Card
                         key={item.id}
-                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:border-accent/50 flex flex-col"
+                        className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:border-accent/50 flex flex-col pt-0 overflow-hidden"
                         onClick={() => router.push(`/dashboard/items/${item.id}`)}
                       >
-                        <CardHeader className="pb-3 flex-none">
+                        <div className="relative w-full h-48 bg-muted/30 border-b border-border overflow-hidden">
+                          <img
+                            src="https://images.unsplash.com/photo-1545127398-14699f92334b?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8aXRlbXN8ZW58MHx8MHx8fDA%3D"
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <CardHeader className="pb-3 flex-none pt-0">
                           <div className="space-y-2">
                             <div className="min-w-0 overflow-hidden h-[52px]">
                               <CardTitle
@@ -1033,14 +1050,21 @@ export default function DashboardPage() {
                     {filteredInventory.map((item) => (
                       <Card
                         key={item.id}
-                        className="cursor-pointer hover:shadow-md transition-all duration-200 hover:border-accent/50"
+                        className="cursor-pointer hover:shadow-md transition-all duration-200 hover:border-accent/50 overflow-hidden"
                         onClick={() => router.push(`/dashboard/items/${item.id}`)}
                       >
-                        <CardContent className="">
-                          <div className="flex items-center gap-4">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h3 className="font-semibold text-base truncate" title={item.name}>
+                        <CardContent className="pt-0 pb-0">
+                          <div className="flex items-center gap-4 min-w-0">
+                            <div className="w-20 h-20 rounded-md bg-muted/50 border border-border overflow-hidden flex-shrink-0">
+                              <img
+                                src="https://images.unsplash.com/photo-1545127398-14699f92334b?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8aXRlbXN8ZW58MHx8MHx8fDA%3D"
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0 overflow-hidden">
+                              <div className="flex items-start gap-3 mb-1 min-w-0">
+                                <h3 className="font-semibold text-base line-clamp-2 break-words flex-1 min-w-0 overflow-hidden" title={item.name}>
                                   {item.name}
                                 </h3>
                                 <Badge
@@ -1054,10 +1078,10 @@ export default function DashboardPage() {
                                   {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
                                 </Badge>
                               </div>
-                              <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
+                              <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap min-w-0">
                                 <span className="font-mono">{item.itemNumber}</span>
-                                <span>•</span>
-                                <span className="text-xs truncate">
+                                {/* <span>•</span> */}
+                                <span className="text-xs truncate min-w-0">
                                   {item.locations && item.locations.filter(loc => loc.quantity > 0).length > 0
                                     ? item.locations
                                       .filter(loc => loc.quantity > 0)
