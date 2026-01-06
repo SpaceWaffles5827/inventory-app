@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { LayoutGrid, List, TableIcon } from "lucide-react"
+import { LayoutGrid, List, TableIcon, ImageIcon } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -42,6 +42,75 @@ import { CategoryWithCount } from "@/lib/api/categories.api"
 import { LocationWithCount } from "@/lib/api/locations.api"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+
+// Helper component for item images
+const ItemImage = ({ itemId, alt, className }: { itemId: string; alt: string; className?: string }) => {
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    const loadPrimaryImage = async () => {
+      try {
+        setLoading(true)
+        setError(false)
+
+        // Fetch images for this item
+        const response = await fetch(`/api/items/images/${itemId}`, {
+          credentials: 'include',
+        })
+
+        if (!response.ok) {
+          setError(true)
+          return
+        }
+
+        const data = await response.json()
+
+        // Find primary image
+        const primaryImage = data.data?.images?.find((img: any) => img.isPrimary)
+
+        if (primaryImage) {
+          setImageUrl(`/api/items/images/image/${primaryImage.id}`)
+        } else {
+          setError(true)
+        }
+      } catch (err) {
+        console.error('Failed to load image:', err)
+        setError(true)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadPrimaryImage()
+  }, [itemId])
+
+  if (loading) {
+    return (
+      <div className={`bg-muted/50 flex items-center justify-center ${className}`}>
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (error || !imageUrl) {
+    return (
+      <div className={`bg-muted/50 flex items-center justify-center ${className}`}>
+        <ImageIcon className="h-4 w-4 text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={alt}
+      className={className}
+      onError={() => setError(true)}
+    />
+  )
+}
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -867,8 +936,8 @@ export default function DashboardPage() {
                         >
                           <TableCell>
                             <div className="w-12 h-12 rounded-md bg-muted/50 border border-border flex items-center justify-center overflow-hidden">
-                              <img
-                                src="https://images.unsplash.com/photo-1545127398-14699f92334b?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8aXRlbXN8ZW58MHx8MHx8fDA%3D"
+                              <ItemImage
+                                itemId={item.id}
                                 alt={item.name}
                                 className="w-full h-full object-cover"
                               />
@@ -967,8 +1036,8 @@ export default function DashboardPage() {
                         onClick={() => router.push(`/dashboard/items/${item.id}`)}
                       >
                         <div className="relative w-full h-48 bg-muted/30 border-b border-border overflow-hidden">
-                          <img
-                            src="https://images.unsplash.com/photo-1545127398-14699f92334b?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8aXRlbXN8ZW58MHx8MHx8fDA%3D"
+                          <ItemImage
+                            itemId={item.id}
                             alt={item.name}
                             className="w-full h-full object-cover"
                           />
@@ -1056,8 +1125,8 @@ export default function DashboardPage() {
                         <CardContent className="pt-0 pb-0">
                           <div className="flex items-center gap-4 min-w-0">
                             <div className="w-20 h-20 rounded-md bg-muted/50 border border-border overflow-hidden flex-shrink-0">
-                              <img
-                                src="https://images.unsplash.com/photo-1545127398-14699f92334b?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8aXRlbXN8ZW58MHx8MHx8fDA%3D"
+                              <ItemImage
+                                itemId={item.id}
                                 alt={item.name}
                                 className="w-full h-full object-cover"
                               />
@@ -1080,7 +1149,6 @@ export default function DashboardPage() {
                               </div>
                               <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap min-w-0">
                                 <span className="font-mono">{item.itemNumber}</span>
-                                {/* <span>•</span> */}
                                 <span className="text-xs truncate min-w-0">
                                   {item.locations && item.locations.filter(loc => loc.quantity > 0).length > 0
                                     ? item.locations

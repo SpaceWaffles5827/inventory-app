@@ -29,6 +29,7 @@ model User {
   // Relations
   workspaceMembers  WorkspaceMember[]
   stockTransactions StockTransaction[]
+  itemImages        ItemImage[]
 
   @@map("users")
 }
@@ -258,7 +259,7 @@ model Item {
   name        String
   barcode     String?  // Optional barcode
   unit        String?  // NEW: Unit of measurement (e.g., "EA", "BOX", "KG", "LB")
-  description String?
+  description String?  @db.Text
   cost        Float    @default(0)
   status      ItemStatus @default(IN_STOCK)
   createdAt   DateTime @default(now())
@@ -276,9 +277,30 @@ model Item {
   customers     ItemCustomer[]
   locations     ItemLocation[]
   transactions  StockTransaction[]
+  images        ItemImage[]
 
   @@unique([workspaceId, itemNumber])
   @@map("items")
+}
+
+// Item image model for product photos
+model ItemImage {
+  id          String   @id @default(cuid())
+  itemId      String
+  imageName   String
+  isPrimary   Boolean  @default(false)
+  displayOrder Int     @default(0)
+  uploadedAt  DateTime @default(now())
+  uploadedBy  String
+
+  // Relations
+  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [uploadedBy], references: [id], onDelete: NoAction)
+
+  @@index([itemId, displayOrder])
+  @@index([itemId, isPrimary])
+  @@index([uploadedBy])
+  @@map("item_images")
 }
 
 // Stock transaction model for audit trail

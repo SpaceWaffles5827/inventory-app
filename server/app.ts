@@ -147,6 +147,9 @@ app.use("/api/auth", authRoutes);
 import itemsRoutes from "./routes/items";
 app.use("/api/items", isAuth, itemsRoutes);
 
+import itemImagesRoutes from "./routes/itemImages";
+app.use("/api/items/images", isAuth, itemImagesRoutes);
+
 import invitationsRoutes from "./routes/invitations";
 app.use("/api/invitations", invitationsRoutes);
 

@@ -9,12 +9,19 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin } from "lucide-react"
+import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin, ImageIcon, Hash, Tag, Upload, Star, X } from "lucide-react"
 import { getItemByIdApi, updateItemApi, type ItemWithDetails } from "@/lib/api/items.api"
 import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
 import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
 import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
 import { getCustomersApi, type CustomerWithCount } from "@/lib/api/customers.api"
+import {
+  getItemImagesApi,
+  smartUploadImageApi,
+  setPrimaryImageApi,
+  deleteItemImageApi,
+  type ItemImage as APIItemImage
+} from "@/lib/api/itemImages.api"
 import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
@@ -46,6 +53,11 @@ export default function ItemDetailPage() {
   const [isManageLocationsOpen, setIsManageLocationsOpen] = useState(false)
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
   const [newLocationId, setNewLocationId] = useState("")
+  const [isManageImagesOpen, setIsManageImagesOpen] = useState(false)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [images, setImages] = useState<APIItemImage[]>([])
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [formData, setFormData] = useState({
     itemNumber: "",
     name: "",
@@ -100,6 +112,9 @@ export default function ItemDetailPage() {
           const locationIds = itemData.locations?.map(loc => loc.locationId) || []
           console.log("Extracted location IDs:", locationIds)
           setSelectedLocationIds(locationIds)
+
+          // Load images for this item
+          loadImages(itemId)
         }
       } catch (error) {
         console.error("Failed to load item:", error)
@@ -113,6 +128,17 @@ export default function ItemDetailPage() {
       loadItem()
     }
   }, [itemId])
+
+  const loadImages = async (itemId: string) => {
+    try {
+      const response = await getItemImagesApi(itemId)
+      if (response.data?.images) {
+        setImages(response.data.images as APIItemImage[])
+      }
+    } catch (err) {
+      console.error("Failed to load images:", err)
+    }
+  }
 
   const loadCategories = async (workspaceId: string) => {
     try {
@@ -351,6 +377,80 @@ export default function ItemDetailPage() {
     setIsManageLocationsOpen(true)
   }
 
+  const handleSetPrimaryImage = async (imageId: string) => {
+    try {
+      await setPrimaryImageApi(imageId)
+      // Update local state
+      setImages((prev) =>
+        prev.map((img) => ({
+          ...img,
+          isPrimary: img.id === imageId,
+        })),
+      )
+      toast.success("Primary image updated")
+    } catch (error) {
+      console.error("Failed to set primary image:", error)
+      toast.error("Failed to set primary image")
+    }
+  }
+
+  const handleDeleteImage = async (imageId: string) => {
+    try {
+      await deleteItemImageApi(imageId)
+      // Update local state
+      setImages((prev) => prev.filter((img) => img.id !== imageId))
+      toast.success("Image deleted")
+    } catch (error) {
+      console.error("Failed to delete image:", error)
+      toast.error("Failed to delete image")
+    }
+  }
+
+  const handleUploadImages = () => {
+    // Trigger file input
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "image/jpeg,image/png,image/gif,image/webp"
+    input.multiple = true
+    input.onchange = async (e) => {
+      const files = (e.target as HTMLInputElement).files
+      if (!files || files.length === 0) return
+
+      setIsUploadingImage(true)
+      setUploadProgress(0)
+
+      try {
+        // Upload first image as primary if no images exist
+        const isPrimary = images.length === 0
+
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i]
+          const isFirst = i === 0
+
+          await smartUploadImageApi(
+            itemId,
+            file,
+            isPrimary && isFirst,
+            (progress) => {
+              setUploadProgress(Math.round(((i + progress / 100) / files.length) * 100))
+            }
+          )
+        }
+
+        // Reload images
+        await loadImages(itemId)
+        toast.success(`${files.length} image(s) uploaded successfully`)
+      } catch (error) {
+        console.error("Failed to upload images:", error)
+        toast.error("Failed to upload images")
+      } finally {
+        setIsUploadingImage(false)
+        setUploadProgress(0)
+      }
+    }
+    input.click()
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -390,104 +490,207 @@ export default function ItemDetailPage() {
   console.log("Rendering - selectedLocationIds:", selectedLocationIds)
   console.log("Rendering - selectedLocations:", selectedLocations.map(l => ({ id: l.id, code: l.code })))
 
+  const totalQuantity = item.locations?.reduce((sum, loc) => sum + loc.quantity, 0) || 0
+  const primaryImage = images.find((img) => img.isPrimary)
+  const primaryImageUrl = primaryImage ? `/api/items/images/image/${primaryImage.id}` : null
+
   return (
     <div className="min-h-screen">
       <div className="container mx-auto px-8 py-8">
-        {/* Back Button */}
-        <Link href="/dashboard">
-          <Button variant="ghost" className="mb-6">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Inventory
-          </Button>
-        </Link>
+        {/* Header with Back Button and Edit Controls */}
+        <div className="flex items-center justify-between mb-6">
+          <Link href="/dashboard">
+            <Button variant="ghost">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Inventory
+            </Button>
+          </Link>
+
+          <div className="flex gap-2">
+            {!isEditing ? (
+              <Button onClick={() => setIsEditing(true)} className="shadow-lg shadow-accent/20">
+                <Edit2 className="h-4 w-4 mr-2" />
+                Edit Item
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSave} className="shadow-lg shadow-accent/20" disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Hero Section */}
+        <Card className="overflow-hidden mb-6">
+          <CardContent className="p-6">
+            <div className="flex flex-col md:flex-row gap-6">
+              {/* Product Image - Fixed size */}
+              <div className="flex-shrink-0">
+                <div
+                  className={`relative w-32 h-32 md:w-40 md:h-40 rounded-lg overflow-hidden bg-muted flex items-center justify-center ${isEditing ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all" : primaryImageUrl ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all" : ""
+                    }`}
+                  onClick={() => {
+                    if (isEditing) {
+                      setIsManageImagesOpen(true)
+                    } else if (primaryImageUrl) {
+                      setSelectedImageUrl(primaryImageUrl)
+                    }
+                  }}
+                >
+                  {primaryImageUrl ? (
+                    <>
+                      <img
+                        src={primaryImageUrl}
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                      />
+                      {isEditing && (
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                          <Upload className="h-8 w-8 text-white" />
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <Upload className="h-8 w-8" />
+                      {isEditing && <span className="text-xs">Click to upload</span>}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Product Info */}
+              <div className="flex-1 min-w-0">
+                <div className="space-y-4">
+                  {/* Item Name */}
+                  <div>
+                    {isEditing ? (
+                      <Input
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        className="text-2xl font-bold border-dashed"
+                        placeholder="Enter item name"
+                      />
+                    ) : (
+                      <h1 className="text-2xl md:text-3xl font-bold text-foreground">{item.name}</h1>
+                    )}
+                  </div>
+
+                  {/* Badges & Key Info */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="gap-1">
+                      <Hash className="h-3 w-3" />
+                      {item.itemNumber}
+                    </Badge>
+                    <Badge variant="outline" className="gap-1">
+                      <Tag className="h-3 w-3" />
+                      {item.category?.name || "Uncategorized"}
+                    </Badge>
+                    <Badge
+                      variant={
+                        item.status === "IN_STOCK" ? "default" : item.status === "LOW_STOCK" ? "secondary" : "destructive"
+                      }
+                    >
+                      {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
+                    </Badge>
+                  </div>
+
+                  {/* Quick Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Quantity</p>
+                      <p className="text-xl font-semibold">{totalQuantity}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Unit Cost</p>
+                      <p className="text-xl font-semibold">${item.cost.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Value</p>
+                      <p className="text-xl font-semibold">${(totalQuantity * item.cost).toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Locations</p>
+                      <p className="text-xl font-semibold">{selectedLocations.length}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Item Details */}
           <div className="lg:col-span-2 space-y-6">
             <Card className="border-border/50">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-2xl">Item Details</CardTitle>
-                    <CardDescription>View and edit item information</CardDescription>
-                  </div>
-                  {!isEditing ? (
-                    <Button onClick={() => setIsEditing(true)} className="shadow-lg shadow-accent/20">
-                      <Edit2 className="h-4 w-4 mr-2" />
-                      Edit
-                    </Button>
-                  ) : (
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
-                        Cancel
-                      </Button>
-                      <Button onClick={handleSave} className="shadow-lg shadow-accent/20" disabled={isSaving}>
-                        {isSaving ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="h-4 w-4 mr-2" />
-                            Save
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  )}
-                </div>
+                <CardTitle className="text-2xl">Item Details</CardTitle>
+                <CardDescription>View and edit item information</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="itemNumber">Item Number</Label>
-                    <Input
-                      id="itemNumber"
-                      value={formData.itemNumber}
-                      onChange={(e) => setFormData({ ...formData, itemNumber: e.target.value })}
-                      disabled={!isEditing}
-                      className={!isEditing ? "font-mono bg-muted" : "font-mono"}
-                      placeholder="Enter item number"
-                    />
+                    {isEditing ? (
+                      <Input
+                        id="itemNumber"
+                        value={formData.itemNumber}
+                        onChange={(e) => setFormData({ ...formData, itemNumber: e.target.value })}
+                        className="font-mono"
+                        placeholder="Enter item number"
+                      />
+                    ) : (
+                      <div className="text-base font-medium font-mono">{item.itemNumber}</div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="barcode" className="flex items-center gap-2">
                       <Barcode className="h-4 w-4" />
                       Barcode
                     </Label>
-                    <Input
-                      id="barcode"
-                      value={formData.barcode}
-                      onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                      disabled={!isEditing}
-                      className="font-mono"
-                      placeholder="Enter barcode"
-                    />
+                    {isEditing ? (
+                      <Input
+                        id="barcode"
+                        value={formData.barcode}
+                        onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                        className="font-mono"
+                        placeholder="Enter barcode"
+                      />
+                    ) : (
+                      <div className="text-base font-medium font-mono">{item.barcode || "—"}</div>
+                    )}
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="name">Product Name</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    disabled={!isEditing}
-                    placeholder="Enter product name"
-                  />
-                </div>
-
-                <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    disabled={!isEditing}
-                    rows={3}
-                    placeholder="Enter description"
-                  />
+                  {isEditing ? (
+                    <Textarea
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={3}
+                      placeholder="Enter description"
+                    />
+                  ) : (
+                    <div className="text-base">{item.description || "—"}</div>
+                  )}
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6">
@@ -507,7 +710,7 @@ export default function ItemDetailPage() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Input id="category" value={item.category?.name || "Uncategorized"} disabled className="bg-muted" />
+                      <div className="text-base font-medium">{item.category?.name || "Uncategorized"}</div>
                     )}
                   </div>
                   <div className="space-y-2">
@@ -526,7 +729,10 @@ export default function ItemDetailPage() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Input id="supplier" value={item.supplier?.name || "Unknown"} disabled className="bg-muted" />
+                      <div className="text-base font-medium flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-muted-foreground" />
+                        {item.supplier?.name || "Unknown"}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -564,20 +770,23 @@ export default function ItemDetailPage() {
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="onHand">On Hand</Label>
-                    <Input id="onHand" type="number" value={item.onHand} disabled className="bg-muted" />
+                    <div className="text-base font-medium">{totalQuantity}</div>
                     <p className="text-xs text-muted-foreground">Use stock adjustment from dashboard to change quantity</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="cost">Unit Cost</Label>
-                    <Input
-                      id="cost"
-                      type="number"
-                      step="0.01"
-                      value={formData.cost}
-                      onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                      disabled={!isEditing}
-                      placeholder="0.00"
-                    />
+                    {isEditing ? (
+                      <Input
+                        id="cost"
+                        type="number"
+                        step="0.01"
+                        value={formData.cost}
+                        onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                        placeholder="0.00"
+                      />
+                    ) : (
+                      <div className="text-base font-medium">${item.cost.toFixed(2)}</div>
+                    )}
                   </div>
                 </div>
 
@@ -641,7 +850,7 @@ export default function ItemDetailPage() {
                       currency: 'USD',
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
-                    }).format(item.onHand * item.cost)}
+                    }).format(totalQuantity * item.cost)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-border/50">
@@ -941,6 +1150,167 @@ export default function ItemDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Manage Images Dialog */}
+      <Dialog open={isManageImagesOpen} onOpenChange={setIsManageImagesOpen}>
+        <DialogContent className="sm:max-w-[650px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+                <ImageIcon className="h-5 w-5 text-primary" />
+              </div>
+              Product Images
+            </DialogTitle>
+            <DialogDescription>
+              Upload and manage photos. The primary image appears on the item card.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Upload Section */}
+            <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-xl hover:border-primary/50 hover:bg-muted/30 transition-all">
+              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                <Upload className="h-5 w-5 text-primary" />
+              </div>
+              <p className="text-sm text-muted-foreground mb-3 text-center">
+                Drag and drop images or click to browse
+              </p>
+              <Button
+                onClick={handleUploadImages}
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={isUploadingImage}
+              >
+                {isUploadingImage ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Uploading... {uploadProgress}%
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    Select Images
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* Images Grid */}
+            {images.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
+                  <ImageIcon className="h-6 w-6 opacity-30" />
+                </div>
+                <p className="text-sm font-medium">No images yet</p>
+                <p className="text-xs text-muted-foreground mt-1">Upload your first product image</p>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Gallery ({images.length})
+                  </h3>
+                </div>
+                <div className="grid grid-cols-3 gap-3 max-h-[280px] overflow-y-auto pr-1">
+                  {images.map((image) => (
+                    <div
+                      key={image.id}
+                      className="relative group aspect-square rounded-lg overflow-hidden border-2 hover:border-primary/50 transition-all bg-muted cursor-pointer"
+                      onClick={() => setSelectedImageUrl(`/api/items/images/image/${image.id}`)}
+                    >
+                      <img
+                        src={`/api/items/images/image/${image.id}`}
+                        alt="Product"
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                      />
+
+                      {/* Primary Badge */}
+                      {image.isPrimary && (
+                        <div className="absolute top-2 left-2">
+                          <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white shadow-lg border-0 text-xs">
+                            <Star className="h-2.5 w-2.5 mr-1 fill-current" />
+                            Primary
+                          </Badge>
+                        </div>
+                      )}
+
+                      {/* Hover Overlay with Actions */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200">
+                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-1.5">
+                          {!image.isPrimary ? (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="flex-1 bg-white/90 hover:bg-white backdrop-blur-sm h-7 text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSetPrimaryImage(image.id)
+                              }}
+                            >
+                              <Star className="h-3 w-3 mr-1" />
+                              Set Primary
+                            </Button>
+                          ) : (
+                            <div className="flex-1" />
+                          )}
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="shadow-lg h-7 w-7 p-0"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteImage(image.id)
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Compact Help Text */}
+            {images.length > 0 && (
+              <div className="bg-muted/50 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Tip:</span> Click to preview • Hover to set primary or delete
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setIsManageImagesOpen(false)} className="w-full sm:w-auto">
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Preview Modal */}
+      {selectedImageUrl && (
+        <Dialog open={!!selectedImageUrl} onOpenChange={() => setSelectedImageUrl(null)}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader className="sr-only">
+              <DialogTitle>View Image</DialogTitle>
+            </DialogHeader>
+            <img
+              src={selectedImageUrl}
+              alt="Selected Product Image"
+              className="w-full max-h-[80vh] object-contain"
+            />
+            <DialogFooter className="sr-only">
+              <Button variant="outline" onClick={() => setSelectedImageUrl(null)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
