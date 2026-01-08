@@ -696,7 +696,7 @@ export default function ItemDetailPage() {
 
           {/* Details Tab */}
           <TabsContent value="details" className="mt-0">
-            <div className="bg-card border border-t-0 rounded-b-lg p-4">
+            <div className="bg-card p-4">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Main Content */}
                 <div className="lg:col-span-2 space-y-4">
@@ -915,7 +915,7 @@ export default function ItemDetailPage() {
 
           {/* Locations Tab */}
           <TabsContent value="locations" className="mt-0">
-            <div className="bg-card border border-t-0 rounded-b-lg p-4">
+            <div className="bg-card p-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-semibold">Storage Locations</h3>
                 <Button variant="outline" size="sm" onClick={handleOpenManageLocations} className="gap-2 h-7">
@@ -1033,7 +1033,7 @@ export default function ItemDetailPage() {
 
           {/* History Tab */}
           <TabsContent value="history" className="mt-0">
-            <div className="bg-card border border-t-0 rounded-b-lg overflow-hidden">
+            <div className="bg-card overflow-hidden">
               <div className="p-4 border-b">
                 <h3 className="text-base font-semibold">Transaction History</h3>
               </div>
