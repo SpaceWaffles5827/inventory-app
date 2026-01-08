@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -39,6 +40,7 @@ interface LocationTemplate {
 }
 
 export default function LocationsPage() {
+  const router = useRouter()
   const [locations, setLocations] = useState<LocationWithCount[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -472,189 +474,144 @@ export default function LocationsPage() {
                       <span className="hidden sm:inline">Add Location</span>
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader className="pb-4 border-b border-border/50">
-                      <DialogTitle className="flex items-center gap-2 text-xl">
-                        <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <Settings2 className="h-5 w-5 text-primary" />
+                  <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0">
+                    <DialogHeader className="flex-shrink-0 px-6 pt-5 pb-3 border-b border-border/50">
+                      <DialogTitle className="flex items-center gap-2 text-lg">
+                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Settings2 className="h-4 w-4 text-primary" />
                         </div>
                         Create Location
                       </DialogTitle>
-                      <DialogDescription className="text-base mt-2">
+                      <DialogDescription className="text-sm mt-1">
                         Build a custom location structure for your warehouse
                       </DialogDescription>
                     </DialogHeader>
 
-                    <div className="grid lg:grid-cols-2 gap-8 py-6">
-                      <div className="space-y-5">
-                        <div className="flex items-center justify-between pb-3 border-b border-border/30">
-                          <div>
-                            <h3 className="text-base font-semibold text-foreground">Location Structure</h3>
-                            <p className="text-xs text-muted-foreground mt-0.5">Define your location hierarchy</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              onClick={saveDefaultStructureFromModal}
-                              className="h-9 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all shadow-sm"
-                            >
-                              <Settings2 className="h-4 w-4 sm:mr-2" />
-                              <span className="hidden sm:inline">Save as Default</span>
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={addLocationLevel}
-                              className="h-9 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all shadow-sm"
-                            >
-                              <Plus className="h-3.5 w-3.5 mr-1.5" />
-                              Add Level
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          {locationLevels.map((level, index) => (
-                            <div
-                              key={level.id}
-                              className="group flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all"
-                            >
-                              <div className="flex items-center justify-center w-7 h-7 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-bold text-xs flex-shrink-0 shadow-sm">
-                                {index + 1}
-                              </div>
-                              <div className="flex-1 flex gap-2">
-                                <div className="flex-1 space-y-1">
-                                  <Label className="text-xs text-muted-foreground">Level Name</Label>
-                                  <Input
-                                    placeholder="Zone, Floor..."
-                                    value={level.label}
-                                    onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
-                                    className="h-9 text-sm bg-background border-border/50 focus:border-primary/50 transition-colors"
-                                  />
-                                </div>
-                                <div className="w-32 space-y-1">
-                                  <Label className="text-xs text-muted-foreground">Code</Label>
-                                  <Input
-                                    placeholder="A, 01..."
-                                    value={level.value}
-                                    onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
-                                    maxLength={10}
-                                    className="h-9 text-sm font-mono bg-background border-border/50 focus:border-primary/50 transition-colors"
-                                  />
-                                </div>
-                              </div>
+                    <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+                      <div className="grid lg:grid-cols-2 gap-6 h-full">
+                        <div className="space-y-3 flex flex-col">
+                          <div className="flex items-center justify-between pb-2 border-b border-border/30">
+                            <div>
+                              <h3 className="text-sm font-semibold text-foreground">Location Structure</h3>
+                              <p className="text-xs text-muted-foreground mt-0.5">Define your location hierarchy</p>
+                            </div>
+                            <div className="flex items-center gap-2">
                               <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeLocationLevel(level.id)}
-                                disabled={locationLevels.length === 1}
-                                className="h-9 w-9 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
+                                variant="outline"
+                                onClick={saveDefaultStructureFromModal}
+                                className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
                               >
-                                <X className="h-4 w-4" />
+                                <Settings2 className="h-3 w-3 sm:mr-1" />
+                                <span className="hidden sm:inline">Save Default</span>
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={addLocationLevel}
+                                className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
+                              >
+                                <Plus className="h-3 w-3 mr-1" />
+                                Add
                               </Button>
                             </div>
-                          ))}
-                        </div>
+                          </div>
 
-                        {isFormValid && (
-                          <div className="relative overflow-hidden rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent p-4 shadow-sm">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -mr-16 -mt-16" />
-                            <div className="relative flex items-start gap-3">
-                              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 flex-shrink-0">
-                                <MapPin className="h-5 w-5 text-primary" />
+                          <div className="space-y-2 flex-1 overflow-y-auto">
+                            {locationLevels.map((level, index) => (
+                              <div
+                                key={level.id}
+                                className="group flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all"
+                              >
+                                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-bold text-xs flex-shrink-0">
+                                  {index + 1}
+                                </div>
+                                <div className="flex-1 flex gap-2">
+                                  <div className="flex-1">
+                                    <Input
+                                      placeholder="Level name"
+                                      value={level.label}
+                                      onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
+                                      className="h-8 text-sm bg-background border-border/50 focus:border-primary/50 transition-colors"
+                                    />
+                                  </div>
+                                  <div className="w-24">
+                                    <Input
+                                      placeholder="Code"
+                                      value={level.value}
+                                      onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
+                                      maxLength={10}
+                                      className="h-8 text-sm font-mono bg-background border-border/50 focus:border-primary/50 transition-colors"
+                                    />
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeLocationLevel(level.id)}
+                                  disabled={locationLevels.length === 1}
+                                  className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </Button>
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-muted-foreground mb-1.5">Generated Code</p>
-                                <p className="text-xl font-mono font-bold text-primary truncate tracking-wide">
-                                  {generateLocationCode()}
-                                </p>
+                            ))}
+                          </div>
+
+                          {isFormValid && (
+                            <div className="relative overflow-hidden rounded-lg border border-primary/30 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent p-2.5 flex-shrink-0">
+                              <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-3xl -mr-12 -mt-12" />
+                              <div className="relative flex items-center gap-2">
+                                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 flex-shrink-0">
+                                  <MapPin className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs text-muted-foreground">Generated Code</p>
+                                  <p className="text-base font-mono font-bold text-primary truncate">
+                                    {generateLocationCode()}
+                                  </p>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex flex-col space-y-5">
-                        <div className="pb-3 border-b border-border/30">
-                          <h3 className="text-base font-semibold text-foreground">Location Details</h3>
-                          <p className="text-xs text-muted-foreground mt-0.5">Additional information and metadata</p>
+                          )}
                         </div>
 
-                        <div className="flex flex-col flex-1 space-y-5">
-                          <div className="space-y-2.5">
-                            <Label
-                              htmlFor="name"
-                              className="text-sm font-medium text-foreground flex items-center gap-2"
-                            >
-                              Location Name
-                              <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
-                            </Label>
-                            <Input
-                              id="name"
-                              placeholder="e.g., Main Warehouse - Section A"
-                              value={formData.name}
-                              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                              className="h-11 bg-background border-border/50 focus:border-primary/50 transition-colors"
-                            />
-                            <p className="text-xs text-muted-foreground">A friendly name to identify this location</p>
+                        <div className="flex flex-col space-y-3 min-h-0">
+                          <div className="pb-2 border-b border-border/30 flex-shrink-0">
+                            <h3 className="text-sm font-semibold text-foreground">Description</h3>
+                            <p className="text-xs text-muted-foreground mt-0.5">Add notes or details about this location</p>
                           </div>
 
-                          <div className="space-y-2.5">
-                            <Label
-                              htmlFor="capacity"
-                              className="text-sm font-medium text-foreground flex items-center gap-2"
-                            >
-                              Capacity
-                              <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
-                            </Label>
-                            <Input
-                              id="capacity"
-                              type="number"
-                              placeholder="100"
-                              value={formData.capacity}
-                              onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
-                              className="h-11 bg-background border-border/50 focus:border-primary/50 transition-colors"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Maximum number of items this location can hold
-                            </p>
-                          </div>
-
-                          <div className="flex flex-col flex-1 space-y-2.5">
-                            <Label
-                              htmlFor="description"
-                              className="text-sm font-medium text-foreground flex items-center gap-2"
-                            >
-                              Description
-                              <span className="text-xs text-muted-foreground font-normal">(Optional)</span>
+                          <div className="flex flex-col flex-1 space-y-1.5 min-h-0">
+                            <Label htmlFor="description" className="text-xs font-medium text-foreground flex-shrink-0">
+                              Location Notes <span className="text-muted-foreground font-normal">(Optional)</span>
                             </Label>
                             <Textarea
                               id="description"
-                              placeholder="Brief description of this location..."
+                              placeholder="Add any relevant information about this location, such as storage conditions, access restrictions, or special handling requirements..."
                               value={formData.description}
                               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                              className="flex-1 resize-none bg-background border-border/50 focus:border-primary/50 transition-colors"
+                              className="flex-1 resize-none bg-background border-border/50 focus:border-primary/50 transition-colors text-sm min-h-0"
                             />
-                            <p className="text-xs text-muted-foreground">
-                              Additional notes or details about this location
+                            <p className="text-xs text-muted-foreground flex-shrink-0">
+                              This information will be visible to all team members with access to this location
                             </p>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <DialogFooter className="pt-4 border-t border-border/50">
+                    <DialogFooter className="flex-shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
                       <Button
                         variant="outline"
                         onClick={() => setIsCreateOpen(false)}
-                        className="h-10 px-6 hover:bg-accent/10 transition-all"
+                        className="h-9 px-5 hover:bg-accent/10 transition-all"
                       >
                         Cancel
                       </Button>
                       <Button
                         onClick={handleCreate}
                         disabled={!isFormValid}
-                        className="h-10 px-6 shadow-md hover:shadow-lg transition-all"
+                        className="h-9 px-5 shadow-md hover:shadow-lg transition-all"
                       >
                         Create Location
                       </Button>
@@ -692,7 +649,11 @@ export default function LocationsPage() {
                       const isNearCapacity = utilization >= 80
 
                       return (
-                        <TableRow key={location.id} className="hover:bg-muted/30 transition-colors">
+                        <TableRow
+                          key={location.id}
+                          className="hover:bg-muted/30 transition-colors cursor-pointer"
+                          onClick={() => router.push(`/dashboard/locations/${location.id}`)}
+                        >
                           <TableCell className="font-mono font-semibold text-accent">{location.code}</TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
@@ -719,12 +680,15 @@ export default function LocationsPage() {
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
+                            <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="hover:bg-accent/10 hover:text-accent"
-                                onClick={() => openEditDialog(location)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openEditDialog(location)
+                                }}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -732,7 +696,10 @@ export default function LocationsPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => handleDelete(location.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDelete(location.id)
+                                }}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -749,126 +716,135 @@ export default function LocationsPage() {
         </Card>
 
         <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Settings2 className="h-5 w-5 text-primary" />
+          <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0">
+            <DialogHeader className="flex-shrink-0 px-6 pt-5 pb-3 border-b border-border/50">
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Settings2 className="h-4 w-4 text-primary" />
+                </div>
                 Edit Location
               </DialogTitle>
-              <DialogDescription>Modify your location structure and details</DialogDescription>
+              <DialogDescription className="text-sm mt-1">
+                Modify your location structure and details
+              </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4 py-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Location Structure</Label>
-                  <Button variant="outline" size="sm" onClick={addLocationLevel} className="h-8 text-xs bg-transparent">
-                    <Plus className="h-3 w-3 mr-1" />
-                    Add Level
-                  </Button>
-                </div>
-
-                <div className="space-y-2">
-                  {locationLevels.map((level, index) => (
-                    <div
-                      key={level.id}
-                      className="flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-muted/20"
+            <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+              <div className="grid lg:grid-cols-2 gap-6 h-full">
+                <div className="space-y-3 flex flex-col">
+                  <div className="flex items-center justify-between pb-2 border-b border-border/30">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Location Structure</h3>
+                      <p className="text-xs text-muted-foreground mt-0.5">Update your location hierarchy</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addLocationLevel}
+                      className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
                     >
-                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary font-semibold text-xs flex-shrink-0">
-                        {index + 1}
-                      </span>
-                      <div className="flex-1 space-y-1">
-                        <Label className="text-xs text-muted-foreground">Level Name</Label>
-                        <Input
-                          placeholder="Zone, Floor..."
-                          value={level.label}
-                          onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
-                          className="h-9 text-sm"
-                        />
-                      </div>
-                      <div className="w-32 space-y-1">
-                        <Label className="text-xs text-muted-foreground">Code</Label>
-                        <Input
-                          placeholder="A, 01..."
-                          value={level.value}
-                          onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
-                          maxLength={10}
-                          className="h-9 text-sm font-mono"
-                        />
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeLocationLevel(level.id)}
-                        disabled={locationLevels.length === 1}
-                        className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-
-                {isFormValid && (
-                  <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg border border-primary/20">
-                    <MapPin className="h-4 w-4 text-primary flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-muted-foreground mb-0.5">Updated Code</p>
-                      <p className="text-lg font-mono font-bold text-primary truncate">{generateLocationCode()}</p>
-                    </div>
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add
+                    </Button>
                   </div>
-                )}
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border/50">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-name" className="text-sm">
-                    Location Name
-                  </Label>
-                  <Input
-                    id="edit-name"
-                    placeholder="e.g., Main Warehouse - Section A"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="h-9 text-sm"
-                  />
+                  <div className="space-y-2 flex-1 overflow-y-auto">
+                    {locationLevels.map((level, index) => (
+                      <div
+                        key={level.id}
+                        className="group flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all"
+                      >
+                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-bold text-xs flex-shrink-0">
+                          {index + 1}
+                        </div>
+                        <div className="flex-1 flex gap-2">
+                          <div className="flex-1">
+                            <Input
+                              placeholder="Level name"
+                              value={level.label}
+                              onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
+                              className="h-8 text-sm bg-background border-border/50 focus:border-primary/50 transition-colors"
+                            />
+                          </div>
+                          <div className="w-24">
+                            <Input
+                              placeholder="Code"
+                              value={level.value}
+                              onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
+                              maxLength={10}
+                              className="h-8 text-sm font-mono bg-background border-border/50 focus:border-primary/50 transition-colors"
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeLocationLevel(level.id)}
+                          disabled={locationLevels.length === 1}
+                          className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {isFormValid && (
+                    <div className="relative overflow-hidden rounded-lg border border-primary/30 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent p-2.5 flex-shrink-0">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-3xl -mr-12 -mt-12" />
+                      <div className="relative flex items-center gap-2">
+                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 flex-shrink-0">
+                          <MapPin className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-muted-foreground">Updated Code</p>
+                          <p className="text-base font-mono font-bold text-primary truncate">
+                            {generateLocationCode()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-capacity" className="text-sm">
-                    Capacity
-                  </Label>
-                  <Input
-                    id="edit-capacity"
-                    type="number"
-                    placeholder="100"
-                    value={formData.capacity}
-                    onChange={(e) => setFormData({ ...formData, capacity: e.target.value })}
-                    className="h-9 text-sm"
-                  />
-                </div>
+                <div className="flex flex-col space-y-3 min-h-0">
+                  <div className="pb-2 border-b border-border/30 flex-shrink-0">
+                    <h3 className="text-sm font-semibold text-foreground">Description</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Add notes or details about this location</p>
+                  </div>
 
-                <div className="space-y-1.5 col-span-2">
-                  <Label htmlFor="edit-description" className="text-sm">
-                    Description (Optional)
-                  </Label>
-                  <Textarea
-                    id="edit-description"
-                    placeholder="Brief description..."
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={2}
-                    className="resize-none text-sm"
-                  />
+                  <div className="flex flex-col flex-1 space-y-1.5 min-h-0">
+                    <Label htmlFor="edit-description" className="text-xs font-medium text-foreground flex-shrink-0">
+                      Location Notes <span className="text-muted-foreground font-normal">(Optional)</span>
+                    </Label>
+                    <Textarea
+                      id="edit-description"
+                      placeholder="Add any relevant information about this location, such as storage conditions, access restrictions, or special handling requirements..."
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className="flex-1 resize-none bg-background border-border/50 focus:border-primary/50 transition-colors text-sm min-h-0"
+                    />
+                    <p className="text-xs text-muted-foreground flex-shrink-0">
+                      This information will be visible to all team members with access to this location
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditOpen(false)} size="sm">
+            <DialogFooter className="flex-shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
+              <Button
+                variant="outline"
+                onClick={() => setIsEditOpen(false)}
+                className="h-9 px-5 hover:bg-accent/10 transition-all"
+              >
                 Cancel
               </Button>
-              <Button onClick={handleEdit} disabled={!isFormValid} size="sm">
+              <Button
+                onClick={handleEdit}
+                disabled={!isFormValid}
+                className="h-9 px-5 shadow-md hover:shadow-lg transition-all"
+              >
                 Save Changes
               </Button>
             </DialogFooter>

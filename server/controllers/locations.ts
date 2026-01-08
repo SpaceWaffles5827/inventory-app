@@ -248,7 +248,7 @@ const locationsController = {
         });
       }
 
-      // Get all locations in the workspace
+      // Get all locations in the workspace with item counts through junction table
       const locations = await prisma.location.findMany({
         where: {
           workspaceId: workspaceId as string,
@@ -312,7 +312,7 @@ const locationsController = {
         });
       }
 
-      // Get the location
+      // Get the location with items through junction table
       const location = await prisma.location.findFirst({
         where: {
           id: id,
@@ -323,15 +323,21 @@ const locationsController = {
             select: { items: true },
           },
           items: {
-            select: {
-              id: true,
-              itemNumber: true,
-              name: true,
-              onHand: true,
-              status: true,
+            include: {
+              item: {
+                select: {
+                  id: true,
+                  itemNumber: true,
+                  name: true,
+                  status: true,
+                  unit: true,
+                },
+              },
             },
             orderBy: {
-              name: "asc",
+              item: {
+                name: "asc",
+              },
             },
           },
         },
@@ -344,9 +350,25 @@ const locationsController = {
         });
       }
 
+      // Transform the response to flatten the item data and include quantity
+      const transformedLocation = {
+        ...location,
+        items: location.items.map((itemLocation) => ({
+          id: itemLocation.item.id,
+          itemNumber: itemLocation.item.itemNumber,
+          name: itemLocation.item.name,
+          status: itemLocation.item.status,
+          unit: itemLocation.item.unit,
+          quantity: itemLocation.quantity,
+          minStock: itemLocation.minStock,
+          maxStock: itemLocation.maxStock,
+          notes: itemLocation.notes,
+        })),
+      };
+
       return res.status(200).json({
         status: "success",
-        data: { location },
+        data: { location: transformedLocation },
       });
     } catch (error) {
       console.error("Get location by ID error:", error);
@@ -514,15 +536,15 @@ const locationsController = {
         });
       }
 
-      // Check if location has items
+      // Check if location has items (through junction table)
       if (location._count.items > 0) {
         return res.status(400).json({
           status: "error",
-          message: `Cannot delete location with ${location._count.items} item(s). Please reassign or delete the items first.`,
+          message: `Cannot delete location with ${location._count.items} item(s). Please reassign or remove the items first.`,
         });
       }
 
-      // Delete the location
+      // Delete the location (junction table entries will cascade delete)
       await prisma.location.delete({
         where: { id: id },
       });

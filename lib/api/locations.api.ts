@@ -188,6 +188,8 @@ export async function getLocationByIdApi(
 
   const result = await response.json();
 
+  console.log("res", response, result);
+
   if (!response.ok) {
     throw new Error(result.message || "Failed to fetch location");
   }

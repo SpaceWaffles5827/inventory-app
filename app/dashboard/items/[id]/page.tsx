@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin, ImageIcon, Hash, Tag, Upload, Star, X } from "lucide-react"
-import { getItemByIdApi, updateItemApi, type ItemWithDetails } from "@/lib/api/items.api"
+import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin, ImageIcon, Hash, Tag, Upload, Star, X, ExternalLink, Diff, AlertCircle, Minus, Package, ArrowDownToLine, ArrowUpFromLine } from "lucide-react"
+import { getItemByIdApi, updateItemApi, adjustStockApi, type ItemWithDetails } from "@/lib/api/items.api"
 import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
 import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
 import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
@@ -23,6 +23,7 @@ import {
   type ItemImage as APIItemImage
 } from "@/lib/api/itemImages.api"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Dialog,
   DialogContent,
@@ -32,11 +33,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { toast } from "sonner"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 type TransactionWithUser = ItemWithDetails['transactions'][number]
 
 export default function ItemDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const itemId = params.id as string
 
   const [item, setItem] = useState<ItemWithDetails | null>(null)
@@ -58,6 +62,21 @@ export default function ItemDetailPage() {
   const [images, setImages] = useState<APIItemImage[]>([])
   const [isUploadingImage, setIsUploadingImage] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+
+  // Stock adjustment state
+  const [adjustmentDialog, setAdjustmentDialog] = useState<{
+    open: boolean
+    locationId: string | null
+    currentQuantity: number
+  }>({
+    open: false,
+    locationId: null,
+    currentQuantity: 0,
+  })
+  const [adjustmentQuantity, setAdjustmentQuantity] = useState("")
+  const [newStockAmount, setNewStockAmount] = useState("")
+  const [adjustmentNote, setAdjustmentNote] = useState("")
+
   const [formData, setFormData] = useState({
     itemNumber: "",
     name: "",
@@ -83,15 +102,9 @@ export default function ItemDetailPage() {
       try {
         setLoading(true)
         const response = await getItemByIdApi(itemId)
-        console.log("=== ITEM LOADED ===")
-        console.log("Full response:", JSON.stringify(response, null, 2))
 
         if (response.data?.item) {
           const itemData = response.data.item as ItemWithDetails
-          console.log("Item data:", JSON.stringify(itemData, null, 2))
-          console.log("Item customers:", JSON.stringify(itemData.customers, null, 2))
-          console.log("Item locations:", JSON.stringify(itemData.locations, null, 2))
-
           setItem(itemData)
           setFormData({
             itemNumber: itemData.itemNumber,
@@ -103,17 +116,12 @@ export default function ItemDetailPage() {
             supplierId: itemData.supplierId || "",
           })
 
-          // Extract customer IDs from the item's customers array
           const customerIds = itemData.customers?.map(c => c.customerId) || []
-          console.log("Extracted customer IDs:", customerIds)
           setSelectedCustomerIds(customerIds)
 
-          // Extract location IDs from the locations array
           const locationIds = itemData.locations?.map(loc => loc.locationId) || []
-          console.log("Extracted location IDs:", locationIds)
           setSelectedLocationIds(locationIds)
 
-          // Load images for this item
           loadImages(itemId)
         }
       } catch (error) {
@@ -176,12 +184,8 @@ export default function ItemDetailPage() {
   const loadCustomers = async (workspaceId: string) => {
     try {
       const response = await getCustomersApi({ workspaceId, status: "ACTIVE" })
-      console.log("=== CUSTOMERS LOADED ===")
-      console.log("Customers response:", JSON.stringify(response, null, 2))
-
       if (response.data?.customers) {
         setCustomers(response.data.customers)
-        console.log("Set customers state:", response.data.customers.length, "customers")
       }
     } catch (err) {
       console.error("Failed to load customers:", err)
@@ -189,69 +193,39 @@ export default function ItemDetailPage() {
   }
 
   const handleAddCustomer = () => {
-    console.log("=== ADD CUSTOMER ===")
-    console.log("Selected customer ID:", newCustomerId)
-    console.log("Current selectedCustomerIds:", selectedCustomerIds)
-
     if (newCustomerId && !selectedCustomerIds.includes(newCustomerId)) {
       const updatedIds = [...selectedCustomerIds, newCustomerId]
-      console.log("Updated customer IDs:", updatedIds)
       setSelectedCustomerIds(updatedIds)
       setNewCustomerId("")
-    } else {
-      console.log("Customer not added - either empty or already selected")
     }
   }
 
   const handleRemoveCustomer = (customerId: string) => {
-    console.log("=== REMOVE CUSTOMER ===")
-    console.log("Removing customer ID:", customerId)
-    console.log("Before removal:", selectedCustomerIds)
-
     const updatedIds = selectedCustomerIds.filter((id) => id !== customerId)
-    console.log("After removal:", updatedIds)
     setSelectedCustomerIds(updatedIds)
   }
 
   const handleAddLocation = () => {
-    console.log("=== ADD LOCATION ===")
-    console.log("Selected location ID:", newLocationId)
-    console.log("Current selectedLocationIds:", selectedLocationIds)
-
     if (newLocationId && !selectedLocationIds.includes(newLocationId)) {
       const updatedIds = [...selectedLocationIds, newLocationId]
-      console.log("Updated location IDs:", updatedIds)
       setSelectedLocationIds(updatedIds)
       setNewLocationId("")
-    } else {
-      console.log("Location not added - either empty or already selected")
     }
   }
 
   const handleRemoveLocation = (locationId: string) => {
-    console.log("=== REMOVE LOCATION ===")
-    console.log("Removing location ID:", locationId)
-    console.log("Before removal:", selectedLocationIds)
-
     const updatedIds = selectedLocationIds.filter((id) => id !== locationId)
-    console.log("After removal:", updatedIds)
     setSelectedLocationIds(updatedIds)
   }
 
   const handleUpdateCustomers = async () => {
-    console.log("=== UPDATE CUSTOMERS ===")
-    console.log("Final selected customer IDs:", selectedCustomerIds)
-
     setIsSaving(true)
     try {
       const updateData = {
         customerIds: selectedCustomerIds,
       }
 
-      console.log("Updating item with customer data:", updateData)
-
       const response = await updateItemApi(itemId, updateData)
-      console.log("Update response:", JSON.stringify(response, null, 2))
 
       if (response.data?.item) {
         setItem(response.data.item as ItemWithDetails)
@@ -267,19 +241,13 @@ export default function ItemDetailPage() {
   }
 
   const handleUpdateLocations = async () => {
-    console.log("=== UPDATE LOCATIONS ===")
-    console.log("Final selected location IDs:", selectedLocationIds)
-
     setIsSaving(true)
     try {
       const updateData = {
         locationIds: selectedLocationIds,
       }
 
-      console.log("Updating item with location data:", updateData)
-
       const response = await updateItemApi(itemId, updateData)
-      console.log("Update response:", JSON.stringify(response, null, 2))
 
       if (response.data?.item) {
         setItem(response.data.item as ItemWithDetails)
@@ -294,6 +262,101 @@ export default function ItemDetailPage() {
     }
   }
 
+  const openAdjustmentDialog = (locationId: string, currentQuantity: number) => {
+    setAdjustmentDialog({ open: true, locationId, currentQuantity })
+    setAdjustmentQuantity("")
+    setNewStockAmount(String(currentQuantity))
+    setAdjustmentNote("")
+  }
+
+  const handleAdjustmentQuantityChange = (value: string) => {
+    setAdjustmentQuantity(value)
+    if (value && value !== "-" && value !== "+") {
+      const qty = Number.parseInt(value)
+      if (!isNaN(qty)) {
+        const currentStock = adjustmentDialog.currentQuantity
+        setNewStockAmount(String(currentStock + qty))
+      }
+    }
+  }
+
+  const handleNewStockAmountChange = (value: string) => {
+    setNewStockAmount(value)
+    if (value) {
+      const newStock = Number.parseInt(value)
+      if (!isNaN(newStock)) {
+        const currentStock = adjustmentDialog.currentQuantity
+        const adjustment = newStock - currentStock
+        setAdjustmentQuantity(String(adjustment))
+      }
+    } else {
+      setAdjustmentQuantity("")
+    }
+  }
+
+  const incrementQuantity = () => {
+    const current = Number.parseInt(adjustmentQuantity || "0")
+    handleAdjustmentQuantityChange(String(current + 1))
+  }
+
+  const decrementQuantity = () => {
+    const current = Number.parseInt(adjustmentQuantity || "0")
+    handleAdjustmentQuantityChange(String(current - 1))
+  }
+
+  const handleStockAdjustment = async () => {
+    if (!adjustmentDialog.locationId || !adjustmentQuantity || adjustmentQuantity === "0") {
+      return
+    }
+
+    const quantity = Number.parseInt(adjustmentQuantity)
+    const isInput = quantity > 0
+
+    try {
+      const response = await adjustStockApi(itemId, {
+        type: isInput ? "INPUT" : "OUTPUT",
+        quantity: Math.abs(quantity),
+        reason: adjustmentNote || "Stock adjustment",
+        locationId: adjustmentDialog.locationId,
+      })
+
+      if (response.data?.item) {
+        setItem(response.data.item as ItemWithDetails)
+        toast.success("Stock updated successfully")
+      }
+
+      setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })
+      setAdjustmentQuantity("")
+      setNewStockAmount("")
+      setAdjustmentNote("")
+    } catch (error) {
+      console.error("Failed to adjust stock:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to adjust stock")
+    }
+  }
+
+  const handleQuickStockAdjustment = async (adjustment: number, locationId: string) => {
+    try {
+      const isInput = adjustment > 0
+      const response = await adjustStockApi(itemId, {
+        type: isInput ? "INPUT" : "OUTPUT",
+        quantity: Math.abs(adjustment),
+        reason: "Quick adjustment",
+        locationId: locationId,
+      })
+
+      if (response.data?.item) {
+        setItem(response.data.item as ItemWithDetails)
+        toast.success(
+          `${adjustment > 0 ? "Added" : "Removed"} ${Math.abs(adjustment)} unit${Math.abs(adjustment) !== 1 ? "s" : ""}`
+        )
+      }
+    } catch (error) {
+      console.error("Failed to update quantity:", error)
+      toast.error("Failed to update quantity")
+    }
+  }
+
   const handleSave = async () => {
     if (!formData.name.trim() || !formData.cost || !formData.itemNumber.trim()) {
       toast.error("Item number, name, and cost are required")
@@ -302,9 +365,6 @@ export default function ItemDetailPage() {
 
     setIsSaving(true)
     try {
-      console.log("=== SAVING ITEM ===")
-      console.log("Customer IDs being saved:", selectedCustomerIds)
-
       const updateData = {
         itemNumber: formData.itemNumber,
         name: formData.name,
@@ -316,10 +376,7 @@ export default function ItemDetailPage() {
         customerIds: selectedCustomerIds,
       }
 
-      console.log("Update payload:", JSON.stringify(updateData, null, 2))
-
       const response = await updateItemApi(itemId, updateData)
-      console.log("Update response:", JSON.stringify(response, null, 2))
 
       if (response.data?.item) {
         setItem(response.data.item as ItemWithDetails)
@@ -345,10 +402,8 @@ export default function ItemDetailPage() {
         categoryId: item.categoryId || "",
         supplierId: item.supplierId || "",
       })
-      // Reset customer selection
       const customerIds = item.customers?.map(c => c.customerId) || []
       setSelectedCustomerIds(customerIds)
-      // Reset location selection
       const locationIds = item.locations?.map(loc => loc.locationId) || []
       setSelectedLocationIds(locationIds)
     }
@@ -356,22 +411,14 @@ export default function ItemDetailPage() {
   }
 
   const handleOpenManageCustomers = () => {
-    console.log("=== OPENING MANAGE CUSTOMERS ===")
     const currentCustomerIds = item?.customers?.map(c => c.customerId) || []
-    console.log("Current item customers:", currentCustomerIds)
-    console.log("Available customers:", customers.length)
-
     setSelectedCustomerIds(currentCustomerIds)
     setNewCustomerId("")
     setIsManageCustomersOpen(true)
   }
 
   const handleOpenManageLocations = () => {
-    console.log("=== OPENING MANAGE LOCATIONS ===")
     const currentLocationIds = item?.locations?.map(loc => loc.locationId) || []
-    console.log("Current item locations:", currentLocationIds)
-    console.log("Available locations:", locations.length)
-
     setSelectedLocationIds(currentLocationIds)
     setNewLocationId("")
     setIsManageLocationsOpen(true)
@@ -380,7 +427,6 @@ export default function ItemDetailPage() {
   const handleSetPrimaryImage = async (imageId: string) => {
     try {
       await setPrimaryImageApi(imageId)
-      // Update local state
       setImages((prev) =>
         prev.map((img) => ({
           ...img,
@@ -397,7 +443,6 @@ export default function ItemDetailPage() {
   const handleDeleteImage = async (imageId: string) => {
     try {
       await deleteItemImageApi(imageId)
-      // Update local state
       setImages((prev) => prev.filter((img) => img.id !== imageId))
       toast.success("Image deleted")
     } catch (error) {
@@ -407,7 +452,6 @@ export default function ItemDetailPage() {
   }
 
   const handleUploadImages = () => {
-    // Trigger file input
     const input = document.createElement("input")
     input.type = "file"
     input.accept = "image/jpeg,image/png,image/gif,image/webp"
@@ -420,7 +464,6 @@ export default function ItemDetailPage() {
       setUploadProgress(0)
 
       try {
-        // Upload first image as primary if no images exist
         const isPrimary = images.length === 0
 
         for (let i = 0; i < files.length; i++) {
@@ -437,7 +480,6 @@ export default function ItemDetailPage() {
           )
         }
 
-        // Reload images
         await loadImages(itemId)
         toast.success(`${files.length} image(s) uploaded successfully`)
       } catch (error) {
@@ -484,49 +526,49 @@ export default function ItemDetailPage() {
   }
 
   const selectedCustomers = customers.filter(c => selectedCustomerIds.includes(c.id))
-  const selectedLocations = locations.filter(l => selectedLocationIds.includes(l.id))
-  console.log("Rendering - selectedCustomerIds:", selectedCustomerIds)
-  console.log("Rendering - selectedCustomers:", selectedCustomers.map(c => ({ id: c.id, name: c.name })))
-  console.log("Rendering - selectedLocationIds:", selectedLocationIds)
-  console.log("Rendering - selectedLocations:", selectedLocations.map(l => ({ id: l.id, code: l.code })))
+  const itemLocationsWithDetails = item.locations?.map(itemLoc => {
+    const locationDetails = locations.find(l => l.id === itemLoc.locationId)
+    return {
+      ...itemLoc,
+      location: locationDetails || itemLoc.location
+    }
+  }) || []
 
-  const totalQuantity = item.locations?.reduce((sum, loc) => sum + loc.quantity, 0) || 0
+  const totalQuantity = itemLocationsWithDetails.reduce((sum, loc) => sum + (loc.quantity || 0), 0)
   const primaryImage = images.find((img) => img.isPrimary)
   const primaryImageUrl = primaryImage ? `/api/items/images/image/${primaryImage.id}` : null
 
   return (
-    <div className="min-h-screen">
-      <div className="container mx-auto px-8 py-8">
-        {/* Header with Back Button and Edit Controls */}
-        <div className="flex items-center justify-between mb-6">
-          <Link href="/dashboard">
-            <Button variant="ghost">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Inventory
-            </Button>
-          </Link>
+    <div className="min-h-screen bg-background pb-6">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex items-center justify-between px-3 sm:px-6 py-3">
+          <Button variant="ghost" size="sm" onClick={() => router.back()} className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Back</span>
+          </Button>
 
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             {!isEditing ? (
-              <Button onClick={() => setIsEditing(true)} className="shadow-lg shadow-accent/20">
-                <Edit2 className="h-4 w-4 mr-2" />
-                Edit Item
+              <Button onClick={() => setIsEditing(true)} className="shadow-sm gap-2">
+                <Edit2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Edit</span>
               </Button>
             ) : (
               <>
                 <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
                   Cancel
                 </Button>
-                <Button onClick={handleSave} className="shadow-lg shadow-accent/20" disabled={isSaving}>
+                <Button onClick={handleSave} className="shadow-sm gap-2" disabled={isSaving}>
                   {isSaving ? (
                     <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" />
                       Saving...
                     </>
                   ) : (
                     <>
-                      <Save className="h-4 w-4 mr-2" />
-                      Save Changes
+                      <Save className="h-4 w-4" />
+                      Save
                     </>
                   )}
                 </Button>
@@ -534,15 +576,21 @@ export default function ItemDetailPage() {
             )}
           </div>
         </div>
+      </div>
 
+      <div className="px-3 sm:px-6 pt-4 sm:pt-6">
         {/* Hero Section */}
-        <Card className="overflow-hidden mb-6">
-          <CardContent className="p-6">
-            <div className="flex flex-col md:flex-row gap-6">
-              {/* Product Image - Fixed size */}
+        <div className="bg-card border rounded-lg overflow-hidden">
+          <div className="p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+              {/* Product Image */}
               <div className="flex-shrink-0">
                 <div
-                  className={`relative w-32 h-32 md:w-40 md:h-40 rounded-lg overflow-hidden bg-muted flex items-center justify-center ${isEditing ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all" : primaryImageUrl ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all" : ""
+                  className={`relative w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden bg-muted flex items-center justify-center ${isEditing
+                    ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all"
+                    : primaryImageUrl
+                      ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all"
+                      : ""
                     }`}
                   onClick={() => {
                     if (isEditing) {
@@ -561,396 +609,665 @@ export default function ItemDetailPage() {
                       />
                       {isEditing && (
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                          <Upload className="h-8 w-8 text-white" />
+                          <Upload className="h-6 w-6 text-white" />
                         </div>
                       )}
                     </>
                   ) : (
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Upload className="h-8 w-8" />
-                      {isEditing && <span className="text-xs">Click to upload</span>}
+                    <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                      <Package className="h-8 w-8" />
+                      {isEditing && <span className="text-xs">Upload</span>}
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Product Info */}
+              {/* Item Info */}
               <div className="flex-1 min-w-0">
-                <div className="space-y-4">
-                  {/* Item Name */}
+                {isEditing ? (
+                  <Input
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="text-2xl font-bold h-auto py-2 mb-3 border-dashed"
+                    placeholder="Enter item name"
+                  />
+                ) : (
+                  <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">{item.name}</h1>
+                )}
+
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <Badge
+                    variant={
+                      item.status === "IN_STOCK" ? "default" : item.status === "LOW_STOCK" ? "secondary" : "destructive"
+                    }
+                  >
+                    {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
+                  </Badge>
+                  <Badge variant="outline">{item.category?.name || "Uncategorized"}</Badge>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
                   <div>
-                    {isEditing ? (
-                      <Input
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        className="text-2xl font-bold border-dashed"
-                        placeholder="Enter item name"
-                      />
-                    ) : (
-                      <h1 className="text-2xl md:text-3xl font-bold text-foreground">{item.name}</h1>
-                    )}
+                    <p className="text-xs text-muted-foreground mb-1">SKU</p>
+                    <p className="text-sm font-semibold">{item.itemNumber}</p>
                   </div>
-
-                  {/* Badges & Key Info */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className="gap-1">
-                      <Hash className="h-3 w-3" />
-                      {item.itemNumber}
-                    </Badge>
-                    <Badge variant="outline" className="gap-1">
-                      <Tag className="h-3 w-3" />
-                      {item.category?.name || "Uncategorized"}
-                    </Badge>
-                    <Badge
-                      variant={
-                        item.status === "IN_STOCK" ? "default" : item.status === "LOW_STOCK" ? "secondary" : "destructive"
-                      }
-                    >
-                      {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                    </Badge>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Barcode</p>
+                    <p className="text-sm font-semibold">{item.barcode || "—"}</p>
                   </div>
-
-                  {/* Quick Stats */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Quantity</p>
-                      <p className="text-xl font-semibold">{totalQuantity}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Unit Cost</p>
-                      <p className="text-xl font-semibold">${item.cost.toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Total Value</p>
-                      <p className="text-xl font-semibold">${(totalQuantity * item.cost).toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Locations</p>
-                      <p className="text-xl font-semibold">{selectedLocations.length}</p>
-                    </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Total Stock</p>
+                    <p className="text-sm font-semibold text-primary">{totalQuantity} units</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Unit Price</p>
+                    <p className="text-sm font-semibold">${item.cost.toFixed(2)}</p>
                   </div>
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Item Details */}
-          <div className="lg:col-span-2 space-y-6">
-            <Card className="border-border/50">
-              <CardHeader>
-                <CardTitle className="text-2xl">Item Details</CardTitle>
-                <CardDescription>View and edit item information</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="itemNumber">Item Number</Label>
-                    {isEditing ? (
-                      <Input
-                        id="itemNumber"
-                        value={formData.itemNumber}
-                        onChange={(e) => setFormData({ ...formData, itemNumber: e.target.value })}
-                        className="font-mono"
-                        placeholder="Enter item number"
-                      />
-                    ) : (
-                      <div className="text-base font-medium font-mono">{item.itemNumber}</div>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="barcode" className="flex items-center gap-2">
-                      <Barcode className="h-4 w-4" />
-                      Barcode
-                    </Label>
-                    {isEditing ? (
-                      <Input
-                        id="barcode"
-                        value={formData.barcode}
-                        onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                        className="font-mono"
-                        placeholder="Enter barcode"
-                      />
-                    ) : (
-                      <div className="text-base font-medium font-mono">{item.barcode || "—"}</div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  {isEditing ? (
-                    <Textarea
-                      id="description"
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      rows={3}
-                      placeholder="Enter description"
-                    />
-                  ) : (
-                    <div className="text-base">{item.description || "—"}</div>
-                  )}
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="category">Category</Label>
-                    {isEditing ? (
-                      <Select value={formData.categoryId} onValueChange={(value) => setFormData({ ...formData, categoryId: value })}>
-                        <SelectTrigger id="category">
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categories.map((category) => (
-                            <SelectItem key={category.id} value={category.id}>
-                              {category.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <div className="text-base font-medium">{item.category?.name || "Uncategorized"}</div>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="supplier">Supplier</Label>
-                    {isEditing ? (
-                      <Select value={formData.supplierId} onValueChange={(value) => setFormData({ ...formData, supplierId: value })}>
-                        <SelectTrigger id="supplier">
-                          <SelectValue placeholder="Select supplier" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers.map((supplier) => (
-                            <SelectItem key={supplier.id} value={supplier.id}>
-                              {supplier.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <div className="text-base font-medium flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-muted-foreground" />
-                        {item.supplier?.name || "Unknown"}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Customer Management Section */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Customers</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleOpenManageCustomers}
-                      disabled={isEditing}
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Manage Customers
-                    </Button>
-                  </div>
-                  {item.customers && item.customers.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {item.customers.map((customerLink) => (
-                        <Badge key={customerLink.id} variant="secondary" className="bg-primary/10 text-primary border-primary/20">
-                          {customerLink.customer.name}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No customers assigned to this item</p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Link this item to specific customers for custom orders or dedicated inventory
-                  </p>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="onHand">On Hand</Label>
-                    <div className="text-base font-medium">{totalQuantity}</div>
-                    <p className="text-xs text-muted-foreground">Use stock adjustment from dashboard to change quantity</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cost">Unit Cost</Label>
-                    {isEditing ? (
-                      <Input
-                        id="cost"
-                        type="number"
-                        step="0.01"
-                        value={formData.cost}
-                        onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                        placeholder="0.00"
-                      />
-                    ) : (
-                      <div className="text-base font-medium">${item.cost.toFixed(2)}</div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Location Management Section */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Storage Locations</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleOpenManageLocations}
-                      disabled={isEditing}
-                    >
-                      <MapPin className="h-4 w-4 mr-2" />
-                      Manage Locations
-                    </Button>
-                  </div>
-                  {selectedLocations.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {selectedLocations.map((location) => (
-                        <Badge key={location.id} variant="secondary" className="bg-accent/10 text-accent border-accent/20">
-                          {location.code}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No locations assigned to this item</p>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    Assign this item to one or more warehouse locations for better organization
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+        {/* Tabs Section */}
+        <Tabs defaultValue="details" className="mt-4 sm:mt-6 gap-0">
+          <div className="bg-card border rounded-t-lg">
+            <TabsList className="w-full grid grid-cols-3 h-auto p-0 bg-transparent border-0px rounded-none">
+              <TabsTrigger
+                value="details"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+              >
+                Details
+              </TabsTrigger>
+              <TabsTrigger
+                value="locations"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+              >
+                Locations
+              </TabsTrigger>
+              <TabsTrigger
+                value="history"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+              >
+                History
+              </TabsTrigger>
+            </TabsList>
           </div>
 
-          {/* Quick Info & History */}
-          <div className="space-y-6">
-            {/* Quick Info Card */}
-            <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-              <CardHeader>
-                <CardTitle>Quick Info</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Status</span>
-                  <span
-                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${item.status === "IN_STOCK"
-                      ? "bg-accent/10 text-accent ring-1 ring-accent/20"
-                      : "bg-destructive/10 text-destructive ring-1 ring-destructive/20"
-                      }`}
-                  >
-                    {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Total Value</span>
-                  <span className="font-semibold">
-                    {new Intl.NumberFormat('en-US', {
-                      style: 'currency',
-                      currency: 'USD',
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    }).format(totalQuantity * item.cost)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Linked Customers</span>
-                  <span className="font-semibold">{item.customers?.length || 0}</span>
-                </div>
-                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                  <span className="text-sm text-muted-foreground">Locations</span>
-                  <span className="font-semibold">{selectedLocations.length}</span>
-                </div>
-                <div className="flex items-center justify-between py-2">
-                  <span className="text-sm text-muted-foreground">Last Updated</span>
-                  <span className="text-sm">{new Date(item.updatedAt).toLocaleDateString()}</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Action History */}
-            <Card className="border-border/50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <History className="h-5 w-5" />
-                  Action History
-                </CardTitle>
-                <CardDescription>Recent changes to this item</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {item.transactions && item.transactions.length > 0 ? (
-                    item.transactions.map((transaction: TransactionWithUser) => (
-                      <div key={transaction.id} className="flex gap-3 pb-4 border-b border-border/50 last:border-0 last:pb-0">
-                        <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center p-2">
-                          <History className="h-4 w-4 text-accent" />
+          {/* Details Tab */}
+          <TabsContent value="details" className="mt-0">
+            <div className="bg-card border border-t-0 rounded-b-lg p-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Main Content */}
+                <div className="lg:col-span-2 space-y-4">
+                  {/* Item Details Card */}
+                  <div className="bg-card border rounded-lg p-4">
+                    <h3 className="text-base font-semibold mb-4">Item Information</h3>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="itemNumber" className="text-xs text-muted-foreground">Item Number</Label>
+                          {isEditing ? (
+                            <Input
+                              id="itemNumber"
+                              value={formData.itemNumber}
+                              onChange={(e) => setFormData({ ...formData, itemNumber: e.target.value })}
+                              className="font-mono h-9"
+                              placeholder="Enter item number"
+                            />
+                          ) : (
+                            <div className="text-sm font-medium font-mono">{item.itemNumber}</div>
+                          )}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-medium text-foreground">
-                              {transaction.type === "INPUT" ? "Stock Added" : "Stock Removed"}
+                        <div className="space-y-2">
+                          <Label htmlFor="barcode" className="text-xs text-muted-foreground">Barcode</Label>
+                          {isEditing ? (
+                            <Input
+                              id="barcode"
+                              value={formData.barcode}
+                              onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                              className="font-mono h-9"
+                              placeholder="Enter barcode"
+                            />
+                          ) : (
+                            <div className="text-sm font-medium font-mono">{item.barcode || "—"}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
+                        {isEditing ? (
+                          <Textarea
+                            id="description"
+                            value={formData.description}
+                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                            rows={3}
+                            placeholder="Enter description"
+                          />
+                        ) : (
+                          <div className="text-sm">{item.description || "—"}</div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="category" className="text-xs text-muted-foreground">Category</Label>
+                          {isEditing ? (
+                            <Select value={formData.categoryId} onValueChange={(value) => setFormData({ ...formData, categoryId: value })}>
+                              <SelectTrigger id="category" className="h-9">
+                                <SelectValue placeholder="Select category" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {categories.map((category) => (
+                                  <SelectItem key={category.id} value={category.id}>
+                                    {category.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="text-sm font-medium">{item.category?.name || "Uncategorized"}</div>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="supplier" className="text-xs text-muted-foreground">Supplier</Label>
+                          {isEditing ? (
+                            <Select value={formData.supplierId} onValueChange={(value) => setFormData({ ...formData, supplierId: value })}>
+                              <SelectTrigger id="supplier" className="h-9">
+                                <SelectValue placeholder="Select supplier" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {suppliers.map((supplier) => (
+                                  <SelectItem key={supplier.id} value={supplier.id}>
+                                    {supplier.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="text-sm font-medium flex items-center gap-1.5">
+                              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                              {item.supplier?.name || "Unknown"}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="cost" className="text-xs text-muted-foreground">Unit Cost</Label>
+                        {isEditing ? (
+                          <Input
+                            id="cost"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={formData.cost}
+                            onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                            className="h-9"
+                            placeholder="Enter unit cost"
+                          />
+                        ) : (
+                          <div className="text-sm font-medium">${item.cost.toFixed(2)}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Product Images Card */}
+                  <div className="bg-card border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-base font-semibold">Product Images</h3>
+                      <Button variant="outline" size="sm" onClick={() => setIsManageImagesOpen(true)} className="gap-2">
+                        <Upload className="h-4 w-4" />
+                        <span className="hidden sm:inline">Manage</span>
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                      {images.map((image) => (
+                        <div
+                          key={image.id}
+                          className="relative aspect-square rounded-lg overflow-hidden bg-muted group cursor-pointer"
+                          onClick={() => setSelectedImageUrl(`/api/items/images/image/${image.id}`)}
+                        >
+                          <img
+                            src={`/api/items/images/image/${image.id}`}
+                            alt="Product"
+                            className="w-full h-full object-cover"
+                          />
+                          {image.isPrimary && (
+                            <div className="absolute top-2 right-2">
+                              <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white shadow-lg border-0 text-xs">
+                                <Star className="h-2 w-2 mr-0.5 fill-current" />
+                                Primary
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {images.length === 0 && (
+                        <div className="aspect-square rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center col-span-3">
+                          <div className="text-center p-4">
+                            <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                            <p className="text-xs text-muted-foreground">No images yet</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sidebar */}
+                <div className="space-y-4">
+                  {/* Quick Stats */}
+                  <div className="bg-card border rounded-lg p-4">
+                    <h3 className="text-base font-semibold mb-4">Quick Stats</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Total Value</span>
+                        <span className="text-sm font-semibold">${(totalQuantity * item.cost).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Locations</span>
+                        <span className="text-sm font-semibold">{itemLocationsWithDetails.length}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Movements</span>
+                        <span className="text-sm font-semibold">{item.transactions?.length || 0}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Linked Customers</span>
+                        <span className="text-sm font-semibold">{item.customers?.length || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Customers */}
+                  <div className="bg-card border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-base font-semibold">Customers</h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleOpenManageCustomers}
+                        disabled={isEditing}
+                      >
+                        Manage
+                      </Button>
+                    </div>
+                    {item.customers && item.customers.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {item.customers.map((customerLink) => (
+                          <Badge key={customerLink.id} variant="secondary" className="text-xs">
+                            {customerLink.customer.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No customers assigned</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Locations Tab */}
+          <TabsContent value="locations" className="mt-0">
+            <div className="bg-card border border-t-0 rounded-b-lg p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold">Storage Locations</h3>
+                <Button variant="outline" size="sm" onClick={handleOpenManageLocations} className="gap-2 h-7">
+                  <Plus className="h-4 w-4" />
+                  <span className="hidden sm:inline">Manage</span>
+                </Button>
+              </div>
+              {itemLocationsWithDetails.length === 0 ? (
+                <div className="text-center py-12 px-4 border border-dashed rounded-lg">
+                  <MapPin className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p className="text-sm font-medium text-muted-foreground">No locations assigned</p>
+                  <p className="text-xs text-muted-foreground mt-1">Click Manage to assign storage locations</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {itemLocationsWithDetails
+                    .sort((a, b) => (b.quantity || 0) - (a.quantity || 0))
+                    .map((itemLocation) => (
+                      <div
+                        key={itemLocation.id}
+                        className="group flex items-center justify-between p-4 rounded-lg border border-border/50 bg-card hover:bg-muted/30 hover:border-accent/50 transition-all"
+                      >
+                        <div
+                          className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                          onClick={() => router.push(`/dashboard/locations/${itemLocation.locationId}`)}
+                        >
+                          <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                            <MapPin className="h-5 w-5 text-accent" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <h3 className="font-semibold font-mono text-sm truncate">
+                                {itemLocation.location.code}
+                              </h3>
+                              {(itemLocation.quantity || 0) === 0 && (
+                                <Badge variant="secondary" className="text-xs py-0">Empty</Badge>
+                              )}
+                              <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                            {itemLocation.notes && (
+                              <p className="text-xs text-muted-foreground truncate">{itemLocation.notes}</p>
+                            )}
+                            {(itemLocation.minStock > 0 || itemLocation.maxStock > 0) && (
+                              <div className="flex items-center gap-2 mt-1">
+                                {itemLocation.minStock > 0 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Min: {itemLocation.minStock}
+                                  </span>
+                                )}
+                                {itemLocation.maxStock > 0 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Max: {itemLocation.maxStock}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <p className="text-xs text-muted-foreground mb-0">Quantity</p>
+                            <p className="text-xl font-bold text-accent">
+                              {itemLocation.quantity || 0}
+                              {item.unit && <span className="text-xs text-muted-foreground ml-1">{item.unit}</span>}
                             </p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-accent/10 hover:text-accent hover:border-accent/50"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openAdjustmentDialog(itemLocation.locationId, itemLocation.quantity || 0)
+                              }}
+                            >
+                              <Diff className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/50"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                if (confirm(`Remove this item from location ${itemLocation.location.code}? This action cannot be undone.`)) {
+                                  try {
+                                    const updatedLocationIds = selectedLocationIds.filter(id => id !== itemLocation.locationId)
+                                    setSelectedLocationIds(updatedLocationIds)
+
+                                    const response = await updateItemApi(itemId, {
+                                      locationIds: updatedLocationIds,
+                                    })
+
+                                    if (response.data?.item) {
+                                      setItem(response.data.item as ItemWithDetails)
+                                      toast.success(`Item removed from location ${itemLocation.location.code}`)
+                                    }
+                                  } catch (error) {
+                                    console.error("Failed to remove location:", error)
+                                    toast.error("Failed to remove location")
+                                  }
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          {/* History Tab */}
+          <TabsContent value="history" className="mt-0">
+            <div className="bg-card border border-t-0 rounded-b-lg overflow-hidden">
+              <div className="p-4 border-b">
+                <h3 className="text-base font-semibold">Transaction History</h3>
+              </div>
+              {item.transactions && item.transactions.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs">Type</TableHead>
+                        <TableHead className="text-xs text-right">Qty</TableHead>
+                        <TableHead className="text-xs hidden sm:table-cell">User</TableHead>
+                        <TableHead className="text-xs">Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {item.transactions.slice(0, 20).map((transaction: TransactionWithUser) => (
+                        <TableRow key={transaction.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className={`p-1.5 rounded ${transaction.type === "INPUT" ? "bg-green-50" : "bg-red-50"}`}>
+                                <History className={`h-3.5 w-3.5 ${transaction.type === "INPUT" ? "text-green-600" : "text-red-600"}`} />
+                              </div>
+                              <span className="text-sm hidden sm:inline">
+                                {transaction.type === "INPUT" ? "Stock Added" : "Stock Removed"}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
                             <span
-                              className={`text-xs font-medium ${transaction.type === "INPUT" ? "text-accent" : "text-destructive"
+                              className={`text-sm font-semibold ${transaction.type === "INPUT" ? "text-green-600" : "text-red-600"
                                 }`}
                             >
                               {transaction.type === "INPUT" ? "+" : "-"}
                               {transaction.quantity}
                             </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">{transaction.user?.name || "Unknown User"}</p>
-                          <p className="text-xs text-muted-foreground">{new Date(transaction.createdAt).toLocaleString()}</p>
-                          {transaction.reason && (
-                            <p className="text-xs text-muted-foreground mt-1 italic">&quot;{transaction.reason}&quot;</p>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">No transaction history available</p>
-                  )}
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            <span className="text-sm text-muted-foreground">{transaction.user?.name || "Unknown User"}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(transaction.createdAt).toLocaleDateString()}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+              ) : (
+                <div className="text-center py-12 px-4">
+                  <History className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                  <p className="text-sm font-medium text-muted-foreground">No transaction history</p>
+                  <p className="text-xs text-muted-foreground mt-1">Transactions will appear here as they occur</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
+
+      {/* Stock Adjustment Dialog */}
+      <Dialog
+        open={adjustmentDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })
+            setAdjustmentQuantity("")
+            setNewStockAmount("")
+            setAdjustmentNote("")
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base">Adjust Stock at Location</DialogTitle>
+            <DialogDescription className="text-xs">
+              Update the quantity for this item at the selected location.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-3">
+            <div className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg border">
+              <span className="text-xs text-muted-foreground">Current Quantity</span>
+              <span className="text-base font-bold">{adjustmentDialog.currentQuantity}</span>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Adjustment Amount</Label>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={decrementQuantity}
+                  className="flex-shrink-0 h-9 w-9"
+                >
+                  <Minus className="h-3.5 w-3.5" />
+                </Button>
+
+                <Input
+                  type="text"
+                  value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === "") {
+                      setAdjustmentQuantity("")
+                      setNewStockAmount(String(adjustmentDialog.currentQuantity))
+                      return
+                    }
+                    if (val === "-" || val === "+") {
+                      setAdjustmentQuantity(val)
+                      return
+                    }
+                    const cleaned = val.replace(/[^0-9-+]/g, "")
+                    const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
+                    const numbers = cleaned.replace(/[-+]/g, "")
+                    const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
+                    if (finalValue === "-" || finalValue === "+") {
+                      setAdjustmentQuantity(finalValue)
+                    } else {
+                      const num = Number.parseInt(finalValue)
+                      if (!isNaN(num)) {
+                        handleAdjustmentQuantityChange(String(num))
+                      }
+                    }
+                  }}
+                  className="text-center font-semibold flex-1 min-w-0 h-9 text-sm"
+                />
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={incrementQuantity}
+                  className="flex-shrink-0 h-9 w-9"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="newStock" className="text-xs">New Quantity</Label>
+              <Input
+                id="newStock"
+                type="number"
+                min="0"
+                value={newStockAmount}
+                onChange={(e) => handleNewStockAmountChange(e.target.value)}
+                className="font-semibold h-9 text-sm"
+              />
+              {Number.parseInt(newStockAmount) < 0 && (
+                <Alert variant="destructive" className="py-1.5">
+                  <AlertCircle className="h-3 w-3" />
+                  <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
+                </Alert>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="note" className="text-xs">Note (Optional)</Label>
+              <Textarea
+                id="note"
+                placeholder="Reason for adjustment..."
+                value={adjustmentNote}
+                onChange={(e) => setAdjustmentNote(e.target.value)}
+                className="min-h-14 resize-none text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })
+                setAdjustmentQuantity("")
+                setNewStockAmount("")
+                setAdjustmentNote("")
+              }}
+              size="sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleStockAdjustment}
+              disabled={
+                !adjustmentQuantity ||
+                adjustmentQuantity === "0" ||
+                Number.parseInt(newStockAmount) < 0
+              }
+              size="sm"
+            >
+              Update Stock
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Manage Customers Dialog */}
       <Dialog open={isManageCustomersOpen} onOpenChange={setIsManageCustomersOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Users className="h-5 w-5 text-primary" />
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Users className="h-4 w-4 text-primary" />
               </div>
               Manage Customers
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-xs">
               Link this item to specific customers. Multiple customers can be assigned to track custom orders or
               dedicated inventory.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            {/* Current Customers */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Assigned Customers ({selectedCustomerIds.length})</Label>
+          <div className="space-y-3 py-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Assigned Customers ({selectedCustomerIds.length})</Label>
               {selectedCustomerIds.length === 0 ? (
-                <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-lg">
+                <div className="text-xs text-muted-foreground py-3 text-center border border-dashed rounded-lg">
                   No customers assigned yet
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {selectedCustomers.map((customer) => (
                     <div
                       key={customer.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/30"
+                      className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/30"
                     >
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex items-center gap-1.5">
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                         <div>
-                          <span className="font-medium">{customer.name}</span>
+                          <span className="font-medium text-sm">{customer.name}</span>
                           {customer.company && (
                             <p className="text-xs text-muted-foreground">{customer.company}</p>
                           )}
@@ -959,10 +1276,10 @@ export default function ItemDetailPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
+                        className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => handleRemoveCustomer(customer.id)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   ))}
@@ -970,17 +1287,13 @@ export default function ItemDetailPage() {
               )}
             </div>
 
-            {/* Add Customer */}
-            <div className="space-y-2">
-              <Label htmlFor="addCustomer" className="text-sm font-medium">
+            <div className="space-y-1.5">
+              <Label htmlFor="addCustomer" className="text-xs font-medium">
                 Add Customer
               </Label>
               <div className="flex gap-2">
-                <Select value={newCustomerId} onValueChange={(value) => {
-                  console.log("Selected new customer ID:", value)
-                  setNewCustomerId(value)
-                }}>
-                  <SelectTrigger id="addCustomer" className="flex-1">
+                <Select value={newCustomerId} onValueChange={(value) => setNewCustomerId(value)}>
+                  <SelectTrigger id="addCustomer" className="flex-1 h-8">
                     <SelectValue placeholder="Select a customer" />
                   </SelectTrigger>
                   <SelectContent>
@@ -989,7 +1302,7 @@ export default function ItemDetailPage() {
                       .map((customer) => (
                         <SelectItem key={customer.id} value={customer.id}>
                           <div>
-                            <div>{customer.name}</div>
+                            <div className="text-sm">{customer.name}</div>
                             {customer.company && (
                               <div className="text-xs text-muted-foreground">{customer.company}</div>
                             )}
@@ -998,8 +1311,8 @@ export default function ItemDetailPage() {
                       ))}
                   </SelectContent>
                 </Select>
-                <Button onClick={handleAddCustomer} disabled={!newCustomerId} size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
+                <Button onClick={handleAddCustomer} disabled={!newCustomerId} size="sm" className="h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1" />
                   Add
                 </Button>
               </div>
@@ -1014,18 +1327,19 @@ export default function ItemDetailPage() {
               variant="outline"
               onClick={() => setIsManageCustomersOpen(false)}
               disabled={isSaving}
+              size="sm"
             >
               Cancel
             </Button>
-            <Button onClick={handleUpdateCustomers} disabled={isSaving}>
+            <Button onClick={handleUpdateCustomers} disabled={isSaving} size="sm">
               {isSaving ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                   Saving...
                 </>
               ) : (
                 <>
-                  <Save className="h-4 w-4 mr-2" />
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
                   Save Changes
                 </>
               )}
@@ -1039,47 +1353,43 @@ export default function ItemDetailPage() {
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-lg bg-accent/10 flex items-center justify-center">
-                <MapPin className="h-5 w-5 text-accent" />
+              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                <MapPin className="h-4 w-4 text-accent" />
               </div>
               Manage Storage Locations
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-xs">
               Assign this item to one or more warehouse locations. This helps organize inventory and track where items are stored.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            {/* Current Locations */}
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Assigned Locations ({selectedLocationIds.length})</Label>
+          <div className="space-y-3 py-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Assigned Locations ({selectedLocationIds.length})</Label>
               {selectedLocationIds.length === 0 ? (
-                <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-lg">
+                <div className="text-xs text-muted-foreground py-3 text-center border border-dashed rounded-lg">
                   No locations assigned yet
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {selectedLocations.map((location) => (
+                <div className="space-y-1.5">
+                  {locations.filter(l => selectedLocationIds.includes(l.id)).map((location) => (
                     <div
                       key={location.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/30"
+                      className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/30"
                     >
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
                         <div>
-                          <span className="font-medium font-mono">{location.code}</span>
-                          {location.name && (
-                            <p className="text-xs text-muted-foreground">{location.name}</p>
-                          )}
+                          <span className="font-medium font-mono text-sm">{location.code}</span>
                         </div>
                       </div>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
+                        className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => handleRemoveLocation(location.id)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   ))}
@@ -1087,17 +1397,13 @@ export default function ItemDetailPage() {
               )}
             </div>
 
-            {/* Add Location */}
-            <div className="space-y-2">
-              <Label htmlFor="addLocation" className="text-sm font-medium">
+            <div className="space-y-1.5">
+              <Label htmlFor="addLocation" className="text-xs font-medium">
                 Add Location
               </Label>
               <div className="flex gap-2">
-                <Select value={newLocationId} onValueChange={(value) => {
-                  console.log("Selected new location ID:", value)
-                  setNewLocationId(value)
-                }}>
-                  <SelectTrigger id="addLocation" className="flex-1">
+                <Select value={newLocationId} onValueChange={(value) => setNewLocationId(value)}>
+                  <SelectTrigger id="addLocation" className="flex-1 h-8">
                     <SelectValue placeholder="Select a location" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1105,18 +1411,13 @@ export default function ItemDetailPage() {
                       .filter((l) => !selectedLocationIds.includes(l.id))
                       .map((location) => (
                         <SelectItem key={location.id} value={location.id}>
-                          <div>
-                            <div className="font-mono">{location.code}</div>
-                            {location.name && (
-                              <div className="text-xs text-muted-foreground">{location.name}</div>
-                            )}
-                          </div>
+                          <div className="font-mono text-sm">{location.code}</div>
                         </SelectItem>
                       ))}
                   </SelectContent>
                 </Select>
-                <Button onClick={handleAddLocation} disabled={!newLocationId} size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
+                <Button onClick={handleAddLocation} disabled={!newLocationId} size="sm" className="h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1" />
                   Add
                 </Button>
               </div>
@@ -1131,18 +1432,19 @@ export default function ItemDetailPage() {
               variant="outline"
               onClick={() => setIsManageLocationsOpen(false)}
               disabled={isSaving}
+              size="sm"
             >
               Cancel
             </Button>
-            <Button onClick={handleUpdateLocations} disabled={isSaving}>
+            <Button onClick={handleUpdateLocations} disabled={isSaving} size="sm">
               {isSaving ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
                   Saving...
                 </>
               ) : (
                 <>
-                  <Save className="h-4 w-4 mr-2" />
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
                   Save Changes
                 </>
               )}
@@ -1155,64 +1457,62 @@ export default function ItemDetailPage() {
       <Dialog open={isManageImagesOpen} onOpenChange={setIsManageImagesOpen}>
         <DialogContent className="sm:max-w-[650px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
-                <ImageIcon className="h-5 w-5 text-primary" />
+            <DialogTitle className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+                <ImageIcon className="h-4 w-4 text-primary" />
               </div>
               Product Images
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-xs">
               Upload and manage photos. The primary image appears on the item card.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            {/* Upload Section */}
-            <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed rounded-xl hover:border-primary/50 hover:bg-muted/30 transition-all">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-                <Upload className="h-5 w-5 text-primary" />
+          <div className="space-y-3 py-3">
+            <div className="flex flex-col items-center justify-center p-3 border-2 border-dashed rounded-xl hover:border-primary/50 hover:bg-muted/30 transition-all">
+              <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center mb-1.5">
+                <Upload className="h-4 w-4 text-primary" />
               </div>
-              <p className="text-sm text-muted-foreground mb-3 text-center">
+              <p className="text-xs text-muted-foreground mb-2 text-center">
                 Drag and drop images or click to browse
               </p>
               <Button
                 onClick={handleUploadImages}
                 variant="outline"
                 size="sm"
-                className="gap-2"
+                className="gap-1.5 h-7"
                 disabled={isUploadingImage}
               >
                 {isUploadingImage ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Uploading... {uploadProgress}%
                   </>
                 ) : (
                   <>
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-3.5 w-3.5" />
                     Select Images
                   </>
                 )}
               </Button>
             </div>
 
-            {/* Images Grid */}
             {images.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-3">
-                  <ImageIcon className="h-6 w-6 opacity-30" />
+              <div className="text-center py-6 text-muted-foreground">
+                <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center mx-auto mb-2">
+                  <ImageIcon className="h-5 w-5 opacity-30" />
                 </div>
-                <p className="text-sm font-medium">No images yet</p>
-                <p className="text-xs text-muted-foreground mt-1">Upload your first product image</p>
+                <p className="text-xs font-medium">No images yet</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Upload your first product image</p>
               </div>
             ) : (
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Gallery ({images.length})
                   </h3>
                 </div>
-                <div className="grid grid-cols-3 gap-3 max-h-[280px] overflow-y-auto pr-1">
+                <div className="grid grid-cols-3 gap-2 max-h-[280px] overflow-y-auto pr-1">
                   {images.map((image) => (
                     <div
                       key={image.id}
@@ -1225,30 +1525,28 @@ export default function ItemDetailPage() {
                         className="w-full h-full object-cover transition-transform group-hover:scale-105"
                       />
 
-                      {/* Primary Badge */}
                       {image.isPrimary && (
-                        <div className="absolute top-2 left-2">
-                          <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white shadow-lg border-0 text-xs">
-                            <Star className="h-2.5 w-2.5 mr-1 fill-current" />
+                        <div className="absolute top-1.5 left-1.5">
+                          <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white shadow-lg border-0 text-xs py-0 px-1">
+                            <Star className="h-2 w-2 mr-0.5 fill-current" />
                             Primary
                           </Badge>
                         </div>
                       )}
 
-                      {/* Hover Overlay with Actions */}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200">
-                        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between gap-1.5">
+                        <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1">
                           {!image.isPrimary ? (
                             <Button
                               size="sm"
                               variant="secondary"
-                              className="flex-1 bg-white/90 hover:bg-white backdrop-blur-sm h-7 text-xs"
+                              className="flex-1 bg-white/90 hover:bg-white backdrop-blur-sm h-6 text-xs"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleSetPrimaryImage(image.id)
                               }}
                             >
-                              <Star className="h-3 w-3 mr-1" />
+                              <Star className="h-2.5 w-2.5 mr-0.5" />
                               Set Primary
                             </Button>
                           ) : (
@@ -1257,13 +1555,13 @@ export default function ItemDetailPage() {
                           <Button
                             size="sm"
                             variant="destructive"
-                            className="shadow-lg h-7 w-7 p-0"
+                            className="shadow-lg h-6 w-6 p-0"
                             onClick={(e) => {
                               e.stopPropagation()
                               handleDeleteImage(image.id)
                             }}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-2.5 w-2.5" />
                           </Button>
                         </div>
                       </div>
@@ -1273,9 +1571,8 @@ export default function ItemDetailPage() {
               </div>
             )}
 
-            {/* Compact Help Text */}
             {images.length > 0 && (
-              <div className="bg-muted/50 rounded-lg p-3">
+              <div className="bg-muted/50 rounded-lg p-2.5">
                 <p className="text-xs text-muted-foreground">
                   <span className="font-medium text-foreground">Tip:</span> Click to preview • Hover to set primary or delete
                 </p>
@@ -1284,7 +1581,7 @@ export default function ItemDetailPage() {
           </div>
 
           <DialogFooter>
-            <Button onClick={() => setIsManageImagesOpen(false)} className="w-full sm:w-auto">
+            <Button onClick={() => setIsManageImagesOpen(false)} className="w-full sm:w-auto" size="sm">
               Done
             </Button>
           </DialogFooter>
@@ -1294,20 +1591,22 @@ export default function ItemDetailPage() {
       {/* Image Preview Modal */}
       {selectedImageUrl && (
         <Dialog open={!!selectedImageUrl} onOpenChange={() => setSelectedImageUrl(null)}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader className="sr-only">
-              <DialogTitle>View Image</DialogTitle>
-            </DialogHeader>
-            <img
-              src={selectedImageUrl}
-              alt="Selected Product Image"
-              className="w-full max-h-[80vh] object-contain"
-            />
-            <DialogFooter className="sr-only">
-              <Button variant="outline" onClick={() => setSelectedImageUrl(null)}>
-                Close
+          <DialogContent className="max-w-4xl p-0">
+            <div className="relative">
+              <img
+                src={selectedImageUrl}
+                alt="Selected Product Image"
+                className="w-full max-h-[80vh] object-contain"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white"
+                onClick={() => setSelectedImageUrl(null)}
+              >
+                <X className="h-4 w-4" />
               </Button>
-            </DialogFooter>
+            </div>
           </DialogContent>
         </Dialog>
       )}
