@@ -467,10 +467,10 @@ export default function LocationsPage() {
                 <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                   <DialogTrigger asChild>
                     <Button
-                      className="shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90 h-9 sm:h-10"
+                      className="shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90 h-9 sm:h-10 text-white"
                       onClick={openCreateDialog}
                     >
-                      <Plus className="h-4 w-4 sm:mr-2" />
+                      <Plus className="h-4 w-4" />
                       <span className="hidden sm:inline">Add Location</span>
                     </Button>
                   </DialogTrigger>

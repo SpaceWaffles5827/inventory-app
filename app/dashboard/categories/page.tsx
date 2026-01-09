@@ -202,8 +202,8 @@ export default function CategoriesPage() {
                 {/* Create Category Dialog */}
                 <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                   <DialogTrigger asChild>
-                    <Button className="shadow-lg shadow-accent/20">
-                      <Plus className="h-4 w-4 mr-2" />
+                    <Button className="shadow-lg shadow-accent/20 text-white">
+                      <Plus className="h-4 w-4" />
                       Add Category
                     </Button>
                   </DialogTrigger>

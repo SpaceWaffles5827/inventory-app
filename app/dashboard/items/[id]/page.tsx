@@ -759,8 +759,8 @@ export default function ItemDetailPage() {
           <div className="flex items-center gap-2">
             {!isEditing ? (
               <Button onClick={() => setIsEditing(true)} className="shadow-sm gap-2">
-                <Edit2 className="h-4 w-4" />
-                <span className="hidden sm:inline">Edit</span>
+                <Edit2 className="h-4 w-4 text-white" />
+                <span className="hidden sm:inline text-white">Edit</span>
               </Button>
             ) : (
               <>
@@ -845,6 +845,7 @@ export default function ItemDetailPage() {
 
                 <div className="flex flex-wrap gap-2 mb-4">
                   <Badge
+                    className="text-white"
                     variant={
                       item.status === "IN_STOCK" ? "default" : item.status === "LOW_STOCK" ? "secondary" : "destructive"
                     }
@@ -954,21 +955,6 @@ export default function ItemDetailPage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
-                        {isEditing ? (
-                          <Textarea
-                            id="description"
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            rows={3}
-                            placeholder="Enter description"
-                          />
-                        ) : (
-                          <div className="text-sm">{item.description || "—"}</div>
-                        )}
-                      </div>
-
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="category" className="text-xs text-muted-foreground">Category</Label>
@@ -1014,20 +1000,17 @@ export default function ItemDetailPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="cost" className="text-xs text-muted-foreground">Unit Cost</Label>
+                        <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
                         {isEditing ? (
-                          <Input
-                            id="cost"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={formData.cost}
-                            onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                            className="h-9"
-                            placeholder="Enter unit cost"
+                          <Textarea
+                            id="description"
+                            value={formData.description}
+                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                            rows={3}
+                            placeholder="Enter description"
                           />
                         ) : (
-                          <div className="text-sm font-medium">${item.cost.toFixed(2)}</div>
+                          <div className="text-sm">{item.description || "—"}</div>
                         )}
                       </div>
                     </div>

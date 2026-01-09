@@ -600,8 +600,8 @@ export default function DashboardPage() {
 
                   <Dialog open={isAddItemOpen} onOpenChange={setIsAddItemOpen}>
                     <DialogTrigger asChild>
-                      <Button className="shadow-lg shadow-accent/20">
-                        <Plus className="h-4 w-4 mr-2" />
+                      <Button className="shadow-lg shadow-accent/20 text-white">
+                        <Plus className="h-4 w-4" />
                         Add Item
                       </Button>
                     </DialogTrigger>

@@ -396,7 +396,7 @@ export default function MembersPage() {
             </Button>
             <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
               <DialogTrigger asChild>
-                <Button size="lg" className="gap-2">
+                <Button size="lg" className="gap-2 text-white">
                   <UserPlus className="h-5 w-5" />
                   Invite Member
                 </Button>
