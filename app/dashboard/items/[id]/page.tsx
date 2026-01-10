@@ -521,17 +521,20 @@ export default function ItemDetailPage() {
     const isInput = quantity > 0
 
     try {
-      const response = await adjustStockApi(itemId, {
+      await adjustStockApi(itemId, {
         type: isInput ? "INPUT" : "OUTPUT",
         quantity: Math.abs(quantity),
         reason: adjustmentNote || "Stock adjustment",
         locationId: adjustmentDialog.locationId,
       })
 
-      if (response.data?.item) {
-        setItem(response.data.item as ItemWithDetails)
-        toast.success("Stock updated successfully")
+      // Reload the full item data with all relationships including transactions
+      const refreshResponse = await getItemByIdApi(itemId)
+      if (refreshResponse.data?.item) {
+        setItem(refreshResponse.data.item as ItemWithDetails)
       }
+
+      toast.success("Stock updated successfully")
 
       setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })
       setAdjustmentQuantity("")
@@ -546,15 +549,17 @@ export default function ItemDetailPage() {
   const handleQuickStockAdjustment = async (adjustment: number, locationId: string) => {
     try {
       const isInput = adjustment > 0
-      const response = await adjustStockApi(itemId, {
+      await adjustStockApi(itemId, {
         type: isInput ? "INPUT" : "OUTPUT",
         quantity: Math.abs(adjustment),
         reason: "Quick adjustment",
         locationId: locationId,
       })
 
-      if (response.data?.item) {
-        setItem(response.data.item as ItemWithDetails)
+      // Reload the full item data with all relationships including transactions
+      const refreshResponse = await getItemByIdApi(itemId)
+      if (refreshResponse.data?.item) {
+        setItem(refreshResponse.data.item as ItemWithDetails)
         toast.success(
           `${adjustment > 0 ? "Added" : "Removed"} ${Math.abs(adjustment)} unit${Math.abs(adjustment) !== 1 ? "s" : ""}`
         )
@@ -759,8 +764,8 @@ export default function ItemDetailPage() {
           <div className="flex items-center gap-2">
             {!isEditing ? (
               <Button onClick={() => setIsEditing(true)} className="shadow-sm gap-2">
-                <Edit2 className="h-4 w-4 text-white" />
-                <span className="hidden sm:inline text-white">Edit</span>
+                <Edit2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Edit</span>
               </Button>
             ) : (
               <>
@@ -845,7 +850,6 @@ export default function ItemDetailPage() {
 
                 <div className="flex flex-wrap gap-2 mb-4">
                   <Badge
-                    className="text-white"
                     variant={
                       item.status === "IN_STOCK" ? "default" : item.status === "LOW_STOCK" ? "secondary" : "destructive"
                     }
@@ -955,6 +959,21 @@ export default function ItemDetailPage() {
                         </div>
                       </div>
 
+                      <div className="space-y-2">
+                        <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
+                        {isEditing ? (
+                          <Textarea
+                            id="description"
+                            value={formData.description}
+                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                            rows={3}
+                            placeholder="Enter description"
+                          />
+                        ) : (
+                          <div className="text-sm">{item.description || "—"}</div>
+                        )}
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="category" className="text-xs text-muted-foreground">Category</Label>
@@ -1000,17 +1019,20 @@ export default function ItemDetailPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
+                        <Label htmlFor="cost" className="text-xs text-muted-foreground">Unit Cost</Label>
                         {isEditing ? (
-                          <Textarea
-                            id="description"
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            rows={3}
-                            placeholder="Enter description"
+                          <Input
+                            id="cost"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={formData.cost}
+                            onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                            className="h-9"
+                            placeholder="Enter unit cost"
                           />
                         ) : (
-                          <div className="text-sm">{item.description || "—"}</div>
+                          <div className="text-sm font-medium">${item.cost.toFixed(2)}</div>
                         )}
                       </div>
                     </div>
