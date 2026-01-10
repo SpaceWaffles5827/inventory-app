@@ -436,7 +436,11 @@ export default function ItemDetailPage() {
       const response = await updateItemApi(itemId, updateData)
 
       if (response.data?.item) {
-        setItem(response.data.item as ItemWithDetails)
+        // Reload the full item data with all relationships including transactions
+        const refreshResponse = await getItemByIdApi(itemId)
+        if (refreshResponse.data?.item) {
+          setItem(refreshResponse.data.item as ItemWithDetails)
+        }
         setIsManageCustomersOpen(false)
         toast.success("Customers updated successfully!")
       }
@@ -458,7 +462,11 @@ export default function ItemDetailPage() {
       const response = await updateItemApi(itemId, updateData)
 
       if (response.data?.item) {
-        setItem(response.data.item as ItemWithDetails)
+        // Reload the full item data with all relationships including transactions
+        const refreshResponse = await getItemByIdApi(itemId)
+        if (refreshResponse.data?.item) {
+          setItem(refreshResponse.data.item as ItemWithDetails)
+        }
         setIsManageLocationsOpen(false)
         toast.success("Locations updated successfully!")
       }

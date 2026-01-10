@@ -505,8 +505,10 @@ const itemsController = {
         }
       }
 
-      // Calculate current onHand from existing locations
-      const currentOnHand = calculateOnHand(item.locations);
+      // Get current location quantities
+      const currentLocationQuantities = new Map(
+        item.locations.map((loc) => [loc.locationId, loc.quantity])
+      );
 
       const updatedItem = await prisma.item.update({
         where: { id },
@@ -534,7 +536,7 @@ const itemsController = {
               deleteMany: {},
               create: locationsToUpdate.map((locId: string) => ({
                 locationId: locId,
-                quantity: currentOnHand, // Preserve current total quantity
+                quantity: currentLocationQuantities.get(locId) || 0,
                 minStock: 0,
                 maxStock: 0,
               })),
