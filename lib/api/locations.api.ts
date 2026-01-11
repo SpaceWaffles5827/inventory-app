@@ -31,7 +31,13 @@ export type LocationWithItems = Location & {
   _count: {
     items: number;
   };
-  items: Pick<Item, "id" | "itemNumber" | "name" | "onHand" | "status">[];
+  items: Pick<Item, "id" | "itemNumber" | "name" | "status" | "unit"> &
+    {
+      quantity: number;
+      minStock: number;
+      maxStock: number;
+      notes: string | null;
+    }[];
 };
 
 // Or use Prisma's built-in payload type
@@ -43,8 +49,8 @@ export type LocationWithItemsAlt = Prisma.LocationGetPayload<{
         id: true;
         itemNumber: true;
         name: true;
-        onHand: true;
         status: true;
+        unit: true;
       };
     };
   };
@@ -56,6 +62,7 @@ export type LocationWithItemsAlt = Prisma.LocationGetPayload<{
 
 export type CreateLocationRequest = {
   code: string;
+  barcode?: string; // Optional custom barcode
   structure: LocationStructure;
   capacity?: number;
   description?: string;
@@ -64,6 +71,7 @@ export type CreateLocationRequest = {
 
 export type UpdateLocationRequest = {
   code?: string;
+  barcode?: string; // Optional custom barcode
   structure?: LocationStructure;
   capacity?: number;
   description?: string;
@@ -187,8 +195,6 @@ export async function getLocationByIdApi(
   );
 
   const result = await response.json();
-
-  console.log("res", response, result);
 
   if (!response.ok) {
     throw new Error(result.message || "Failed to fetch location");

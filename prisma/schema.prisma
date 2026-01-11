@@ -139,6 +139,7 @@ model Category {
 model Location {
   id          String   @id @default(cuid())
   code        String   // e.g., "A-01-01-A" or "NORTH-3-205" or "BLDG1-FL2-RM305"
+  barcode     String?  // NEW: Barcode for location scanning
   structure   Json     // Flexible structure: [{ label: "Zone", value: "A" }, { label: "Aisle", value: "01" }]
   capacity    Int      @default(100)
   description String?
@@ -153,6 +154,7 @@ model Location {
   items     ItemLocation[]
 
   @@unique([workspaceId, code])
+  @@unique([workspaceId, barcode])
   @@map("locations")
 }
 

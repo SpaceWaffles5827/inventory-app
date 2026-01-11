@@ -348,7 +348,7 @@ export default function LocationsPage() {
 
     setFormData({
       name: location.code,
-      capacity: location.capacity.toString(),
+      capacity: location.capacity.toString() || "100",
       description: location.description || "",
     })
     setIsEditOpen(true)

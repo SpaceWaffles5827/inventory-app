@@ -124,11 +124,20 @@ const locationsController = {
     }
   },
 
+  // Helper function to generate location barcode
+  generateLocationBarcode: (code: string, workspaceId: string): string => {
+    // Format: LOC-{first 8 chars of workspace}-{location code}
+    // Example: LOC-ABC12345-A-01-01-A
+    const workspacePrefix = workspaceId.substring(0, 8).toUpperCase();
+    return `LOC-${workspacePrefix}-${code}`;
+  },
+
   // Create a new location
   createLocation: async (req: Request, res: Response) => {
     try {
       const {
         code,
+        barcode, // Optional custom barcode
         structure, // Array of { label: string, value: string }
         capacity,
         description,
@@ -188,10 +197,33 @@ const locationsController = {
         });
       }
 
+      // Generate barcode if not provided
+      const finalBarcode =
+        barcode ||
+        locationsController.generateLocationBarcode(code, workspaceId);
+
+      // Check if barcode already exists in this workspace
+      if (finalBarcode) {
+        const existingBarcode = await prisma.location.findFirst({
+          where: {
+            workspaceId: workspaceId,
+            barcode: finalBarcode,
+          },
+        });
+
+        if (existingBarcode) {
+          return res.status(400).json({
+            status: "error",
+            message: "Location barcode already exists in this workspace",
+          });
+        }
+      }
+
       // Create the location
       const location = await prisma.location.create({
         data: {
           code,
+          barcode: finalBarcode,
           structure,
           capacity: capacity || 100,
           description: description || null,
@@ -383,7 +415,8 @@ const locationsController = {
   updateLocation: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { code, structure, capacity, description, workspaceId } = req.body;
+      const { code, barcode, structure, capacity, description, workspaceId } =
+        req.body;
       const userId = req.user?.id;
 
       if (!userId) {
@@ -448,17 +481,60 @@ const locationsController = {
         }
       }
 
+      // If barcode is being updated, check for duplicates
+      if (barcode !== undefined && barcode !== existingLocation.barcode) {
+        if (barcode) {
+          const duplicateBarcode = await prisma.location.findFirst({
+            where: {
+              workspaceId: workspaceId,
+              barcode: barcode,
+              id: { not: id },
+            },
+          });
+
+          if (duplicateBarcode) {
+            return res.status(400).json({
+              status: "error",
+              message: "Location barcode already exists in this workspace",
+            });
+          }
+        }
+      }
+
+      // Prepare update data
+      const updateData: any = {};
+
+      if (code) {
+        updateData.code = code;
+        // If code is updated but barcode is not provided, regenerate barcode
+        if (barcode === undefined) {
+          updateData.barcode = locationsController.generateLocationBarcode(
+            code,
+            workspaceId
+          );
+        }
+      }
+
+      if (barcode !== undefined) {
+        updateData.barcode = barcode || null;
+      }
+
+      if (structure) {
+        updateData.structure = structure;
+      }
+
+      if (capacity !== undefined) {
+        updateData.capacity = capacity;
+      }
+
+      if (description !== undefined) {
+        updateData.description = description || null;
+      }
+
       // Update the location
       const location = await prisma.location.update({
         where: { id: id },
-        data: {
-          ...(code && { code }),
-          ...(structure && { structure }),
-          ...(capacity !== undefined && { capacity }),
-          ...(description !== undefined && {
-            description: description || null,
-          }),
-        },
+        data: updateData,
         include: {
           _count: {
             select: { items: true },
