@@ -1085,6 +1085,162 @@ export default function LocationDetailPage() {
                                             </Table>
                                         </div>
                                     )}
+
+                                    {viewMode === "grid" && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                                            {itemsInLocation.map((item) => (
+                                                <Card
+                                                    key={item.id}
+                                                    className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:border-accent/50 flex flex-col pt-0 overflow-hidden"
+                                                    onClick={() => router.push(`/dashboard/items/${item.id}`)}
+                                                >
+                                                    <div className="relative w-full h-48 bg-muted/30 border-b border-border overflow-hidden">
+                                                        <ItemImage
+                                                            itemId={item.id}
+                                                            alt={item.name}
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                    </div>
+                                                    <CardHeader className="pb-3 flex-none pt-4">
+                                                        <div className="space-y-2">
+                                                            <div className="min-w-0 overflow-hidden h-[52px]">
+                                                                <CardTitle
+                                                                    className="text-base font-semibold line-clamp-2 break-words"
+                                                                    title={item.name}
+                                                                >
+                                                                    {item.name}
+                                                                </CardTitle>
+                                                                <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">{item.itemNumber}</p>
+                                                            </div>
+                                                            <Badge
+                                                                variant={item.status === "IN_STOCK" ? "default" : "destructive"}
+                                                                className={
+                                                                    item.status === "IN_STOCK"
+                                                                        ? "bg-accent/10 text-accent w-fit"
+                                                                        : "bg-destructive/10 text-destructive w-fit"
+                                                                }
+                                                            >
+                                                                {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out"}
+                                                            </Badge>
+                                                        </div>
+                                                    </CardHeader>
+                                                    <CardContent className="space-y-3 flex-1 flex flex-col justify-between pt-0">
+                                                        <div className="space-y-3">
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div>
+                                                                    <p className="text-xs text-muted-foreground mb-1">Quantity</p>
+                                                                    <p className="text-2xl font-bold">{item.quantity}</p>
+                                                                </div>
+                                                                <div>
+                                                                    <p className="text-xs text-muted-foreground mb-1">Unit</p>
+                                                                    <p className="text-lg font-semibold">{item.unit || "EA"}</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="icon"
+                                                                className="h-9 w-9 hover:bg-accent/10 hover:text-accent bg-transparent"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    openAdjustmentDialog(item)
+                                                                }}
+                                                            >
+                                                                <Diff className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="icon"
+                                                                className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    setRemoveDialog({ open: true, item })
+                                                                }}
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {viewMode === "list" && (
+                                        <div className="space-y-3">
+                                            {itemsInLocation.map((item) => (
+                                                <Card
+                                                    key={item.id}
+                                                    className="cursor-pointer hover:shadow-md transition-all duration-200 hover:border-accent/50 overflow-hidden p-0"
+                                                    onClick={() => router.push(`/dashboard/items/${item.id}`)}
+                                                >
+                                                    <CardContent className="p-4">
+                                                        <div className="flex items-center gap-4 min-w-0">
+                                                            <div className="w-20 h-20 rounded-md bg-muted/50 border border-border overflow-hidden flex-shrink-0">
+                                                                <ItemImage
+                                                                    itemId={item.id}
+                                                                    alt={item.name}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0 overflow-hidden">
+                                                                <div className="flex items-start gap-3 mb-1 min-w-0">
+                                                                    <h3 className="font-semibold text-base line-clamp-2 break-words flex-1 min-w-0 overflow-hidden" title={item.name}>
+                                                                        {item.name}
+                                                                    </h3>
+                                                                    <Badge
+                                                                        variant={item.status === "IN_STOCK" ? "default" : "destructive"}
+                                                                        className={
+                                                                            item.status === "IN_STOCK"
+                                                                                ? "bg-accent/10 text-accent flex-shrink-0"
+                                                                                : "bg-destructive/10 text-destructive flex-shrink-0"
+                                                                        }
+                                                                    >
+                                                                        {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
+                                                                    </Badge>
+                                                                </div>
+                                                                <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap min-w-0">
+                                                                    <span className="font-mono">{item.itemNumber}</span>
+                                                                    <span className="text-xs">{item.unit || "EA"}</span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-6 flex-none">
+                                                                <div className="text-center">
+                                                                    <p className="text-xs text-muted-foreground mb-1">Quantity</p>
+                                                                    <p className="text-2xl font-semibold">{item.quantity}</p>
+                                                                </div>
+                                                                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="icon"
+                                                                        className="h-9 w-9 hover:bg-accent/10 hover:text-accent bg-transparent"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            openAdjustmentDialog(item)
+                                                                        }}
+                                                                    >
+                                                                        <Diff className="h-4 w-4" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        variant="outline"
+                                                                        size="icon"
+                                                                        className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            setRemoveDialog({ open: true, item })
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            ))}
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
