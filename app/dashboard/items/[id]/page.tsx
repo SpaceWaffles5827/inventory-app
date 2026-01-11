@@ -111,6 +111,7 @@ export default function ItemDetailPage() {
     barcode: "",
     description: "",
     cost: "",
+    unit: "",
     categoryId: "",
     supplierId: "",
   })
@@ -140,6 +141,7 @@ export default function ItemDetailPage() {
             barcode: itemData.barcode || "",
             description: itemData.description || "",
             cost: itemData.cost.toString(),
+            unit: itemData.unit || "",
             categoryId: itemData.categoryId || "",
             supplierId: itemData.supplierId || "",
           })
@@ -920,6 +922,7 @@ export default function ItemDetailPage() {
         barcode: formData.barcode || undefined,
         description: formData.description || undefined,
         cost: parseFloat(formData.cost),
+        unit: formData.unit || undefined,
         categoryId: formData.categoryId || undefined,
         supplierId: formData.supplierId || undefined,
         customerIds: selectedCustomerIds,
@@ -948,6 +951,7 @@ export default function ItemDetailPage() {
         barcode: item.barcode || "",
         description: item.description || "",
         cost: item.cost.toString(),
+        unit: item.unit || "",
         categoryId: item.categoryId || "",
         supplierId: item.supplierId || "",
       })
@@ -1305,21 +1309,6 @@ export default function ItemDetailPage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
-                        {isEditing ? (
-                          <Textarea
-                            id="description"
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            rows={3}
-                            placeholder="Enter description"
-                          />
-                        ) : (
-                          <div className="text-sm">{item.description || "—"}</div>
-                        )}
-                      </div>
-
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="category" className="text-xs text-muted-foreground">Category</Label>
@@ -1364,21 +1353,52 @@ export default function ItemDetailPage() {
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="cost" className="text-xs text-muted-foreground">Unit Cost</Label>
+                          {isEditing ? (
+                            <Input
+                              id="cost"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={formData.cost}
+                              onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                              className="h-9"
+                              placeholder="Enter unit cost"
+                            />
+                          ) : (
+                            <div className="text-sm font-medium">${item.cost.toFixed(2)}</div>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="unit" className="text-xs text-muted-foreground">Unit</Label>
+                          {isEditing ? (
+                            <Input
+                              id="unit"
+                              value={formData.unit}
+                              onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                              className="h-9"
+                              placeholder="e.g., EA, BOX, KG"
+                            />
+                          ) : (
+                            <div className="text-sm font-medium">{item.unit || "—"}</div>
+                          )}
+                        </div>
+                      </div>
+
                       <div className="space-y-2">
-                        <Label htmlFor="cost" className="text-xs text-muted-foreground">Unit Cost</Label>
+                        <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
                         {isEditing ? (
-                          <Input
-                            id="cost"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={formData.cost}
-                            onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                            className="h-9"
-                            placeholder="Enter unit cost"
+                          <Textarea
+                            id="description"
+                            value={formData.description}
+                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                            rows={3}
+                            placeholder="Enter description"
                           />
                         ) : (
-                          <div className="text-sm font-medium">${item.cost.toFixed(2)}</div>
+                          <div className="text-sm">{item.description || "—"}</div>
                         )}
                       </div>
                     </div>
