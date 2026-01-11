@@ -911,9 +911,9 @@ export default function DashboardPage() {
                       <TableHead className="w-[60px]"></TableHead>
                       <TableHead className="font-semibold">Item #</TableHead>
                       <TableHead className="font-semibold">Product Name</TableHead>
-                      <TableHead className="font-semibold">Category</TableHead>
-                      <TableHead className="font-semibold">Supplier</TableHead>
-                      <TableHead className="font-semibold">Locations</TableHead>
+                      {/* <TableHead className="font-semibold">Category</TableHead> */}
+                      {/* <TableHead className="font-semibold">Supplier</TableHead> */}
+                      {/* <TableHead className="font-semibold">Locations</TableHead> */}
                       <TableHead className="text-center font-semibold">Stock</TableHead>
                       <TableHead className="text-right font-semibold">Cost</TableHead>
                       <TableHead className="font-semibold">Status</TableHead>
@@ -923,7 +923,7 @@ export default function DashboardPage() {
                   <TableBody>
                     {filteredInventory.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                           No items found matching your filters
                         </TableCell>
                       </TableRow>
@@ -950,13 +950,13 @@ export default function DashboardPage() {
                               <p className="text-xs text-muted-foreground font-mono truncate">{item.barcode || "—"}</p>
                             </div>
                           </TableCell>
-                          <TableCell>
+                          {/* <TableCell>
                             <Badge variant="outline" className="font-normal">
                               {item.category?.name || "Uncategorized"}
                             </Badge>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">{item.supplier?.name || "Unknown"}</TableCell>
-                          <TableCell className="text-muted-foreground text-sm max-w-[150px]">
+                          </TableCell> */}
+                          {/* <TableCell className="text-muted-foreground text-sm">{item.supplier?.name || "Unknown"}</TableCell> */}
+                          {/* <TableCell className="text-muted-foreground text-sm max-w-[150px]">
                             {item.locations && item.locations.filter(loc => loc.quantity > 0).length > 0 ? (
                               <div className="flex flex-wrap gap-1">
                                 {item.locations
@@ -970,10 +970,11 @@ export default function DashboardPage() {
                             ) : (
                               "Unassigned"
                             )}
-                          </TableCell>
+                          </TableCell> */}
                           <TableCell>
-                            <div className="flex items-center justify-center">
-                              <span className="font-semibold text-lg min-w-12 text-center">{item.onHand}</span>
+                            <div className="flex items-baseline justify-end gap-1.5 pr-4">
+                              <span className="font-semibold text-lg tabular-nums text-right min-w-[3ch]">{item.onHand}</span>
+                              <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight w-[3.5ch] text-left">{item.unit || "EA"}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-right font-medium">${item.cost.toFixed(2)}</TableCell>
@@ -1070,7 +1071,10 @@ export default function DashboardPage() {
                             <div className="grid grid-cols-2 gap-3">
                               <div>
                                 <p className="text-xs text-muted-foreground mb-1">Stock</p>
-                                <p className="text-2xl font-bold">{item.onHand}</p>
+                                <div className="flex items-baseline gap-1.5">
+                                  <p className="text-2xl font-bold tabular-nums">{item.onHand}</p>
+                                  <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight">{item.unit || "EA"}</span>
+                                </div>
                               </div>
                               <div>
                                 <p className="text-xs text-muted-foreground mb-1">Cost</p>
@@ -1162,7 +1166,10 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-6 flex-none">
                               <div className="text-center">
                                 <p className="text-xs text-muted-foreground mb-1">Stock</p>
-                                <p className="text-2xl font-semibold">{item.onHand}</p>
+                                <div className="flex items-baseline gap-1.5 justify-center">
+                                  <p className="text-2xl font-semibold tabular-nums text-right min-w-[3ch]">{item.onHand}</p>
+                                  <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight w-[4ch] text-left">{item.unit || "EA"}</span>
+                                </div>
                               </div>
                               <div className="text-center min-w-[70px]">
                                 <p className="text-xs text-muted-foreground mb-1">Cost</p>
