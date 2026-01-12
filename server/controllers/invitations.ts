@@ -28,10 +28,17 @@ const invitationsController = {
         },
       });
 
-      if (!invitation || invitation.email !== email) {
+      if (!invitation) {
         return res.status(404).json({
           status: "error",
           message: "Invitation not found",
+        });
+      }
+
+      if (invitation.email !== email) {
+        return res.status(400).json({
+          status: "error",
+          message: "Email does not match invitation",
         });
       }
 
@@ -89,10 +96,18 @@ const invitationsController = {
         where: { id: token },
       });
 
-      if (!invitation || invitation.email !== email) {
+      if (!invitation) {
         return res.status(404).json({
           status: "error",
           message: "Invitation not found",
+        });
+      }
+
+      // Check if email matches
+      if (invitation.email !== email) {
+        return res.status(400).json({
+          status: "error",
+          message: "Email does not match invitation",
         });
       }
 
