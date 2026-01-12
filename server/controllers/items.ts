@@ -1,9 +1,123 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
 
-// Helper function to calculate total onHand from locations
-const calculateOnHand = (locations: { quantity: number }[]): number => {
-  return locations.reduce((total, loc) => total + loc.quantity, 0);
+// CONSTANTS
+const SYSTEM_LOT_NUMBER = "SYSTEM";
+const EXISTING_STOCK_LOT_NUMBER = "EXISTING-STOCK";
+
+// Helper function to get or create SYSTEM lot for non-lotted items
+const getOrCreateSystemLot = async (
+  itemId: string,
+  workspaceId: string,
+  userId: string
+) => {
+  let systemLot = await prisma.lot.findUnique({
+    where: {
+      workspaceId_itemId_lotNumber: {
+        workspaceId,
+        itemId,
+        lotNumber: SYSTEM_LOT_NUMBER,
+      },
+    },
+  });
+
+  if (!systemLot) {
+    systemLot = await prisma.lot.create({
+      data: {
+        lotNumber: SYSTEM_LOT_NUMBER,
+        quantity: 0,
+        initialQuantity: 0,
+        isSystem: true,
+        status: "ACTIVE",
+        itemId,
+        workspaceId,
+        createdBy: userId,
+      },
+    });
+  }
+
+  return systemLot;
+};
+
+// Helper function to recalculate and update Lot.quantity from LotLocation
+const recalculateLotQuantity = async (lotId: string) => {
+  const lotLocations = await prisma.lotLocation.findMany({
+    where: { lotId },
+  });
+
+  const totalQuantity = lotLocations.reduce(
+    (sum, loc) => sum + loc.quantity,
+    0
+  );
+
+  await prisma.lot.update({
+    where: { id: lotId },
+    data: { quantity: totalQuantity },
+  });
+
+  return totalQuantity;
+};
+
+// Helper function to recalculate and update ItemLocation.quantity from LotLocation
+const recalculateItemLocationQuantity = async (
+  itemId: string,
+  locationId: string
+) => {
+  // Get all lots for this item
+  const lots = await prisma.lot.findMany({
+    where: { itemId },
+    include: {
+      locations: {
+        where: { locationId },
+      },
+    },
+  });
+
+  const totalQuantity = lots.reduce((sum, lot) => {
+    return (
+      sum +
+      lot.locations.reduce((lotSum, lotLoc) => lotSum + lotLoc.quantity, 0)
+    );
+  }, 0);
+
+  // Update or create ItemLocation
+  await prisma.itemLocation.upsert({
+    where: {
+      itemId_locationId: {
+        itemId,
+        locationId,
+      },
+    },
+    update: {
+      quantity: totalQuantity,
+    },
+    create: {
+      itemId,
+      locationId,
+      quantity: totalQuantity,
+      minStock: 0,
+      maxStock: 0,
+    },
+  });
+
+  return totalQuantity;
+};
+
+// Helper function to calculate total onHand from LotLocation (SOURCE OF TRUTH)
+const calculateOnHandFromLots = async (itemId: string): Promise<number> => {
+  const lots = await prisma.lot.findMany({
+    where: { itemId },
+    include: {
+      locations: true,
+    },
+  });
+
+  return lots.reduce((total, lot) => {
+    return (
+      total +
+      lot.locations.reduce((lotTotal, lotLoc) => lotTotal + lotLoc.quantity, 0)
+    );
+  }, 0);
 };
 
 // Helper function to determine item status based on total quantity
@@ -15,11 +129,9 @@ const determineStatus = (
   return "IN_STOCK";
 };
 
-// Helper function to add onHand to item
-const addOnHandToItem = <T extends { locations: { quantity: number }[] }>(
-  item: T
-) => {
-  const onHand = calculateOnHand(item.locations);
+// Helper function to add onHand to item (calculated from lots)
+const addOnHandToItem = async <T extends { id: string }>(item: T) => {
+  const onHand = await calculateOnHandFromLots(item.id);
   return {
     ...item,
     onHand,
@@ -91,7 +203,6 @@ const itemsController = {
 
       let nextNumber = 1;
       if (lastItem) {
-        // Extract number from format ITM-001, ITM-002, etc.
         const match = lastItem.itemNumber.match(/ITM-(\d+)/);
         if (match) {
           nextNumber = parseInt(match[1]) + 1;
@@ -100,7 +211,7 @@ const itemsController = {
 
       const itemNumber = `ITM-${String(nextNumber).padStart(3, "0")}`;
 
-      // Verify all customers belong to the workspace (if customerIds provided)
+      // Verify all customers belong to the workspace
       if (customerIds && customerIds.length > 0) {
         const customers = await prisma.customer.findMany({
           where: {
@@ -117,7 +228,7 @@ const itemsController = {
         }
       }
 
-      // Determine which locations to use (support both single locationId and multiple locationIds)
+      // Determine which locations to use
       const locationsToCreate =
         locationIds && locationIds.length > 0
           ? locationIds
@@ -125,7 +236,7 @@ const itemsController = {
           ? [locationId]
           : [];
 
-      // Verify all locations belong to the workspace (if locations provided)
+      // Verify all locations belong to the workspace
       if (locationsToCreate.length > 0) {
         const locations = await prisma.location.findMany({
           where: {
@@ -158,6 +269,7 @@ const itemsController = {
           supplierId: supplierId || null,
           workspaceId: workspaceId,
           status: status,
+          lotTracking: false, // Default to non-lotted
           ...(customerIds &&
             customerIds.length > 0 && {
               customers: {
@@ -167,16 +279,6 @@ const itemsController = {
                 })),
               },
             }),
-          ...(locationsToCreate.length > 0 && {
-            locations: {
-              create: locationsToCreate.map((locId: string) => ({
-                locationId: locId,
-                quantity: initialQuantity || 0,
-                minStock: 0,
-                maxStock: 0,
-              })),
-            },
-          }),
         },
         include: {
           category: true,
@@ -194,8 +296,47 @@ const itemsController = {
         },
       });
 
-      // Create initial stock transaction if initialQuantity > 0
-      if (initialQuantity && initialQuantity > 0) {
+      // Create SYSTEM lot for this item
+      const systemLot = await getOrCreateSystemLot(
+        item.id,
+        workspaceId,
+        userId
+      );
+
+      // If initial quantity > 0 and locations specified, add to LotLocation
+      if (initialQuantity > 0 && locationsToCreate.length > 0) {
+        // Distribute quantity evenly across locations (or to first location)
+        const quantityPerLocation =
+          locationsToCreate.length === 1
+            ? initialQuantity
+            : Math.floor(initialQuantity / locationsToCreate.length);
+
+        for (let i = 0; i < locationsToCreate.length; i++) {
+          const locId = locationsToCreate[i];
+          const qty =
+            i === 0
+              ? initialQuantity -
+                quantityPerLocation * (locationsToCreate.length - 1)
+              : quantityPerLocation;
+
+          if (qty > 0) {
+            await prisma.lotLocation.create({
+              data: {
+                lotId: systemLot.id,
+                locationId: locId,
+                quantity: qty,
+              },
+            });
+
+            // Update ItemLocation cache
+            await recalculateItemLocationQuantity(item.id, locId);
+          }
+        }
+
+        // Update Lot.quantity cache
+        await recalculateLotQuantity(systemLot.id);
+
+        // Create stock transaction
         await prisma.stockTransaction.create({
           data: {
             type: "INPUT",
@@ -203,6 +344,7 @@ const itemsController = {
             previousStock: 0,
             newStock: initialQuantity,
             reason: "Initial stock",
+            lotId: systemLot.id,
             itemId: item.id,
             workspaceId: workspaceId,
             userId: userId,
@@ -211,7 +353,7 @@ const itemsController = {
       }
 
       // Add calculated onHand to response
-      const itemWithOnHand = addOnHandToItem(item);
+      const itemWithOnHand = await addOnHandToItem(item);
 
       return res.status(201).json({
         status: "success",
@@ -287,7 +429,9 @@ const itemsController = {
       });
 
       // Add calculated onHand to each item
-      const itemsWithOnHand = items.map(addOnHandToItem);
+      const itemsWithOnHand = await Promise.all(
+        items.map((item) => addOnHandToItem(item))
+      );
 
       return res.status(200).json({
         status: "success",
@@ -335,7 +479,7 @@ const itemsController = {
             orderBy: {
               createdAt: "desc",
             },
-            take: 10, // Last 10 transactions
+            take: 10,
             include: {
               user: {
                 select: {
@@ -372,7 +516,7 @@ const itemsController = {
       }
 
       // Add calculated onHand to response
-      const itemWithOnHand = addOnHandToItem(item);
+      const itemWithOnHand = await addOnHandToItem(item);
 
       return res.status(200).json({
         status: "success",
@@ -442,6 +586,7 @@ const itemsController = {
         locationIds,
         supplierId,
         customerIds,
+        lotTracking,
       } = req.body;
 
       // Check if itemNumber is being changed and if it's unique
@@ -450,7 +595,7 @@ const itemsController = {
           where: {
             workspaceId: item.workspaceId,
             itemNumber: itemNumber,
-            id: { not: id }, // Exclude current item
+            id: { not: id },
           },
         });
 
@@ -463,7 +608,7 @@ const itemsController = {
         }
       }
 
-      // Verify all customers belong to the workspace (if customerIds provided)
+      // Verify all customers belong to the workspace
       if (customerIds !== undefined && customerIds.length > 0) {
         const customers = await prisma.customer.findMany({
           where: {
@@ -480,7 +625,7 @@ const itemsController = {
         }
       }
 
-      // Determine which locations to use (support both single locationId and multiple locationIds)
+      // Determine which locations to use
       const locationsToUpdate =
         locationIds !== undefined && locationIds.length > 0
           ? locationIds
@@ -488,7 +633,7 @@ const itemsController = {
           ? [locationId]
           : undefined;
 
-      // Verify all locations belong to the workspace (if locations provided)
+      // Verify all locations belong to the workspace
       if (locationsToUpdate !== undefined && locationsToUpdate.length > 0) {
         const locations = await prisma.location.findMany({
           where: {
@@ -505,10 +650,235 @@ const itemsController = {
         }
       }
 
-      // Get current location quantities
-      const currentLocationQuantities = new Map(
-        item.locations.map((loc) => [loc.locationId, loc.quantity])
-      );
+      // Handle lot tracking toggle BEFORE updating the item
+      if (lotTracking !== undefined && lotTracking !== item.lotTracking) {
+        if (lotTracking) {
+          // ENABLING lot tracking - Convert SYSTEM lot to EXISTING-STOCK
+
+          let systemLot = await prisma.lot.findUnique({
+            where: {
+              workspaceId_itemId_lotNumber: {
+                workspaceId: item.workspaceId,
+                itemId: id,
+                lotNumber: SYSTEM_LOT_NUMBER,
+              },
+            },
+            include: {
+              locations: true,
+            },
+          });
+
+          // Get current ItemLocation quantities
+          const itemLocations = await prisma.itemLocation.findMany({
+            where: { itemId: id },
+          });
+
+          if (systemLot) {
+            // SYSTEM lot exists - rename it to EXISTING-STOCK and sync quantities
+
+            // First, sync the quantities from ItemLocations
+            await prisma.lotLocation.deleteMany({
+              where: { lotId: systemLot.id },
+            });
+
+            for (const itemLoc of itemLocations) {
+              if (itemLoc.quantity > 0) {
+                await prisma.lotLocation.create({
+                  data: {
+                    lotId: systemLot.id,
+                    locationId: itemLoc.locationId,
+                    quantity: itemLoc.quantity,
+                  },
+                });
+              }
+            }
+
+            const totalQty = itemLocations.reduce(
+              (sum, loc) => sum + loc.quantity,
+              0
+            );
+
+            // Rename SYSTEM to EXISTING-STOCK and make it user-visible
+            await prisma.lot.update({
+              where: { id: systemLot.id },
+              data: {
+                lotNumber: EXISTING_STOCK_LOT_NUMBER,
+                quantity: totalQty,
+                initialQuantity:
+                  totalQty > systemLot.initialQuantity
+                    ? totalQty
+                    : systemLot.initialQuantity,
+                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
+                isSystem: true, // Keep isSystem flag for tracking
+                notes: "Pre-existing inventory before lot tracking was enabled",
+              },
+            });
+          } else {
+            // No SYSTEM lot exists - create EXISTING-STOCK lot
+            const totalQty = itemLocations.reduce(
+              (sum, loc) => sum + loc.quantity,
+              0
+            );
+
+            await prisma.lot.create({
+              data: {
+                lotNumber: EXISTING_STOCK_LOT_NUMBER,
+                quantity: totalQty,
+                initialQuantity: totalQty,
+                receivedDate: new Date(),
+                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
+                isSystem: true,
+                notes: "Pre-existing inventory before lot tracking was enabled",
+                itemId: id,
+                workspaceId: item.workspaceId,
+                createdBy: userId,
+                locations: {
+                  create: itemLocations
+                    .filter((loc) => loc.quantity > 0)
+                    .map((loc) => ({
+                      locationId: loc.locationId,
+                      quantity: loc.quantity,
+                    })),
+                },
+              },
+            });
+          }
+        } else {
+          // DISABLING lot tracking - Consolidate ALL lots back to SYSTEM
+
+          const lots = await prisma.lot.findMany({
+            where: { itemId: id },
+            include: { locations: true },
+          });
+
+          // Calculate total quantities per location from all lots
+          const locationTotals = new Map<string, number>();
+          lots.forEach((lot) => {
+            lot.locations.forEach((lotLoc) => {
+              const current = locationTotals.get(lotLoc.locationId) || 0;
+              locationTotals.set(lotLoc.locationId, current + lotLoc.quantity);
+            });
+          });
+
+          // Update ItemLocation quantities
+          for (const [locationId, quantity] of locationTotals.entries()) {
+            await prisma.itemLocation.upsert({
+              where: {
+                itemId_locationId: {
+                  itemId: id,
+                  locationId: locationId,
+                },
+              },
+              update: {
+                quantity: quantity,
+              },
+              create: {
+                itemId: id,
+                locationId: locationId,
+                quantity: quantity,
+                minStock: 0,
+                maxStock: 0,
+              },
+            });
+          }
+
+          // Check if EXISTING-STOCK lot exists
+          const existingStockLot = await prisma.lot.findUnique({
+            where: {
+              workspaceId_itemId_lotNumber: {
+                workspaceId: item.workspaceId,
+                itemId: id,
+                lotNumber: EXISTING_STOCK_LOT_NUMBER,
+              },
+            },
+          });
+
+          if (existingStockLot) {
+            // Rename EXISTING-STOCK back to SYSTEM
+            await prisma.lot.update({
+              where: { id: existingStockLot.id },
+              data: {
+                lotNumber: SYSTEM_LOT_NUMBER,
+                notes: null, // Clear the note
+              },
+            });
+
+            // Update its locations to match consolidated totals
+            await prisma.lotLocation.deleteMany({
+              where: { lotId: existingStockLot.id },
+            });
+
+            for (const [locationId, quantity] of locationTotals.entries()) {
+              if (quantity > 0) {
+                await prisma.lotLocation.create({
+                  data: {
+                    lotId: existingStockLot.id,
+                    locationId: locationId,
+                    quantity: quantity,
+                  },
+                });
+              }
+            }
+
+            // Update lot quantity
+            const totalQty = Array.from(locationTotals.values()).reduce(
+              (a, b) => a + b,
+              0
+            );
+            await prisma.lot.update({
+              where: { id: existingStockLot.id },
+              data: {
+                quantity: totalQty,
+                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
+              },
+            });
+
+            // Delete all OTHER lots (keep the renamed SYSTEM lot)
+            await prisma.lot.deleteMany({
+              where: {
+                itemId: id,
+                id: { not: existingStockLot.id },
+              },
+            });
+          } else {
+            // No EXISTING-STOCK lot - delete all lots and create new SYSTEM lot
+            await prisma.lot.deleteMany({
+              where: { itemId: id },
+            });
+
+            const totalQty = Array.from(locationTotals.values()).reduce(
+              (a, b) => a + b,
+              0
+            );
+
+            const newSystemLot = await prisma.lot.create({
+              data: {
+                lotNumber: SYSTEM_LOT_NUMBER,
+                quantity: totalQty,
+                initialQuantity: totalQty,
+                receivedDate: new Date(),
+                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
+                isSystem: true,
+                itemId: id,
+                workspaceId: item.workspaceId,
+                createdBy: userId,
+              },
+            });
+
+            for (const [locationId, quantity] of locationTotals.entries()) {
+              if (quantity > 0) {
+                await prisma.lotLocation.create({
+                  data: {
+                    lotId: newSystemLot.id,
+                    locationId: locationId,
+                    quantity: quantity,
+                  },
+                });
+              }
+            }
+          }
+        }
+      }
 
       const updatedItem = await prisma.item.update({
         where: { id },
@@ -522,23 +892,14 @@ const itemsController = {
           cost: cost !== undefined ? cost : item.cost,
           categoryId: categoryId !== undefined ? categoryId : item.categoryId,
           supplierId: supplierId !== undefined ? supplierId : item.supplierId,
+          lotTracking:
+            lotTracking !== undefined ? lotTracking : item.lotTracking,
           ...(customerIds !== undefined && {
             customers: {
               deleteMany: {},
               create: customerIds.map((customerId: string) => ({
                 customerId: customerId,
                 quantity: 0,
-              })),
-            },
-          }),
-          ...(locationsToUpdate !== undefined && {
-            locations: {
-              deleteMany: {},
-              create: locationsToUpdate.map((locId: string) => ({
-                locationId: locId,
-                quantity: currentLocationQuantities.get(locId) || 0,
-                minStock: 0,
-                maxStock: 0,
               })),
             },
           }),
@@ -559,8 +920,46 @@ const itemsController = {
         },
       });
 
-      // Recalculate status based on new location quantities
-      const newOnHand = calculateOnHand(updatedItem.locations);
+      // If locations are being updated, handle ItemLocation records
+      if (locationsToUpdate !== undefined) {
+        // Get current quantities from lots across all locations
+        const lots = await prisma.lot.findMany({
+          where: { itemId: id },
+          include: { locations: true },
+        });
+
+        const locationQuantities = new Map<string, number>();
+        lots.forEach((lot) => {
+          lot.locations.forEach((lotLoc) => {
+            const current = locationQuantities.get(lotLoc.locationId) || 0;
+            locationQuantities.set(
+              lotLoc.locationId,
+              current + lotLoc.quantity
+            );
+          });
+        });
+
+        // Remove old ItemLocation records
+        await prisma.itemLocation.deleteMany({
+          where: { itemId: id },
+        });
+
+        // Create ItemLocation records for all requested locations
+        for (const locationId of locationsToUpdate) {
+          await prisma.itemLocation.create({
+            data: {
+              itemId: id,
+              locationId,
+              quantity: locationQuantities.get(locationId) || 0,
+              minStock: 0,
+              maxStock: 0,
+            },
+          });
+        }
+      }
+
+      // Recalculate status based on total quantity from lots
+      const newOnHand = await calculateOnHandFromLots(id);
       const newStatus = determineStatus(newOnHand);
 
       // Update status if it changed
@@ -572,8 +971,13 @@ const itemsController = {
         updatedItem.status = newStatus;
       }
 
+      // Ensure SYSTEM lot exists for this item (only if lot tracking is disabled)
+      if (!updatedItem.lotTracking) {
+        await getOrCreateSystemLot(id, item.workspaceId, userId);
+      }
+
       // Add calculated onHand to response
-      const itemWithOnHand = addOnHandToItem(updatedItem);
+      const itemWithOnHand = await addOnHandToItem(updatedItem);
 
       return res.status(200).json({
         status: "success",
@@ -618,7 +1022,7 @@ const itemsController = {
         where: {
           userId: userId,
           workspaceId: item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] }, // Only owners and admins can delete
+          role: { in: ["OWNER", "ADMIN"] },
         },
       });
 
@@ -629,6 +1033,7 @@ const itemsController = {
         });
       }
 
+      // Delete cascades to lots, lot locations, transactions, etc.
       await prisma.item.delete({
         where: { id },
       });
@@ -646,11 +1051,11 @@ const itemsController = {
     }
   },
 
-  // Adjust stock (add or remove)
+  // Adjust stock (add or remove) - NOW USES LOTLOCATION AS SOURCE OF TRUTH
   adjustStock: async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { quantity, type, reason, locationId } = req.body; // type: 'INPUT' or 'OUTPUT'
+      const { quantity, type, reason, locationId } = req.body;
       const userId = req.user?.id;
 
       if (!userId) {
@@ -671,6 +1076,13 @@ const itemsController = {
         return res.status(400).json({
           status: "error",
           message: "Type must be INPUT or OUTPUT",
+        });
+      }
+
+      if (!locationId) {
+        return res.status(400).json({
+          status: "error",
+          message: "Location ID is required",
         });
       }
 
@@ -703,57 +1115,80 @@ const itemsController = {
         });
       }
 
-      // Calculate previous total stock
-      const previousStock = calculateOnHand(item.locations);
-
-      // If locationId is provided, verify it exists for this item
-      if (locationId) {
-        const itemLocation = await prisma.itemLocation.findUnique({
-          where: {
-            itemId_locationId: {
-              itemId: id,
-              locationId: locationId,
-            },
-          },
+      // If item has lot tracking enabled, require lot-specific adjustments
+      if (item.lotTracking) {
+        return res.status(400).json({
+          status: "error",
+          message:
+            "This item uses lot tracking. Please use the lot adjustment endpoint to modify stock for specific lots.",
         });
+      }
 
-        if (!itemLocation) {
-          return res.status(400).json({
-            status: "error",
-            message: "Location not found for this item",
-          });
-        }
+      // Get or create SYSTEM lot for this item
+      const systemLot = await getOrCreateSystemLot(
+        id,
+        item.workspaceId,
+        userId
+      );
 
-        // Update location-specific quantity
-        const previousLocationStock = itemLocation.quantity;
-        const newLocationStock =
-          type === "INPUT"
-            ? previousLocationStock + quantity
-            : previousLocationStock - quantity;
+      // Calculate previous total stock from LotLocation (SOURCE OF TRUTH)
+      const previousStock = await calculateOnHandFromLots(id);
 
-        if (newLocationStock < 0) {
-          return res.status(400).json({
-            status: "error",
-            message: "Insufficient stock at this location",
-          });
-        }
-
-        await prisma.itemLocation.update({
-          where: {
-            itemId_locationId: {
-              itemId: id,
-              locationId: locationId,
-            },
+      // Get or create LotLocation for SYSTEM lot at this location
+      let lotLocation = await prisma.lotLocation.findUnique({
+        where: {
+          lotId_locationId: {
+            lotId: systemLot.id,
+            locationId: locationId,
           },
+        },
+      });
+
+      if (!lotLocation) {
+        lotLocation = await prisma.lotLocation.create({
           data: {
-            quantity: newLocationStock,
+            lotId: systemLot.id,
+            locationId: locationId,
+            quantity: 0,
           },
         });
       }
 
-      // Calculate new total stock
-      const newStock =
-        type === "INPUT" ? previousStock + quantity : previousStock - quantity;
+      // Calculate new quantity for this location
+      const previousLocationStock = lotLocation.quantity;
+      const newLocationStock =
+        type === "INPUT"
+          ? previousLocationStock + quantity
+          : previousLocationStock - quantity;
+
+      if (newLocationStock < 0) {
+        return res.status(400).json({
+          status: "error",
+          message: "Insufficient stock at this location",
+        });
+      }
+
+      // UPDATE SOURCE OF TRUTH: LotLocation.quantity
+      await prisma.lotLocation.update({
+        where: {
+          lotId_locationId: {
+            lotId: systemLot.id,
+            locationId: locationId,
+          },
+        },
+        data: {
+          quantity: newLocationStock,
+        },
+      });
+
+      // Update CACHED values: Lot.quantity
+      await recalculateLotQuantity(systemLot.id);
+
+      // Update CACHED values: ItemLocation.quantity
+      await recalculateItemLocationQuantity(id, locationId);
+
+      // Calculate new total stock from LotLocation
+      const newStock = await calculateOnHandFromLots(id);
 
       if (newStock < 0) {
         return res.status(400).json({
@@ -787,7 +1222,7 @@ const itemsController = {
         },
       });
 
-      // Create stock transaction
+      // Create stock transaction (now ALWAYS references a lotId)
       await prisma.stockTransaction.create({
         data: {
           type,
@@ -795,6 +1230,7 @@ const itemsController = {
           previousStock,
           newStock,
           reason,
+          lotId: systemLot.id, // ALWAYS reference lot (SYSTEM for non-lotted items)
           itemId: id,
           workspaceId: item.workspaceId,
           userId: userId,
@@ -802,7 +1238,7 @@ const itemsController = {
       });
 
       // Add calculated onHand to response
-      const itemWithOnHand = addOnHandToItem(updatedItem);
+      const itemWithOnHand = await addOnHandToItem(updatedItem);
 
       return res.status(200).json({
         status: "success",

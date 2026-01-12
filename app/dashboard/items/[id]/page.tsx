@@ -9,8 +9,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin, ImageIcon, Hash, Tag, Upload, Star, X, ExternalLink, Diff, AlertCircle, Minus, Package, ArrowDownToLine, ArrowUpFromLine, Scan, QrCode, Printer } from "lucide-react"
+import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin, ImageIcon, Hash, Tag, Upload, Star, X, ExternalLink, Diff, AlertCircle, Minus, Package, ArrowDownToLine, ArrowUpFromLine, Scan, QrCode, Printer, Calendar, PackageCheck, AlertTriangle, Clock } from "lucide-react"
 import { getItemByIdApi, updateItemApi, adjustStockApi, type ItemWithDetails } from "@/lib/api/items.api"
+import { getLotsByItemApi, createLotApi, adjustLotQuantityApi, type LotWithRelations } from "@/lib/api/lots.api"
 import { Switch } from "@/components/ui/switch"
 import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
 import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
@@ -96,14 +97,33 @@ export default function ItemDetailPage() {
     open: boolean
     locationId: string | null
     currentQuantity: number
+    lotId?: string | null
   }>({
     open: false,
     locationId: null,
     currentQuantity: 0,
+    lotId: null,
   })
   const [adjustmentQuantity, setAdjustmentQuantity] = useState("")
   const [newStockAmount, setNewStockAmount] = useState("")
   const [adjustmentNote, setAdjustmentNote] = useState("")
+  const [selectedLotForAdjustment, setSelectedLotForAdjustment] = useState<string>("")
+  const [lotsAtLocation, setLotsAtLocation] = useState<LotWithRelations[]>([])
+
+  const [lots, setLots] = useState<LotWithRelations[]>([])
+  const [lotsLoading, setLotsLoading] = useState(false)
+  const [lotTracking, setLotTracking] = useState(false)
+  const [isCreateLotOpen, setIsCreateLotOpen] = useState(false)
+  const [lotFormData, setLotFormData] = useState({
+    lotNumber: "",
+    quantity: "",
+    receivedDate: new Date().toISOString().split('T')[0],
+    manufactureDate: "",
+    expirationDate: "",
+    supplierId: "",
+    poNumber: "",
+    notes: "",
+  })
 
   const [formData, setFormData] = useState({
     itemNumber: "",
@@ -135,6 +155,10 @@ export default function ItemDetailPage() {
         if (response.data?.item) {
           const itemData = response.data.item as ItemWithDetails
           setItem(itemData)
+
+          // Set lot tracking from item data
+          setLotTracking(itemData.lotTracking || false)
+
           setFormData({
             itemNumber: itemData.itemNumber,
             name: itemData.name,
@@ -153,6 +177,11 @@ export default function ItemDetailPage() {
           setSelectedLocationIds(locationIds)
 
           loadImages(itemId)
+
+          // Load lots if lot tracking is enabled
+          if (itemData.lotTracking) {
+            loadLots(itemId)
+          }
         }
       } catch (error) {
         console.error("Failed to load item:", error)
@@ -206,6 +235,78 @@ export default function ItemDetailPage() {
     }
   }
 
+  const handleCreateLot = async () => {
+    if (!lotFormData.lotNumber || !lotFormData.quantity) {
+      toast.error("Lot number and quantity are required")
+      return
+    }
+
+    if (!item) {
+      toast.error("Item not found")
+      return
+    }
+
+    // Check if item has any locations assigned
+    if (!item.locations || item.locations.length === 0) {
+      toast.error("Please assign at least one location to this item first", {
+        description: "Go to the Locations tab and add a storage location before creating lots.",
+        duration: 5000,
+      })
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      // Assign entire lot to first location by default
+      const firstLocation = item.locations[0]
+      const defaultLocationAssignment = [{
+        locationId: firstLocation.locationId,
+        quantity: parseInt(lotFormData.quantity)
+      }];
+
+      await createLotApi(itemId, {
+        lotNumber: lotFormData.lotNumber,
+        quantity: parseInt(lotFormData.quantity),
+        receivedDate: lotFormData.receivedDate || undefined,
+        manufactureDate: lotFormData.manufactureDate || undefined,
+        expirationDate: lotFormData.expirationDate || undefined,
+        supplierId: lotFormData.supplierId || undefined,
+        poNumber: lotFormData.poNumber || undefined,
+        notes: lotFormData.notes || undefined,
+        locationAssignments: defaultLocationAssignment,
+      })
+
+      // Reload item data to refresh totals
+      const refreshResponse = await getItemByIdApi(itemId)
+      if (refreshResponse.data?.item) {
+        setItem(refreshResponse.data.item as ItemWithDetails)
+      }
+
+      // Reload lots
+      await loadLots(itemId)
+
+      // Reset form
+      setLotFormData({
+        lotNumber: "",
+        quantity: "",
+        receivedDate: new Date().toISOString().split('T')[0],
+        manufactureDate: "",
+        expirationDate: "",
+        supplierId: "",
+        poNumber: "",
+        notes: "",
+      })
+
+      setIsCreateLotOpen(false)
+      toast.success("Lot created successfully!")
+    } catch (error) {
+      console.error("Failed to create lot:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to create lot")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const loadSuppliers = async (workspaceId: string) => {
     try {
       const response = await getSuppliersApi(workspaceId)
@@ -225,6 +326,21 @@ export default function ItemDetailPage() {
       }
     } catch (err) {
       console.error("Failed to load customers:", err)
+    }
+  }
+
+  const loadLots = async (itemId: string) => {
+    try {
+      setLotsLoading(true)
+      const response = await getLotsByItemApi(itemId)
+      if (response.data?.lots) {
+        setLots(response.data.lots)
+      }
+    } catch (err) {
+      console.error("Failed to load lots:", err)
+      toast.error("Failed to load lots")
+    } finally {
+      setLotsLoading(false)
     }
   }
 
@@ -495,10 +611,57 @@ export default function ItemDetailPage() {
   }
 
   const openAdjustmentDialog = (locationId: string, currentQuantity: number) => {
-    setAdjustmentDialog({ open: true, locationId, currentQuantity })
+    setAdjustmentDialog({ open: true, locationId, currentQuantity, lotId: null })
     setAdjustmentQuantity("")
     setNewStockAmount(String(currentQuantity))
     setAdjustmentNote("")
+    setSelectedLotForAdjustment("")
+
+    // If lot tracking is enabled, get lots at this location
+    if (lotTracking && lots.length > 0) {
+      // Include lots with 0 quantity so they can be re-stocked
+      const lotsHere = lots.filter(lot =>
+        lot.locations.some(loc => loc.locationId === locationId)
+      )
+      setLotsAtLocation(lotsHere)
+
+      // Auto-select first lot with quantity
+      if (lotsHere.length > 0) {
+        setSelectedLotForAdjustment(lotsHere[0].id)
+        // Set current quantity to the lot's quantity at this location
+        const lotAtLocation = lotsHere[0].locations.find(loc => loc.locationId === locationId)
+        if (lotAtLocation) {
+          setAdjustmentDialog({
+            open: true,
+            locationId,
+            currentQuantity: lotAtLocation.quantity,
+            lotId: lotsHere[0].id
+          })
+          setNewStockAmount(String(lotAtLocation.quantity))
+        }
+      }
+    }
+  }
+
+  const handleLotSelectionChange = (lotId: string) => {
+    setSelectedLotForAdjustment(lotId)
+
+    // Update current quantity based on selected lot
+    const selectedLot = lotsAtLocation.find(l => l.id === lotId)
+    if (selectedLot && adjustmentDialog.locationId) {
+      const lotLocation = selectedLot.locations.find(
+        loc => loc.locationId === adjustmentDialog.locationId
+      )
+      if (lotLocation) {
+        setAdjustmentDialog({
+          ...adjustmentDialog,
+          currentQuantity: lotLocation.quantity,
+          lotId: lotId,
+        })
+        setNewStockAmount(String(lotLocation.quantity))
+        setAdjustmentQuantity("")
+      }
+    }
   }
 
   const handleAdjustmentQuantityChange = (value: string) => {
@@ -545,12 +708,26 @@ export default function ItemDetailPage() {
     const isInput = quantity > 0
 
     try {
-      await adjustStockApi(itemId, {
-        type: isInput ? "INPUT" : "OUTPUT",
-        quantity: Math.abs(quantity),
-        reason: adjustmentNote || "Stock adjustment",
-        locationId: adjustmentDialog.locationId,
-      })
+      // If lot tracking is enabled and a lot is selected, adjust lot quantity
+      if (lotTracking && selectedLotForAdjustment) {
+        await adjustLotQuantityApi(selectedLotForAdjustment, {
+          type: isInput ? "INPUT" : "OUTPUT",
+          quantity: Math.abs(quantity),
+          reason: adjustmentNote || "Lot adjustment",
+          locationId: adjustmentDialog.locationId,
+        })
+
+        // Reload lots
+        await loadLots(itemId)
+      } else {
+        // Regular stock adjustment (non-lot-tracked items)
+        await adjustStockApi(itemId, {
+          type: isInput ? "INPUT" : "OUTPUT",
+          quantity: Math.abs(quantity),
+          reason: adjustmentNote || "Stock adjustment",
+          locationId: adjustmentDialog.locationId,
+        })
+      }
 
       // Reload the full item data with all relationships including transactions
       const refreshResponse = await getItemByIdApi(itemId)
@@ -560,10 +737,12 @@ export default function ItemDetailPage() {
 
       toast.success("Stock updated successfully")
 
-      setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })
+      setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0, lotId: null })
       setAdjustmentQuantity("")
       setNewStockAmount("")
       setAdjustmentNote("")
+      setSelectedLotForAdjustment("")
+      setLotsAtLocation([])
     } catch (error) {
       console.error("Failed to adjust stock:", error)
       toast.error(error instanceof Error ? error.message : "Failed to adjust stock")
@@ -926,6 +1105,7 @@ export default function ItemDetailPage() {
         categoryId: formData.categoryId || undefined,
         supplierId: formData.supplierId || undefined,
         customerIds: selectedCustomerIds,
+        lotTracking: lotTracking,
       }
 
       const response = await updateItemApi(itemId, updateData)
@@ -1044,6 +1224,44 @@ export default function ItemDetailPage() {
       }
     }
     input.click()
+  }
+
+  type LotStatus = 'ACTIVE' | 'DEPLETED' | 'EXPIRED' | 'QUARANTINED' | 'RECALLED';
+
+  const getLotStatusBadge = (status: LotStatus) => {
+    switch (status) {
+      case 'ACTIVE':
+        return <Badge className="bg-green-500">Active</Badge>
+      case 'DEPLETED':
+        return <Badge variant="secondary">Depleted</Badge>
+      case 'EXPIRED':
+        return <Badge variant="destructive">Expired</Badge>
+      case 'QUARANTINED':
+        return <Badge className="bg-yellow-500">Quarantined</Badge>
+      case 'RECALLED':
+        return <Badge variant="destructive">Recalled</Badge>
+      default:
+        return <Badge variant="outline">{status}</Badge>
+    }
+  }
+
+  const getDaysUntilExpiration = (expirationDate: string | null) => {
+    if (!expirationDate) return null
+    const now = new Date()
+    const expDate = new Date(expirationDate)
+    const diffTime = expDate.getTime() - now.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays
+  }
+
+  const getExpirationWarning = (expirationDate: string | null) => {
+    const days = getDaysUntilExpiration(expirationDate)
+    if (days === null) return null
+
+    if (days < 0) return { color: 'text-red-600', text: 'Expired', icon: AlertTriangle }
+    if (days <= 30) return { color: 'text-orange-500', text: `${days} days`, icon: AlertTriangle }
+    if (days <= 60) return { color: 'text-yellow-600', text: `${days} days`, icon: Clock }
+    return { color: 'text-muted-foreground', text: `${days} days`, icon: Calendar }
   }
 
   if (loading) {
@@ -1207,6 +1425,12 @@ export default function ItemDetailPage() {
                       ? item.category
                       : item.category?.name || "Uncategorized"}
                   </Badge>
+                  {lotTracking && (
+                    <Badge className="bg-blue-500 hover:bg-blue-600">
+                      <PackageCheck className="h-3 w-3 mr-1" />
+                      Lot Tracked
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
@@ -1235,7 +1459,7 @@ export default function ItemDetailPage() {
         {/* Tabs Section */}
         <Tabs defaultValue="details" className="mt-4 sm:mt-6 gap-0">
           <div className="bg-card border rounded-t-lg">
-            <TabsList className="w-full grid grid-cols-3 h-auto p-0 bg-transparent border-0px rounded-none">
+            <TabsList className={`w-full grid ${lotTracking ? 'grid-cols-4' : 'grid-cols-3'} h-auto p-0 bg-transparent border-0px rounded-none`}>
               <TabsTrigger
                 value="details"
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
@@ -1248,6 +1472,14 @@ export default function ItemDetailPage() {
               >
                 Locations
               </TabsTrigger>
+              {lotTracking && (
+                <TabsTrigger
+                  value="lots"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                >
+                  Lots ({lots.filter(l => l.status === 'ACTIVE').length})
+                </TabsTrigger>
+              )}
               <TabsTrigger
                 value="history"
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
@@ -1266,6 +1498,22 @@ export default function ItemDetailPage() {
                   {/* Item Details Card */}
                   <div className="bg-card border rounded-lg p-4">
                     <h3 className="text-base font-semibold mb-4">Item Information</h3>
+                    {isEditing && (
+                      <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                        <div className="flex items-center gap-2">
+                          <PackageCheck className="h-4 w-4 text-blue-600" />
+                          <div>
+                            <Label htmlFor="lotTracking" className="text-sm font-medium">Enable Lot Tracking</Label>
+                            <p className="text-xs text-muted-foreground">Track batches with expiration dates</p>
+                          </div>
+                        </div>
+                        <Switch
+                          id="lotTracking"
+                          checked={lotTracking}
+                          onCheckedChange={setLotTracking}
+                        />
+                      </div>
+                    )}
                     <div className="space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1620,6 +1868,118 @@ export default function ItemDetailPage() {
               )}
             </div>
           </TabsContent>
+
+          {/* Lots Tab */}
+          {lotTracking && (
+            <TabsContent value="lots" className="mt-0">
+              <div className="bg-card p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-base font-semibold">Lot / Batch Tracking</h3>
+                    <p className="text-xs text-muted-foreground">Track inventory by production batch or lot number</p>
+                  </div>
+                  <Button onClick={() => setIsCreateLotOpen(true)} className="gap-2 h-8">
+                    <Plus className="h-4 w-4" />
+                    <span className="hidden sm:inline">New Lot</span>
+                  </Button>
+                </div>
+
+                {lots.length === 0 ? (
+                  <div className="text-center py-12 px-4 border border-dashed rounded-lg">
+                    <PackageCheck className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                    <p className="text-sm font-medium text-muted-foreground">No lots created yet</p>
+                    <p className="text-xs text-muted-foreground mt-1">Create your first lot to start tracking batches</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {lots
+                      .sort((a, b) => {
+                        if (a.expirationDate && b.expirationDate) {
+                          return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
+                        }
+                        if (a.expirationDate) return -1
+                        if (b.expirationDate) return 1
+                        return new Date(b.receivedDate).getTime() - new Date(a.receivedDate).getTime()
+                      })
+                      .map((lot) => {
+                        const expirationWarning = getExpirationWarning(lot.expirationDate)
+                        const IconComponent = expirationWarning?.icon || Calendar
+
+                        return (
+                          <div
+                            key={lot.id}
+                            className="group p-4 rounded-lg border border-border/50 bg-card hover:bg-muted/30 hover:border-accent/50 transition-all cursor-pointer"
+                            onClick={() => toast.info(`Viewing lot ${lot.lotNumber}`)}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <h4 className="font-semibold font-mono text-sm">{lot.lotNumber}</h4>
+                                  {getLotStatusBadge(lot.status)}
+                                  {expirationWarning && lot.status === 'ACTIVE' && (
+                                    <Badge variant="outline" className={`${expirationWarning.color} border-current text-xs`}>
+                                      <IconComponent className="h-2.5 w-2.5 mr-1" />
+                                      {expirationWarning.text}
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mb-2">
+                                  <div>
+                                    <p className="text-muted-foreground">Quantity</p>
+                                    <p className="font-semibold">{lot.quantity} / {lot.initialQuantity}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground">Received</p>
+                                    <p className="font-semibold">{new Date(lot.receivedDate).toLocaleDateString()}</p>
+                                  </div>
+                                  {lot.expirationDate && (
+                                    <div>
+                                      <p className="text-muted-foreground">Expires</p>
+                                      <p className="font-semibold">{new Date(lot.expirationDate).toLocaleDateString()}</p>
+                                    </div>
+                                  )}
+                                  {lot.supplier && (
+                                    <div>
+                                      <p className="text-muted-foreground">Supplier</p>
+                                      <p className="font-semibold truncate">{lot.supplier.name}</p>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {lot.locations.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {lot.locations.map((loc) => (
+                                      <Badge key={loc.id} variant="secondary" className="text-xs font-mono">
+                                        {loc.locationCode}: {loc.quantity}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {lot.notes && (
+                                  <p className="text-xs text-muted-foreground mt-2 line-clamp-1">{lot.notes}</p>
+                                )}
+                              </div>
+
+                              <div className="text-right flex-shrink-0">
+                                <div className="text-2xl font-bold text-primary">
+                                  {lot.quantity}
+                                  {item.unit && <span className="text-xs text-muted-foreground ml-1">{item.unit}</span>}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  {Math.round((lot.quantity / lot.initialQuantity) * 100)}% remaining
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          )}
 
           {/* History Tab */}
           <TabsContent value="history" className="mt-0">
@@ -2047,120 +2407,212 @@ export default function ItemDetailPage() {
         open={adjustmentDialog.open}
         onOpenChange={(open) => {
           if (!open) {
-            setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })
+            setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0, lotId: null })
             setAdjustmentQuantity("")
             setNewStockAmount("")
             setAdjustmentNote("")
+            setSelectedLotForAdjustment("")
+            setLotsAtLocation([])
           }
         }}
       >
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
-            <DialogTitle className="text-base">Adjust Stock at Location</DialogTitle>
+            <DialogTitle className="text-base">
+              {lotTracking ? "Adjust Lot Stock at Location" : "Adjust Stock at Location"}
+            </DialogTitle>
             <DialogDescription className="text-xs">
-              Update the quantity for this item at the selected location.
+              {lotTracking
+                ? "Select a lot and update the quantity for this location."
+                : "Update the quantity for this item at the selected location."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-3">
-            <div className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg border">
-              <span className="text-xs text-muted-foreground">Current Quantity</span>
-              <span className="text-base font-bold">{adjustmentDialog.currentQuantity}</span>
-            </div>
+            {/* Lot Selection (only shown if lot tracking is enabled) */}
+            {lotTracking && lotsAtLocation.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Select Lot to Adjust</Label>
+                <Select value={selectedLotForAdjustment} onValueChange={handleLotSelectionChange}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select a lot" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lotsAtLocation
+                      .sort((a, b) => {
+                        // Sort by expiration date (FIFO), but prioritize lots with quantity > 0
+                        const aHasQty = a.locations.find(loc => loc.locationId === adjustmentDialog.locationId)?.quantity || 0;
+                        const bHasQty = b.locations.find(loc => loc.locationId === adjustmentDialog.locationId)?.quantity || 0;
 
-            <div className="space-y-1">
-              <Label className="text-xs">Adjustment Amount</Label>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={decrementQuantity}
-                  className="flex-shrink-0 h-9 w-9"
-                >
-                  <Minus className="h-3.5 w-3.5" />
-                </Button>
+                        // Lots with quantity come first
+                        if (aHasQty > 0 && bHasQty === 0) return -1;
+                        if (aHasQty === 0 && bHasQty > 0) return 1;
 
-                <Input
-                  type="text"
-                  value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
-                  onChange={(e) => {
-                    const val = e.target.value
-                    if (val === "") {
-                      setAdjustmentQuantity("")
-                      setNewStockAmount(String(adjustmentDialog.currentQuantity))
-                      return
-                    }
-                    if (val === "-" || val === "+") {
-                      setAdjustmentQuantity(val)
-                      return
-                    }
-                    const cleaned = val.replace(/[^0-9-+]/g, "")
-                    const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
-                    const numbers = cleaned.replace(/[-+]/g, "")
-                    const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
-                    if (finalValue === "-" || finalValue === "+") {
-                      setAdjustmentQuantity(finalValue)
-                    } else {
-                      const num = Number.parseInt(finalValue)
-                      if (!isNaN(num)) {
-                        handleAdjustmentQuantityChange(String(num))
-                      }
-                    }
-                  }}
-                  className="text-center font-semibold flex-1 min-w-0 h-9 text-sm"
-                />
+                        // Then sort by expiration date (FIFO)
+                        if (a.expirationDate && b.expirationDate) {
+                          return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
+                        }
+                        if (a.expirationDate) return -1
+                        if (b.expirationDate) return 1
+                        return new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime()
+                      })
+                      .map((lot) => {
+                        const lotLocation = lot.locations.find(
+                          loc => loc.locationId === adjustmentDialog.locationId
+                        )
+                        const daysToExpiry = lot.expirationDate
+                          ? Math.ceil((new Date(lot.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                          : null
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={incrementQuantity}
-                  className="flex-shrink-0 h-9 w-9"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
+                        return (
+                          <SelectItem key={lot.id} value={lot.id}>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-semibold">{lot.lotNumber}</span>
+                              <span className={lotLocation?.quantity === 0 ? "text-muted-foreground line-through" : "text-muted-foreground"}>
+                                ({lotLocation?.quantity || 0} units)
+                              </span>
+                              {lotLocation?.quantity === 0 && (
+                                <Badge variant="outline" className="text-muted-foreground">
+                                  Depleted
+                                </Badge>
+                              )}
+                              {daysToExpiry !== null && daysToExpiry <= 30 && lotLocation && lotLocation.quantity > 0 && (
+                                <Badge variant="outline" className={
+                                  daysToExpiry < 0 ? "text-red-600 border-red-600" :
+                                    daysToExpiry <= 7 ? "text-orange-500 border-orange-500" :
+                                      "text-yellow-600 border-yellow-600"
+                                }>
+                                  {daysToExpiry < 0 ? "Expired" : `${daysToExpiry}d`}
+                                </Badge>
+                              )}
+                            </div>
+                          </SelectItem>
+                        )
+                      })}
+                  </SelectContent>
+                </Select>
+                {lotsAtLocation.length > 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    💡 Lots sorted by expiration (FIFO) - adjust oldest first
+                  </p>
+                )}
               </div>
-            </div>
+            )}
 
-            <div className="space-y-1">
-              <Label htmlFor="newStock" className="text-xs">New Quantity</Label>
-              <Input
-                id="newStock"
-                type="number"
-                min="0"
-                value={newStockAmount}
-                onChange={(e) => handleNewStockAmountChange(e.target.value)}
-                className="font-semibold h-9 text-sm"
-              />
-              {Number.parseInt(newStockAmount) < 0 && (
-                <Alert variant="destructive" className="py-1.5">
-                  <AlertCircle className="h-3 w-3" />
-                  <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
-                </Alert>
-              )}
-            </div>
+            {lotTracking && lotsAtLocation.length === 0 && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  No lots available at this location. Create a new lot to add stock.
+                </AlertDescription>
+              </Alert>
+            )}
 
-            <div className="space-y-1">
-              <Label htmlFor="note" className="text-xs">Note (Optional)</Label>
-              <Textarea
-                id="note"
-                placeholder="Reason for adjustment..."
-                value={adjustmentNote}
-                onChange={(e) => setAdjustmentNote(e.target.value)}
-                className="min-h-14 resize-none text-xs"
-              />
-            </div>
+            {/* Current Quantity Display */}
+            {(!lotTracking || selectedLotForAdjustment) && (
+              <>
+                <div className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg border">
+                  <span className="text-xs text-muted-foreground">Current Quantity</span>
+                  <span className="text-base font-bold">{adjustmentDialog.currentQuantity}</span>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Adjustment Amount</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={decrementQuantity}
+                      className="flex-shrink-0 h-9 w-9"
+                    >
+                      <Minus className="h-3.5 w-3.5" />
+                    </Button>
+
+                    <Input
+                      type="text"
+                      value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        if (val === "") {
+                          setAdjustmentQuantity("")
+                          setNewStockAmount(String(adjustmentDialog.currentQuantity))
+                          return
+                        }
+                        if (val === "-" || val === "+") {
+                          setAdjustmentQuantity(val)
+                          return
+                        }
+                        const cleaned = val.replace(/[^0-9-+]/g, "")
+                        const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
+                        const numbers = cleaned.replace(/[-+]/g, "")
+                        const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
+                        if (finalValue === "-" || finalValue === "+") {
+                          setAdjustmentQuantity(finalValue)
+                        } else {
+                          const num = Number.parseInt(finalValue)
+                          if (!isNaN(num)) {
+                            handleAdjustmentQuantityChange(String(num))
+                          }
+                        }
+                      }}
+                      className="text-center font-semibold flex-1 min-w-0 h-9 text-sm"
+                    />
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={incrementQuantity}
+                      className="flex-shrink-0 h-9 w-9"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="newStock" className="text-xs">New Quantity</Label>
+                  <Input
+                    id="newStock"
+                    type="number"
+                    min="0"
+                    value={newStockAmount}
+                    onChange={(e) => handleNewStockAmountChange(e.target.value)}
+                    className="font-semibold h-9 text-sm"
+                  />
+                  {Number.parseInt(newStockAmount) < 0 && (
+                    <Alert variant="destructive" className="py-1.5">
+                      <AlertCircle className="h-3 w-3" />
+                      <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="note" className="text-xs">Note (Optional)</Label>
+                  <Textarea
+                    id="note"
+                    placeholder="Reason for adjustment..."
+                    value={adjustmentNote}
+                    onChange={(e) => setAdjustmentNote(e.target.value)}
+                    className="min-h-14 resize-none text-xs"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => {
-                setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })
+                setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0, lotId: null })
                 setAdjustmentQuantity("")
                 setNewStockAmount("")
                 setAdjustmentNote("")
+                setSelectedLotForAdjustment("")
+                setLotsAtLocation([])
               }}
               size="sm"
             >
@@ -2171,7 +2623,8 @@ export default function ItemDetailPage() {
               disabled={
                 !adjustmentQuantity ||
                 adjustmentQuantity === "0" ||
-                Number.parseInt(newStockAmount) < 0
+                Number.parseInt(newStockAmount) < 0 ||
+                (lotTracking && !selectedLotForAdjustment)
               }
               size="sm"
             >
@@ -2557,6 +3010,166 @@ export default function ItemDetailPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Create Lot Dialog */}
+      <Dialog open={isCreateLotOpen} onOpenChange={setIsCreateLotOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <PackageCheck className="h-4 w-4 text-blue-600" />
+              </div>
+              Create New Lot
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Create a new lot/batch for tracking inventory with expiration dates and batch information.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="lotNumber" className="text-xs font-medium">
+                  Lot Number <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="lotNumber"
+                  value={lotFormData.lotNumber}
+                  onChange={(e) => setLotFormData({ ...lotFormData, lotNumber: e.target.value })}
+                  placeholder="LOT-2024-001"
+                  className="h-8"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="quantity" className="text-xs font-medium">
+                  Quantity <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  min="1"
+                  value={lotFormData.quantity}
+                  onChange={(e) => setLotFormData({ ...lotFormData, quantity: e.target.value })}
+                  placeholder="100"
+                  className="h-8"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="receivedDate" className="text-xs font-medium">
+                  Received Date
+                </Label>
+                <Input
+                  id="receivedDate"
+                  type="date"
+                  value={lotFormData.receivedDate}
+                  onChange={(e) => setLotFormData({ ...lotFormData, receivedDate: e.target.value })}
+                  className="h-8"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="manufactureDate" className="text-xs font-medium">
+                  Manufacture Date
+                </Label>
+                <Input
+                  id="manufactureDate"
+                  type="date"
+                  value={lotFormData.manufactureDate}
+                  onChange={(e) => setLotFormData({ ...lotFormData, manufactureDate: e.target.value })}
+                  className="h-8"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="expirationDate" className="text-xs font-medium">
+                  Expiration Date
+                </Label>
+                <Input
+                  id="expirationDate"
+                  type="date"
+                  value={lotFormData.expirationDate}
+                  onChange={(e) => setLotFormData({ ...lotFormData, expirationDate: e.target.value })}
+                  className="h-8"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="lotSupplier" className="text-xs font-medium">
+                  Supplier
+                </Label>
+                <Select value={lotFormData.supplierId} onValueChange={(value) => setLotFormData({ ...lotFormData, supplierId: value })}>
+                  <SelectTrigger id="lotSupplier" className="h-8">
+                    <SelectValue placeholder="Select supplier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suppliers.map((supplier) => (
+                      <SelectItem key={supplier.id} value={supplier.id}>
+                        {supplier.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="poNumber" className="text-xs font-medium">
+                  PO Number
+                </Label>
+                <Input
+                  id="poNumber"
+                  value={lotFormData.poNumber}
+                  onChange={(e) => setLotFormData({ ...lotFormData, poNumber: e.target.value })}
+                  placeholder="PO-12345"
+                  className="h-8"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="lotNotes" className="text-xs font-medium">
+                Notes
+              </Label>
+              <Textarea
+                id="lotNotes"
+                value={lotFormData.notes}
+                onChange={(e) => setLotFormData({ ...lotFormData, notes: e.target.value })}
+                placeholder="Any additional information about this lot..."
+                className="min-h-16 resize-none text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsCreateLotOpen(false)}
+              disabled={isSaving}
+              size="sm"
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreateLot} disabled={isSaving} size="sm">
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <PackageCheck className="h-3.5 w-3.5 mr-1.5" />
+                  Create Lot
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

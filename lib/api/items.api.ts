@@ -95,6 +95,7 @@ export type UpdateItemRequest = {
   locationIds?: string[];
   supplierId?: string;
   customerIds?: string[];
+  lotTracking?: boolean;
 };
 
 export type AdjustStockRequest = {

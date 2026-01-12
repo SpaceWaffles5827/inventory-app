@@ -30,6 +30,7 @@ model User {
   workspaceMembers  WorkspaceMember[]
   stockTransactions StockTransaction[]
   itemImages        ItemImage[]
+  lots              Lot[]
 
   @@map("users")
 }
@@ -74,6 +75,7 @@ model Workspace {
   suppliers     Supplier[]
   customers     Customer[]
   transactions  StockTransaction[]
+  lots          Lot[]
   subscription  Subscription?
 
   @@map("workspaces")
@@ -152,6 +154,7 @@ model Location {
   // Relations
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   items     ItemLocation[]
+  lots      LotLocation[]
 
   @@unique([workspaceId, code])
   @@unique([workspaceId, barcode])
@@ -176,6 +179,7 @@ model Supplier {
   // Relations
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   items     Item[]
+  lots      Lot[]
 
   @@map("suppliers")
 }
@@ -227,9 +231,10 @@ model ItemCustomer {
 }
 
 // Junction table for items and locations (many-to-many)
+// NOTE: quantity is DERIVED/CACHED from SUM(LotLocation.quantity) - NOT authoritative
 model ItemLocation {
   id          String   @id @default(cuid())
-  quantity    Int      @default(0)  // How many units at this location
+  quantity    Int      @default(0)  // CACHED: Derived from SUM(lot.locations.quantity) for this item+location
   minStock    Int      @default(0)  // Minimum stock level for this location
   maxStock    Int      @default(0)  // Maximum stock level for this location
   notes       String?
@@ -260,10 +265,11 @@ model Item {
   itemNumber  String   // e.g., "ITM-001"
   name        String
   barcode     String?  // Optional barcode
-  unit        String?  // NEW: Unit of measurement (e.g., "EA", "BOX", "KG", "LB")
+  unit        String?  // Unit of measurement (e.g., "EA", "BOX", "KG", "LB")
   description String?  @db.Text
   cost        Float    @default(0)
   status      ItemStatus @default(IN_STOCK)
+  lotTracking Boolean  @default(false) // Enable lot/batch tracking for this item
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -280,9 +286,72 @@ model Item {
   locations     ItemLocation[]
   transactions  StockTransaction[]
   images        ItemImage[]
+  lots          Lot[]              // Different batches/lots of this same item
 
   @@unique([workspaceId, itemNumber])
   @@map("items")
+}
+
+// Lot model - represents a specific batch of the same item
+// NOTE: quantity is DERIVED/CACHED from SUM(LotLocation.quantity) - NOT authoritative
+model Lot {
+  id              String      @id @default(cuid())
+  lotNumber       String      // e.g., "LOT-2024-001", "BATCH-ABC123", or "SYSTEM" for non-lotted items
+  quantity        Int         @default(0) // CACHED: Derived from SUM(locations.quantity)
+  initialQuantity Int         // Original quantity received
+  receivedDate    DateTime    @default(now()) // When this lot was received
+  manufactureDate DateTime?   // When this lot was manufactured
+  expirationDate  DateTime?   // When this lot expires
+  status          LotStatus   @default(ACTIVE)
+  poNumber        String?     // Purchase order number
+  notes           String?     @db.Text
+  isSystem        Boolean     @default(false) // TRUE for auto-created SYSTEM lots (non-lotted items)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Foreign keys
+  itemId      String   // The item this lot belongs to
+  workspaceId String
+  supplierId  String?  // Which supplier this lot came from
+  createdBy   String   // User who created/received this lot
+
+  // Relations
+  item        Item              @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  supplier    Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  creator     User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  locations   LotLocation[]     // Where this lot is stored (can be multiple locations) - SOURCE OF TRUTH
+  transactions StockTransaction[]
+
+  @@unique([workspaceId, itemId, lotNumber])
+  @@index([expirationDate])
+  @@index([status])
+  @@index([itemId])
+  @@index([lotNumber]) // For quick SYSTEM lot lookups
+  @@map("lots")
+}
+
+// Junction table for lots and locations - tracks where each lot is stored
+// THIS IS THE SOURCE OF TRUTH FOR ALL INVENTORY QUANTITIES
+model LotLocation {
+  id          String   @id @default(cuid())
+  quantity    Int      @default(0)  // SOURCE OF TRUTH: Actual units of this lot at this location
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Foreign keys
+  lotId       String
+  locationId  String
+
+  // Relations
+  lot         Lot      @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([lotId, locationId])
+  @@index([lotId])
+  @@index([locationId])
+  @@map("lot_locations")
 }
 
 // Item image model for product photos
@@ -313,6 +382,7 @@ model StockTransaction {
   previousStock Int
   newStock      Int
   reason        String
+  lotId         String            // REQUIRED: Always references a lot (SYSTEM lot for non-lotted items)
   createdAt     DateTime          @default(now())
 
   // Foreign keys
@@ -324,7 +394,10 @@ model StockTransaction {
   item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lot       Lot       @relation(fields: [lotId], references: [id], onDelete: Cascade)
 
+  @@index([lotId])
+  @@index([itemId])
   @@map("stock_transactions")
 }
 
@@ -385,4 +458,12 @@ enum SubscriptionStatus {
   CANCELLED
   PAST_DUE
   TRIALING
+}
+
+enum LotStatus {
+  ACTIVE       // Lot is available for use
+  DEPLETED     // Lot quantity is 0
+  EXPIRED      // Lot has passed expiration date
+  QUARANTINED  // Lot is on hold/inspection
+  RECALLED     // Lot has been recalled
 }
