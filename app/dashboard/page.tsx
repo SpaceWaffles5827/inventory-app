@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { getLotsByItemApi } from "@/lib/api/lots.api"
 import { Label } from "@/components/ui/label"
+import { AddItemDialog } from "@/components/addItemDialog"
 import { LayoutGrid, List, TableIcon, ImageIcon } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { StockAdjustmentWizard } from "@/components/stockAdjustmentWizard"
@@ -142,20 +143,6 @@ export default function DashboardPage() {
     item: null,
   })
   const [isDeleting, setIsDeleting] = useState(false)
-  const [newItemForm, setNewItemForm] = useState({
-    name: "",
-    barcode: "",
-    unit: "",
-    category: "",
-    description: "",
-    supplier: "",
-    onHand: "",
-    storageLocation: "",
-    cost: "",
-  })
-
-  const [isCreating, setIsCreating] = useState(false)
-  const [createError, setCreateError] = useState("")
 
   // Add state for categories, locations, and suppliers
   const [categories, setCategories] = useState<CategoryWithCount[]>([])
@@ -286,66 +273,6 @@ export default function DashboardPage() {
       alert(error instanceof Error ? error.message : "Failed to delete item")
     } finally {
       setIsDeleting(false)
-    }
-  }
-
-  const handleCreateItem = async () => {
-    if (
-      !newItemForm.name.trim() ||
-      !newItemForm.category.trim() ||
-      !newItemForm.supplier.trim() ||
-      !newItemForm.onHand ||
-      !newItemForm.cost
-    ) {
-      return
-    }
-
-    if (!currentWorkspaceId) {
-      setCreateError("No workspace selected. Please select a workspace first.")
-      return
-    }
-
-    setIsCreating(true)
-    setCreateError("")
-
-    try {
-      const onHand = Number.parseInt(newItemForm.onHand)
-      const cost = Number.parseFloat(newItemForm.cost)
-
-      const response = await createItemApi({
-        workspaceId: currentWorkspaceId,
-        name: newItemForm.name,
-        barcode: newItemForm.barcode || undefined,
-        unit: newItemForm.unit || undefined,
-        description: newItemForm.description || undefined,
-        onHand: onHand,
-        cost: cost,
-        categoryId: newItemForm.category,
-        locationId: newItemForm.storageLocation || undefined,
-        supplierId: newItemForm.supplier,
-      })
-
-      if (response.data?.item) {
-        setInventory([...inventory, response.data.item])
-      }
-
-      setNewItemForm({
-        name: "",
-        barcode: "",
-        unit: "",
-        category: "",
-        description: "",
-        supplier: "",
-        onHand: "",
-        storageLocation: "",
-        cost: "",
-      })
-      setIsAddItemOpen(false)
-    } catch (err) {
-      console.error("Create item error:", err)
-      setCreateError(err instanceof Error ? err.message : "Failed to create item")
-    } finally {
-      setIsCreating(false)
     }
   }
 
@@ -713,169 +640,14 @@ export default function DashboardPage() {
                     </SelectContent>
                   </Select>
 
-                  <Dialog open={isAddItemOpen} onOpenChange={setIsAddItemOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="shadow-lg shadow-accent/20 text-white">
-                        <Plus className="h-4 w-4" />
-                        Add Item
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                      <DialogHeader>
-                        <DialogTitle>Add New Item</DialogTitle>
-                        <DialogDescription>
-                          Add a new item to your inventory with all required details.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div className="grid md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="item-name">
-                              Item Name <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                              id="item-name"
-                              placeholder="e.g., Wireless Mouse"
-                              value={newItemForm.name}
-                              onChange={(e) => setNewItemForm({ ...newItemForm, name: e.target.value })}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="item-unit">
-                              Unit
-                            </Label>
-                            <Input
-                              id="item-unit"
-                              placeholder="e.g., EA, BOX, LB, KG, GAL"
-                              value={newItemForm.unit}
-                              onChange={(e) => setNewItemForm({ ...newItemForm, unit: e.target.value })}
-                            />
-                          </div>
-                        </div>
+                  <Button
+                    className="shadow-lg shadow-accent/20 text-white"
+                    onClick={() => setIsAddItemOpen(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Item
+                  </Button>
 
-                        <div className="grid md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="item-category">
-                              Category <span className="text-destructive">*</span>
-                            </Label>
-                            <Select
-                              value={newItemForm.category}
-                              onValueChange={(value) => setNewItemForm({ ...newItemForm, category: value })}
-                            >
-                              <SelectTrigger id="item-category">
-                                <SelectValue placeholder="Select category" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {categories.map((category) => (
-                                  <SelectItem key={category.id} value={category.id}>
-                                    {category.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="item-supplier">
-                              Supplier <span className="text-destructive">*</span>
-                            </Label>
-                            <Select
-                              value={newItemForm.supplier}
-                              onValueChange={(value) => setNewItemForm({ ...newItemForm, supplier: value })}
-                            >
-                              <SelectTrigger id="item-supplier">
-                                <SelectValue placeholder="Select supplier" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {suppliers.map((supplier) => (
-                                  <SelectItem key={supplier.id} value={supplier.id}>
-                                    {supplier.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="item-description">Description</Label>
-                          <Textarea
-                            id="item-description"
-                            placeholder="Brief description of the item..."
-                            value={newItemForm.description}
-                            onChange={(e) => setNewItemForm({ ...newItemForm, description: e.target.value })}
-                            rows={3}
-                          />
-                        </div>
-
-                        <div className="grid md:grid-cols-3 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="item-onhand">
-                              Initial Stock <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                              id="item-onhand"
-                              type="number"
-                              min="0"
-                              placeholder="0"
-                              value={newItemForm.onHand}
-                              onChange={(e) => setNewItemForm({ ...newItemForm, onHand: e.target.value })}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="item-cost">
-                              Unit Cost <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                              id="item-cost"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              placeholder="0.00"
-                              value={newItemForm.cost}
-                              onChange={(e) => setNewItemForm({ ...newItemForm, cost: e.target.value })}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="item-location">Storage Location</Label>
-                            <Select
-                              value={newItemForm.storageLocation}
-                              onValueChange={(value) => setNewItemForm({ ...newItemForm, storageLocation: value })}
-                            >
-                              <SelectTrigger id="item-location">
-                                <SelectValue placeholder="Select location" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {locations.map((location) => (
-                                  <SelectItem key={location.id} value={location.id}>
-                                    {location.code}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                        {createError && <p className="text-sm text-destructive">{createError}</p>}
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsAddItemOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleCreateItem}
-                          disabled={
-                            isCreating ||
-                            !newItemForm.name.trim() ||
-                            !newItemForm.category.trim() ||
-                            !newItemForm.supplier.trim() ||
-                            !newItemForm.onHand ||
-                            !newItemForm.cost
-                          }
-                        >
-                          {isCreating ? "Creating..." : "Add Item"}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
                 </div>
               </div>
 
@@ -1863,6 +1635,20 @@ export default function DashboardPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AddItemDialog
+        open={isAddItemOpen}
+        onOpenChange={setIsAddItemOpen}
+        workspaceId={currentWorkspaceId}
+        categories={categories}
+        locations={locations}
+        suppliers={suppliers}
+        onSuccess={() => {
+          if (currentWorkspaceId) {
+            loadItems(currentWorkspaceId)
+          }
+        }}
+      />
     </div>
   )
 }
