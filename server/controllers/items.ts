@@ -1253,6 +1253,211 @@ const itemsController = {
       });
     }
   },
+
+  // Transfer stock between locations
+  transferStock: async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { quantity, fromLocationId, toLocationId, reason, lotId } =
+        req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized",
+        });
+      }
+
+      if (!quantity || !fromLocationId || !toLocationId) {
+        return res.status(400).json({
+          status: "error",
+          message: "Quantity, from location, and to location are required",
+        });
+      }
+
+      if (fromLocationId === toLocationId) {
+        return res.status(400).json({
+          status: "error",
+          message: "Cannot transfer to the same location",
+        });
+      }
+
+      const item = await prisma.item.findUnique({
+        where: { id },
+      });
+
+      if (!item) {
+        return res.status(404).json({
+          status: "error",
+          message: "Item not found",
+        });
+      }
+
+      // Verify user has access
+      const workspaceMember = await prisma.workspaceMember.findFirst({
+        where: {
+          userId: userId,
+          workspaceId: item.workspaceId,
+        },
+      });
+
+      if (!workspaceMember) {
+        return res.status(403).json({
+          status: "error",
+          message: "You don't have access to this item",
+        });
+      }
+
+      // Determine which lot to use
+      let targetLotId = lotId;
+
+      if (!targetLotId) {
+        // Get SYSTEM lot for non-lotted items
+        const systemLot = await getOrCreateSystemLot(
+          id,
+          item.workspaceId,
+          userId
+        );
+        targetLotId = systemLot.id;
+      }
+
+      // Get source LotLocation
+      const sourceLotLocation = await prisma.lotLocation.findUnique({
+        where: {
+          lotId_locationId: {
+            lotId: targetLotId,
+            locationId: fromLocationId,
+          },
+        },
+      });
+
+      if (!sourceLotLocation || sourceLotLocation.quantity < quantity) {
+        return res.status(400).json({
+          status: "error",
+          message: "Insufficient stock at source location",
+        });
+      }
+
+      const previousStock = await calculateOnHandFromLots(id);
+
+      // Perform transfer in transaction
+      await prisma.$transaction(async (tx) => {
+        // Remove from source
+        await tx.lotLocation.update({
+          where: {
+            lotId_locationId: {
+              lotId: targetLotId,
+              locationId: fromLocationId,
+            },
+          },
+          data: {
+            quantity: sourceLotLocation.quantity - quantity,
+          },
+        });
+
+        // Add to destination (create if doesn't exist)
+        await tx.lotLocation.upsert({
+          where: {
+            lotId_locationId: {
+              lotId: targetLotId,
+              locationId: toLocationId,
+            },
+          },
+          update: {
+            quantity: {
+              increment: quantity,
+            },
+          },
+          create: {
+            lotId: targetLotId,
+            locationId: toLocationId,
+            quantity: quantity,
+          },
+        });
+
+        // Ensure ItemLocation exists for destination
+        await tx.itemLocation.upsert({
+          where: {
+            itemId_locationId: {
+              itemId: id,
+              locationId: toLocationId,
+            },
+          },
+          update: {},
+          create: {
+            itemId: id,
+            locationId: toLocationId,
+            quantity: 0,
+            minStock: 0,
+            maxStock: 0,
+          },
+        });
+
+        // Create transaction record (OUTPUT from source)
+        await tx.stockTransaction.create({
+          data: {
+            type: "OUTPUT",
+            quantity: quantity,
+            previousStock: previousStock,
+            newStock: previousStock, // Total doesn't change in transfer
+            reason: reason || `Transfer to location`,
+            lotId: targetLotId,
+            itemId: id,
+            workspaceId: item.workspaceId,
+            userId: userId,
+          },
+        });
+
+        // Create transaction record (INPUT to destination)
+        await tx.stockTransaction.create({
+          data: {
+            type: "INPUT",
+            quantity: quantity,
+            previousStock: previousStock,
+            newStock: previousStock, // Total doesn't change in transfer
+            reason: reason || `Transfer from location`,
+            lotId: targetLotId,
+            itemId: id,
+            workspaceId: item.workspaceId,
+            userId: userId,
+          },
+        });
+      });
+
+      // Recalculate caches
+      await recalculateItemLocationQuantity(id, fromLocationId);
+      await recalculateItemLocationQuantity(id, toLocationId);
+      await recalculateLotQuantity(targetLotId);
+
+      const updatedItem = await prisma.item.findUnique({
+        where: { id },
+        include: {
+          locations: {
+            include: {
+              location: true,
+            },
+          },
+          category: true,
+          supplier: true,
+        },
+      });
+
+      const itemWithOnHand = await addOnHandToItem(updatedItem!);
+
+      return res.status(200).json({
+        status: "success",
+        message: "Stock transferred successfully",
+        data: { item: itemWithOnHand },
+      });
+    } catch (error) {
+      console.error("Transfer stock error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to transfer stock",
+      });
+    }
+  },
 };
 
 export default itemsController;

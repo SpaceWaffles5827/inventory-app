@@ -774,6 +774,152 @@ const lotsController = {
       });
     }
   },
+
+  // Update lot details
+  updateLot: async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const {
+        lotNumber,
+        status,
+        receivedDate,
+        manufactureDate,
+        expirationDate,
+        supplierId,
+        poNumber,
+        notes,
+      } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          status: "error",
+          message: "Unauthorized",
+        });
+      }
+
+      const lot = await prisma.lot.findUnique({
+        where: { id },
+        include: { item: true },
+      });
+
+      if (!lot) {
+        return res.status(404).json({
+          status: "error",
+          message: "Lot not found",
+        });
+      }
+
+      const workspaceMember = await prisma.workspaceMember.findFirst({
+        where: {
+          userId: userId,
+          workspaceId: lot.workspaceId,
+          role: { in: ["OWNER", "ADMIN"] },
+        },
+      });
+
+      if (!workspaceMember) {
+        return res.status(403).json({
+          status: "error",
+          message: "You don't have permission to update this lot",
+        });
+      }
+
+      // Prevent changing SYSTEM or EXISTING-STOCK lot numbers
+      if (lot.lotNumber === "SYSTEM" || lot.lotNumber === "EXISTING-STOCK") {
+        if (lotNumber && lotNumber !== lot.lotNumber) {
+          return res.status(400).json({
+            status: "error",
+            message: "Cannot change the lot number of system-managed lots",
+          });
+        }
+      }
+
+      // If changing lot number, check for uniqueness
+      if (lotNumber && lotNumber !== lot.lotNumber) {
+        // Prevent using reserved names
+        if (lotNumber === "SYSTEM" || lotNumber === "EXISTING-STOCK") {
+          return res.status(400).json({
+            status: "error",
+            message: "This lot number is reserved by the system",
+          });
+        }
+
+        const existingLot = await prisma.lot.findUnique({
+          where: {
+            workspaceId_itemId_lotNumber: {
+              workspaceId: lot.workspaceId,
+              itemId: lot.itemId,
+              lotNumber: lotNumber,
+            },
+          },
+        });
+
+        if (existingLot) {
+          return res.status(400).json({
+            status: "error",
+            message: "A lot with this number already exists for this item",
+          });
+        }
+      }
+
+      const updatedLot = await prisma.lot.update({
+        where: { id },
+        data: {
+          lotNumber: lotNumber !== undefined ? lotNumber : lot.lotNumber,
+          status: status !== undefined ? status : lot.status,
+          receivedDate: receivedDate
+            ? new Date(receivedDate)
+            : lot.receivedDate,
+          manufactureDate: manufactureDate
+            ? new Date(manufactureDate)
+            : lot.manufactureDate,
+          expirationDate: expirationDate
+            ? new Date(expirationDate)
+            : lot.expirationDate,
+          supplierId: supplierId !== undefined ? supplierId : lot.supplierId,
+          poNumber: poNumber !== undefined ? poNumber : lot.poNumber,
+          notes: notes !== undefined ? notes : lot.notes,
+        },
+        include: {
+          supplier: true,
+          creator: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          locations: {
+            include: {
+              location: true,
+            },
+          },
+        },
+      });
+
+      // Transform to include locationCode
+      const lotWithLocationCodes = {
+        ...updatedLot,
+        locations: updatedLot.locations.map((lotLoc) => ({
+          ...lotLoc,
+          locationCode: lotLoc.location.code,
+        })),
+      };
+
+      return res.status(200).json({
+        status: "success",
+        message: "Lot updated successfully",
+        data: { lot: lotWithLocationCodes },
+      });
+    } catch (error) {
+      console.error("Update lot error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to update lot",
+      });
+    }
+  },
 };
 
 export default lotsController;

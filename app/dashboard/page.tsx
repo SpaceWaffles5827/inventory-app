@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { getLotsByItemApi } from "@/lib/api/lots.api"
 import { Label } from "@/components/ui/label"
 import { LayoutGrid, List, TableIcon, ImageIcon } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
@@ -162,6 +163,13 @@ export default function DashboardPage() {
   const [adjustmentReason, setAdjustmentReason] = useState("")
   const [selectedLocationId, setSelectedLocationId] = useState<string>("")
   const [adjustmentNote, setAdjustmentNote] = useState("")
+
+  // NEW: Add these state variables for the 3-step flow
+  const [selectLocationOpen, setSelectLocationOpen] = useState(false)
+  const [selectLotOpen, setSelectLotOpen] = useState(false)
+  const [adjustQuantityOpen, setAdjustQuantityOpen] = useState(false)
+  const [selectedLotId, setSelectedLotId] = useState<string>("")
+  const [itemLots, setItemLots] = useState<any[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState("")
 
@@ -236,6 +244,26 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error("Failed to load suppliers:", err)
+    }
+  }
+
+  const loadItemLots = async (itemId: string) => {
+    try {
+      // Try the lots API endpoint instead
+      const response = await fetch(`/api/lots?itemId=${itemId}`, {
+        credentials: 'include',
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log('Lots API response:', data) // DEBUG
+        setItemLots(data.data?.lots || [])
+      } else {
+        console.error('Lots API error:', response.status, response.statusText)
+      }
+    } catch (err) {
+      console.error("Failed to load lots:", err)
+      setItemLots([])
     }
   }
 
@@ -334,26 +362,142 @@ export default function DashboardPage() {
     }
   }
 
-  const openAdjustmentDialog = (item: ItemWithRelations) => {
-    setAdjustmentDialog({ open: true, item })
-    setAdjustmentQuantity("")
-    setNewStockAmount(String(item.onHand))
-    setAdjustmentReason("")
-    setAdjustmentNote("")
+  const handleLocationSelected = () => {
+    if (!selectedLocationId) {
+      toast.error("Please select a location")
+      return
+    }
 
-    // Auto-select location if item only has one location
-    if (item.locations && item.locations.length === 1) {
-      setSelectedLocationId(item.locations[0].locationId)
+    const item = adjustmentDialog.item
+    if (!item) return
+
+    console.log('Item:', item) // DEBUG
+    console.log('Item lotTracking:', item.lotTracking) // DEBUG
+    console.log('All lots:', itemLots) // DEBUG
+    console.log('Selected location:', selectedLocationId) // DEBUG
+
+    // Close location modal
+    setSelectLocationOpen(false)
+
+    // Check if there are lots available at the selected location
+    const lotsAtLocation = itemLots.filter(lot =>
+      lot.locations?.some((lotLoc: any) =>
+        lotLoc.locationId === selectedLocationId && lotLoc.quantity > 0
+      )
+    )
+
+    console.log('Lots at location:', lotsAtLocation) // DEBUG
+    console.log('Lots at location count:', lotsAtLocation.length) // DEBUG
+
+    // If there are lots at this location, show lot selection
+    if (lotsAtLocation.length > 0) {
+      console.log('Opening lot selection dialog') // DEBUG
+      setSelectLotOpen(true)
     } else {
-      setSelectedLocationId("")
+      console.log('Skipping to quantity adjustment') // DEBUG
+      // No lots at this location, go straight to quantity adjustment
+      const locationStock = getCurrentLocationStock()
+      setNewStockAmount(String(locationStock))
+      setAdjustQuantityOpen(true)
     }
   }
 
-  // Get current stock for selected location
+  const handleLotSelected = () => {
+    if (!selectedLotId) {
+      toast.error("Please select a lot")
+      return
+    }
+
+    // Close lot modal, open quantity adjustment
+    setSelectLotOpen(false)
+    const locationStock = getCurrentLocationStock()
+    setNewStockAmount(String(locationStock))
+    setAdjustQuantityOpen(true)
+  }
+
+  const handleGoBackToLocation = () => {
+    setAdjustQuantityOpen(false)
+    setSelectLotOpen(false)
+    setSelectedLotId("")
+    setAdjustmentQuantity("")
+    setNewStockAmount("")
+    setSelectLocationOpen(true)
+  }
+
+  const handleGoBackToLot = () => {
+    setAdjustQuantityOpen(false)
+    setAdjustmentQuantity("")
+    setNewStockAmount("")
+    setSelectLotOpen(true)
+  }
+
+  const closeAllAdjustmentDialogs = () => {
+    setSelectLocationOpen(false)
+    setSelectLotOpen(false)
+    setAdjustQuantityOpen(false)
+    setAdjustmentDialog({ open: false, item: null })
+    setSelectedLocationId("")
+    setSelectedLotId("")
+    setAdjustmentQuantity("")
+    setNewStockAmount("")
+    setAdjustmentReason("")
+    setAdjustmentNote("")
+    setItemLots([])
+  }
+
+  const openAdjustmentDialog = async (item: ItemWithRelations) => {
+    setAdjustmentDialog({ open: true, item })
+    setAdjustmentQuantity("")
+    setNewStockAmount("")
+    setAdjustmentReason("")
+    setAdjustmentNote("")
+    setSelectedLocationId("")
+    setSelectedLotId("")
+    setItemLots([])
+
+    // Load lots using the same API as the item detail page
+    try {
+      const response = await getLotsByItemApi(item.id)
+      if (response.data?.lots) {
+        const lots = response.data.lots
+        console.log('Loaded lots:', lots) // DEBUG
+        console.log('Lots count:', lots.length) // DEBUG
+        setItemLots(lots)
+
+        // Update the item in the dialog with lotTracking status
+        if (lots.length > 0) {
+          console.log('Setting lotTracking to true') // DEBUG
+          setAdjustmentDialog({
+            open: true,
+            item: { ...item, lotTracking: true }
+          })
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load lots:", err)
+    }
+
+    // Open the location selection modal
+    setSelectLocationOpen(true)
+  }
+
+  // Get current stock for selected location (and lot if selected)
   const getCurrentLocationStock = () => {
     if (!adjustmentDialog.item || !selectedLocationId) return 0
 
-    // Find the selected location in the item's locations
+    // If a lot is selected, get quantity from that specific lot at this location
+    if (selectedLotId) {
+      const selectedLot = itemLots.find(lot => lot.id === selectedLotId)
+      if (selectedLot) {
+        const lotLocation = selectedLot.locations?.find(
+          (loc: any) => loc.locationId === selectedLocationId
+        )
+        return lotLocation?.quantity || 0
+      }
+      return 0
+    }
+
+    // Otherwise, get total item quantity at this location
     const itemLocation = adjustmentDialog.item.locations?.find(
       loc => loc.locationId === selectedLocationId
     )
@@ -403,30 +547,51 @@ export default function DashboardPage() {
     const isInput = quantity > 0
 
     try {
-      const response = await adjustStockApi(itemId, {
-        type: isInput ? "INPUT" : "OUTPUT",
-        quantity: Math.abs(quantity),
-        reason: adjustmentNote || "Stock adjustment",
-        locationId: selectedLocationId,
-      })
+      // Use lot-specific endpoint if lot is selected
+      if (selectedLotId) {
+        const response = await fetch(`/api/lots/${selectedLotId}/adjust`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            type: isInput ? "INPUT" : "OUTPUT",
+            quantity: Math.abs(quantity),
+            reason: adjustmentNote || "Stock adjustment",
+            locationId: selectedLocationId,
+          }),
+        })
 
-      if (response.data?.item) {
-        const updatedItem = response.data.item
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Failed to adjust lot stock')
+        }
+      } else {
+        // Regular stock adjustment (non-lot-tracked items)
+        const response = await adjustStockApi(itemId, {
+          type: isInput ? "INPUT" : "OUTPUT",
+          quantity: Math.abs(quantity),
+          reason: adjustmentNote || "Stock adjustment",
+          locationId: selectedLocationId,
+        })
 
-        setInventory((prev) =>
-          prev.map((item) => (item.id === itemId ? updatedItem : item))
-        )
+        if (response.data?.item) {
+          const updatedItem = response.data.item
+          setInventory((prev) =>
+            prev.map((item) => (item.id === itemId ? updatedItem : item))
+          )
+        }
       }
 
-      setAdjustmentDialog({ open: false, item: null })
-      setAdjustmentQuantity("")
-      setNewStockAmount("")
-      setAdjustmentReason("")
-      setSelectedLocationId("")
-      setAdjustmentNote("")
+      // Reload items to refresh totals
+      if (currentWorkspaceId) {
+        loadItems(currentWorkspaceId)
+      }
+
+      closeAllAdjustmentDialogs()
+      toast.success("Stock adjusted successfully")
     } catch (error) {
       console.error("Failed to adjust stock:", error)
-      alert(error instanceof Error ? error.message : "Failed to adjust stock")
+      toast.error(error instanceof Error ? error.message : "Failed to adjust stock")
     }
   }
 
@@ -1212,32 +1377,19 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <Dialog
-        open={adjustmentDialog.open}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAdjustmentDialog({ open: false, item: null })
-            setAdjustmentQuantity("")
-            setNewStockAmount("")
-            setAdjustmentReason("")
-            setSelectedLocationId("")
-            setAdjustmentNote("")
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-[540px] gap-0 p-0 overflow-hidden">
-          <div className="px-6 pt-6 pb-2">
-            <DialogHeader>
-              <DialogTitle className="text-lg">Update Quantity</DialogTitle>
-              <DialogDescription className="text-xs">
-                Adjust the stock quantity for this item at a specific location.
-              </DialogDescription>
-            </DialogHeader>
-          </div>
+      {/* Step 1: Select Location Dialog */}
+      <Dialog open={selectLocationOpen} onOpenChange={(open) => !open && closeAllAdjustmentDialogs()}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base">Select Location (Step 1 of {adjustmentDialog.item?.lotTracking ? '3' : '2'})</DialogTitle>
+            <DialogDescription className="text-xs">
+              Choose which location to adjust stock for.
+            </DialogDescription>
+          </DialogHeader>
 
           {adjustmentDialog.item && (
-            <div className="px-6 py-4 space-y-4 overflow-y-auto max-h-[calc(90vh-180px)]">
-              {/* Item Info - Compact */}
+            <div className="space-y-4 py-3">
+              {/* Item Info */}
               <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
                 <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
                   <Package className="h-6 w-6 text-muted-foreground" />
@@ -1245,12 +1397,12 @@ export default function DashboardPage() {
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-sm truncate">{adjustmentDialog.item.name}</h3>
                   <p className="text-xs text-muted-foreground truncate">
-                    {adjustmentDialog.item.onHand} units | ${(adjustmentDialog.item.cost * adjustmentDialog.item.onHand).toFixed(2)}
+                    Total: {adjustmentDialog.item.onHand} units | ${(adjustmentDialog.item.cost * adjustmentDialog.item.onHand).toFixed(2)}
                   </p>
                 </div>
               </div>
 
-              {/* Location Selection - Compact */}
+              {/* Location Selection */}
               <div className="space-y-2">
                 <Label className="text-xs flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5" />
@@ -1262,10 +1414,11 @@ export default function DashboardPage() {
                       adjustmentDialog.item.locations.map((itemLocation) => (
                         <div
                           key={itemLocation.id}
-                          className={`flex items-center space-x-2 p-2 rounded-lg border transition-colors ${selectedLocationId === itemLocation.locationId
+                          className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLocationId === itemLocation.locationId
                             ? "border-primary bg-primary/5"
                             : "border-border hover:border-primary/50"
                             }`}
+                          onClick={() => setSelectedLocationId(itemLocation.locationId)}
                         >
                           <RadioGroupItem
                             value={itemLocation.locationId}
@@ -1297,144 +1450,328 @@ export default function DashboardPage() {
                   </div>
                 </RadioGroup>
               </div>
+            </div>
+          )}
 
-              {!selectedLocationId && adjustmentDialog.item.locations && adjustmentDialog.item.locations.length > 0 && (
-                <Alert className="py-2">
-                  <AlertCircle className="h-3.5 w-3.5" />
-                  <AlertDescription className="text-xs">Please select a location to update stock quantity.</AlertDescription>
-                </Alert>
-              )}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeAllAdjustmentDialogs} size="sm">
+              Cancel
+            </Button>
+            <Button onClick={handleLocationSelected} disabled={!selectedLocationId} size="sm">
+              Next: {adjustmentDialog.item?.lotTracking ? 'Select Lot' : 'Adjust Quantity'} →
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-              {selectedLocationId && (
-                <>
-                  {/* Adjustment Controls */}
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Adjustment Quantity</Label>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={decrementQuantity}
-                        className="flex-shrink-0"
-                      >
-                        <span className="text-lg">−</span>
-                      </Button>
+      {/* Step 2: Select Lot Dialog (only for lot-tracked items) */}
+      <Dialog open={selectLotOpen} onOpenChange={(open) => !open && closeAllAdjustmentDialogs()}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base">Select Lot (Step 2 of 3)</DialogTitle>
+            <DialogDescription className="text-xs">
+              Choose which lot to adjust at the selected location.
+            </DialogDescription>
+          </DialogHeader>
 
-                      <Input
-                        type="text"
-                        value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
-                        onChange={(e) => {
-                          const val = e.target.value
-
-                          if (val === "") {
-                            setAdjustmentQuantity("")
-                            setNewStockAmount(String(getCurrentLocationStock()))
-                            return
-                          }
-
-                          if (val === "-" || val === "+") {
-                            setAdjustmentQuantity(val)
-                            return
-                          }
-
-                          const cleaned = val.replace(/[^0-9-+]/g, "")
-                          const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
-                          const numbers = cleaned.replace(/[-+]/g, "")
-                          const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
-
-                          if (finalValue === "-" || finalValue === "+") {
-                            setAdjustmentQuantity(finalValue)
-                          } else {
-                            const num = Number.parseInt(finalValue)
-                            if (!isNaN(num)) {
-                              handleAdjustmentQuantityChange(String(num))
-                            }
-                          }
-                        }}
-                        className="text-center font-semibold flex-1 min-w-0"
-                      />
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={incrementQuantity}
-                        className="flex-shrink-0"
-                      >
-                        <span className="text-lg">+</span>
-                      </Button>
-                    </div>
+          {adjustmentDialog.item && (
+            <div className="space-y-4 py-3">
+              {/* Item & Location Info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
+                  <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-xs truncate">{adjustmentDialog.item.name}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      Current stock at this location: {getCurrentLocationStock()} units
+                      Location: {adjustmentDialog.item.locations?.find(l => l.locationId === selectedLocationId)?.location.code}
                     </p>
                   </div>
+                </div>
+              </div>
 
-                  {/* New Quantity Input */}
-                  <div className="space-y-1.5">
-                    <Label htmlFor="newStock" className="text-xs">New Quantity at Location</Label>
-                    <Input
-                      id="newStock"
-                      type="number"
-                      min="0"
-                      value={newStockAmount}
-                      onChange={(e) => handleNewStockAmountChange(e.target.value)}
-                      className="font-semibold"
-                    />
-                    {Number.parseInt(newStockAmount) < 0 && (
-                      <Alert variant="destructive" className="py-1.5">
+              {/* Lot Selection */}
+              <div className="space-y-2">
+                <Label className="text-xs flex items-center gap-1.5">
+                  Select Lot/Batch
+                </Label>
+                <RadioGroup value={selectedLotId} onValueChange={setSelectedLotId}>
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                    {itemLots.length > 0 ? (
+                      (() => {
+                        const lotsAtLocation = itemLots
+                          .filter(lot => {
+                            // Filter lots that have stock at the selected location
+                            const lotLocation = lot.locations?.find((lotLoc: any) =>
+                              lotLoc.locationId === selectedLocationId
+                            )
+                            return lotLocation && lotLocation.quantity > 0
+                          })
+                          .sort((a, b) => {
+                            // FIFO: sort by expiration date (earliest first)
+                            if (!a.expirationDate) return 1
+                            if (!b.expirationDate) return -1
+                            return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
+                          })
+
+                        if (lotsAtLocation.length === 0) {
+                          return (
+                            <Alert className="py-2">
+                              <AlertCircle className="h-3.5 w-3.5" />
+                              <AlertDescription className="text-xs">
+                                No lots available at this location. This location may contain unlotted stock.
+                              </AlertDescription>
+                            </Alert>
+                          )
+                        }
+
+                        return lotsAtLocation.map((lot) => {
+                          const lotLocation = lot.locations?.find((l: any) => l.locationId === selectedLocationId)
+                          const daysUntilExpiration = lot.expirationDate
+                            ? Math.ceil((new Date(lot.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                            : null
+
+                          return (
+                            <div
+                              key={lot.id}
+                              className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLotId === lot.id
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-primary/50"
+                                }`}
+                              onClick={() => setSelectedLotId(lot.id)}
+                            >
+                              <RadioGroupItem
+                                value={lot.id}
+                                id={`lot-${lot.id}`}
+                                className="flex-shrink-0"
+                              />
+                              <Label
+                                htmlFor={`lot-${lot.id}`}
+                                className="flex-1 cursor-pointer min-w-0"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="font-mono font-semibold text-xs truncate">{lot.lotNumber}</p>
+                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                      {lot.expirationDate && (
+                                        <span className={
+                                          daysUntilExpiration !== null && daysUntilExpiration < 0
+                                            ? "text-red-600"
+                                            : daysUntilExpiration !== null && daysUntilExpiration <= 7
+                                              ? "text-orange-600"
+                                              : ""
+                                        }>
+                                          Exp: {new Date(lot.expirationDate).toLocaleDateString()}
+                                          {daysUntilExpiration !== null && daysUntilExpiration < 0 && " (Expired)"}
+                                          {daysUntilExpiration !== null && daysUntilExpiration >= 0 && daysUntilExpiration <= 7 && ` (${daysUntilExpiration}d)`}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">
+                                    {lotLocation?.quantity || 0} units
+                                  </p>
+                                </div>
+                              </Label>
+                            </div>
+                          )
+                        })
+                      })()
+                    ) : (
+                      <Alert className="py-2">
                         <AlertCircle className="h-3.5 w-3.5" />
-                        <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
+                        <AlertDescription className="text-xs">Loading lots...</AlertDescription>
                       </Alert>
                     )}
                   </div>
-                </>
-              )}
+                </RadioGroup>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleGoBackToLocation} size="sm">
+              ← Back
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                // Skip lot selection and adjust non-lotted stock
+                setSelectLotOpen(false)
+                setSelectedLotId("")
+                const locationStock = getCurrentLocationStock()
+                setNewStockAmount(String(locationStock))
+                setAdjustQuantityOpen(true)
+              }}
+              size="sm"
+              className="text-xs"
+            >
+              Skip (Adjust Non-Lotted Stock)
+            </Button>
+            <Button onClick={handleLotSelected} disabled={!selectedLotId} size="sm">
+              Next: Adjust Quantity →
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step 3: Adjust Quantity Dialog */}
+      <Dialog open={adjustQuantityOpen} onOpenChange={(open) => !open && closeAllAdjustmentDialogs()}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              Adjust Quantity (Step {adjustmentDialog.item?.lotTracking ? '3 of 3' : '2 of 2'})
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Update the stock quantity at the selected location{selectedLotId ? ' for the selected lot' : ''}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {adjustmentDialog.item && (
+            <div className="space-y-3 py-3">
+              {/* Context Info */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
+                  <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-xs truncate">{adjustmentDialog.item.name}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Location: {adjustmentDialog.item.locations?.find(l => l.locationId === selectedLocationId)?.location.code}
+                      {selectedLotId && (
+                        <> | Lot: {itemLots.find(l => l.id === selectedLotId)?.lotNumber}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Current Stock */}
+              <div className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg border">
+                <span className="text-xs text-muted-foreground">Current Quantity</span>
+                <span className="text-base font-bold">{getCurrentLocationStock()}</span>
+              </div>
+
+              {/* Adjustment Amount with +/- Buttons */}
+              <div className="space-y-1">
+                <Label className="text-xs">Adjustment Amount</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={decrementQuantity}
+                    className="flex-shrink-0 h-9 w-9"
+                  >
+                    <span className="text-lg">−</span>
+                  </Button>
+
+                  <Input
+                    type="text"
+                    value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
+                    onChange={(e) => {
+                      const val = e.target.value
+
+                      if (val === "") {
+                        setAdjustmentQuantity("")
+                        setNewStockAmount(String(getCurrentLocationStock()))
+                        return
+                      }
+
+                      if (val === "-" || val === "+") {
+                        setAdjustmentQuantity(val)
+                        return
+                      }
+
+                      const cleaned = val.replace(/[^0-9-+]/g, "")
+                      const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
+                      const numbers = cleaned.replace(/[-+]/g, "")
+                      const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
+
+                      if (finalValue === "-" || finalValue === "+") {
+                        setAdjustmentQuantity(finalValue)
+                      } else {
+                        const num = Number.parseInt(finalValue)
+                        if (!isNaN(num)) {
+                          handleAdjustmentQuantityChange(String(num))
+                        }
+                      }
+                    }}
+                    className="text-center font-semibold flex-1 min-w-0 h-9 text-sm"
+                    placeholder="0"
+                  />
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={incrementQuantity}
+                    className="flex-shrink-0 h-9 w-9"
+                  >
+                    <span className="text-lg">+</span>
+                  </Button>
+                </div>
+              </div>
+
+              {/* New Quantity Input */}
+              <div className="space-y-1">
+                <Label htmlFor="newStock" className="text-xs">New Quantity</Label>
+                <Input
+                  id="newStock"
+                  type="number"
+                  min="0"
+                  value={newStockAmount}
+                  onChange={(e) => handleNewStockAmountChange(e.target.value)}
+                  className="font-semibold h-9 text-sm"
+                />
+                {Number.parseInt(newStockAmount) < 0 && (
+                  <Alert variant="destructive" className="py-1.5">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
+                  </Alert>
+                )}
+              </div>
 
               {/* Transaction Note */}
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <Label htmlFor="note" className="text-xs">Transaction Note (Optional)</Label>
                 <Textarea
                   id="note"
-                  placeholder="Add any additional notes..."
+                  placeholder="Reason for adjustment..."
                   value={adjustmentNote}
                   onChange={(e) => setAdjustmentNote(e.target.value)}
-                  className="min-h-16 resize-none text-sm"
+                  className="min-h-14 resize-none text-xs"
                 />
               </div>
             </div>
           )}
 
-          <div className="px-6 pb-6 pt-4 border-t">
-            <DialogFooter className="gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setAdjustmentDialog({ open: false, item: null })
-                  setAdjustmentQuantity("")
-                  setNewStockAmount("")
-                  setAdjustmentReason("")
-                  setSelectedLocationId("")
-                  setAdjustmentNote("")
-                }}
-                size="sm"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleStockAdjustment}
-                disabled={
-                  !adjustmentQuantity ||
-                  adjustmentQuantity === "0" ||
-                  !selectedLocationId ||
-                  Number.parseInt(newStockAmount) < 0
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (adjustmentDialog.item?.lotTracking && selectedLotId) {
+                  handleGoBackToLot()
+                } else {
+                  handleGoBackToLocation()
                 }
-                size="sm"
-              >
-                Update Stock
-              </Button>
-            </DialogFooter>
-          </div>
+              }}
+              size="sm"
+            >
+              ← Back
+            </Button>
+            <Button
+              onClick={handleStockAdjustment}
+              disabled={
+                !adjustmentQuantity ||
+                adjustmentQuantity === "0" ||
+                adjustmentQuantity === "+" ||
+                adjustmentQuantity === "-" ||
+                Number.parseInt(newStockAmount) < 0
+              }
+              size="sm"
+            >
+              Update Stock
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

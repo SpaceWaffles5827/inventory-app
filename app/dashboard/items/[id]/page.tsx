@@ -114,6 +114,7 @@ export default function ItemDetailPage() {
   const [lotsLoading, setLotsLoading] = useState(false)
   const [lotTracking, setLotTracking] = useState(false)
   const [isCreateLotOpen, setIsCreateLotOpen] = useState(false)
+  const [isDistributeLotOpen, setIsDistributeLotOpen] = useState(false)
   const [lotFormData, setLotFormData] = useState({
     lotNumber: "",
     quantity: "",
@@ -124,6 +125,11 @@ export default function ItemDetailPage() {
     poNumber: "",
     notes: "",
   })
+  const [locationAssignments, setLocationAssignments] = useState<Array<{
+    locationId: string
+    quantity: number
+  }>>([])
+  const [showAdvancedLocationSplit, setShowAdvancedLocationSplit] = useState(false)
 
   const [formData, setFormData] = useState({
     itemNumber: "",
@@ -181,6 +187,17 @@ export default function ItemDetailPage() {
           // Load lots if lot tracking is enabled
           if (itemData.lotTracking) {
             loadLots(itemId)
+          }
+
+          // Initialize location assignments for lot creation
+          if (itemData.locations && itemData.locations.length > 0) {
+            setLocationAssignments(
+              itemData.locations.map((loc, index) => ({
+                locationId: loc.locationId,
+                quantity: index === 0 ? 0 : 0, // Start with 0 for all
+                enabled: index === 0, // Enable first location by default
+              }))
+            )
           }
         }
       } catch (error) {
@@ -255,15 +272,42 @@ export default function ItemDetailPage() {
       return
     }
 
+    // Initialize location assignments with all item locations set to 0
+    const totalQty = parseInt(lotFormData.quantity)
+    setLocationAssignments(
+      item.locations.map((loc) => ({
+        locationId: loc.locationId,
+        quantity: 0,
+      }))
+    )
+
+    // Close first modal, open second
+    setIsCreateLotOpen(false)
+    setIsDistributeLotOpen(true)
+  }
+
+  const handleDistributeLot = async () => {
+    if (!item) return
+
+    // Validate that location assignments match total quantity
+    const totalAssigned = locationAssignments.reduce((sum, loc) => sum + loc.quantity, 0)
+    const totalRequired = parseInt(lotFormData.quantity)
+
+    if (totalAssigned !== totalRequired) {
+      toast.error(`Location quantities (${totalAssigned}) must equal total quantity (${totalRequired})`)
+      return
+    }
+
+    // Filter out locations with 0 quantity
+    const finalLocationAssignments = locationAssignments.filter(loc => loc.quantity > 0)
+
+    if (finalLocationAssignments.length === 0) {
+      toast.error("Please assign quantity to at least one location")
+      return
+    }
+
     setIsSaving(true)
     try {
-      // Assign entire lot to first location by default
-      const firstLocation = item.locations[0]
-      const defaultLocationAssignment = [{
-        locationId: firstLocation.locationId,
-        quantity: parseInt(lotFormData.quantity)
-      }];
-
       await createLotApi(itemId, {
         lotNumber: lotFormData.lotNumber,
         quantity: parseInt(lotFormData.quantity),
@@ -273,7 +317,7 @@ export default function ItemDetailPage() {
         supplierId: lotFormData.supplierId || undefined,
         poNumber: lotFormData.poNumber || undefined,
         notes: lotFormData.notes || undefined,
-        locationAssignments: defaultLocationAssignment,
+        locationAssignments: finalLocationAssignments,
       })
 
       // Reload item data to refresh totals
@@ -296,8 +340,9 @@ export default function ItemDetailPage() {
         poNumber: "",
         notes: "",
       })
+      setLocationAssignments([])
 
-      setIsCreateLotOpen(false)
+      setIsDistributeLotOpen(false)
       toast.success("Lot created successfully!")
     } catch (error) {
       console.error("Failed to create lot:", error)
@@ -1909,7 +1954,7 @@ export default function ItemDetailPage() {
                           <div
                             key={lot.id}
                             className="group p-4 rounded-lg border border-border/50 bg-card hover:bg-muted/30 hover:border-accent/50 transition-all cursor-pointer"
-                            onClick={() => toast.info(`Viewing lot ${lot.lotNumber}`)}
+                            onClick={() => router.push(`/dashboard/items/${itemId}/lot/${lot.id}`)}
                           >
                             <div className="flex items-start justify-between gap-4">
                               <div className="flex-1 min-w-0">
@@ -2493,7 +2538,7 @@ export default function ItemDetailPage() {
                 </Select>
                 {lotsAtLocation.length > 1 && (
                   <p className="text-xs text-muted-foreground">
-                    💡 Lots sorted by expiration (FIFO) - adjust oldest first
+                    Lots sorted by expiration (FIFO) - adjust oldest first
                   </p>
                 )}
               </div>
@@ -3011,18 +3056,18 @@ export default function ItemDetailPage() {
         </Dialog>
       )}
 
-      {/* Create Lot Dialog */}
+      {/* Create Lot Dialog - Step 1: Lot Information */}
       <Dialog open={isCreateLotOpen} onOpenChange={setIsCreateLotOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
                 <PackageCheck className="h-4 w-4 text-blue-600" />
               </div>
-              Create New Lot
+              Create New Lot (Step 1 of 2)
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Create a new lot/batch for tracking inventory with expiration dates and batch information.
+              Enter lot information. You'll distribute quantities across locations in the next step.
             </DialogDescription>
           </DialogHeader>
 
@@ -3043,7 +3088,7 @@ export default function ItemDetailPage() {
 
               <div className="space-y-1.5">
                 <Label htmlFor="quantity" className="text-xs font-medium">
-                  Quantity <span className="text-red-500">*</span>
+                  Total Quantity <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="quantity"
@@ -3051,7 +3096,7 @@ export default function ItemDetailPage() {
                   min="1"
                   value={lotFormData.quantity}
                   onChange={(e) => setLotFormData({ ...lotFormData, quantity: e.target.value })}
-                  placeholder="100"
+                  placeholder="1000"
                   className="h-8"
                 />
               </div>
@@ -3149,12 +3194,182 @@ export default function ItemDetailPage() {
             <Button
               variant="outline"
               onClick={() => setIsCreateLotOpen(false)}
-              disabled={isSaving}
               size="sm"
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateLot} disabled={isSaving} size="sm">
+            <Button onClick={handleCreateLot} size="sm">
+              Next: Distribute Stock →
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Distribute Lot Dialog - Step 2: Location Distribution */}
+      <Dialog open={isDistributeLotOpen} onOpenChange={setIsDistributeLotOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <MapPin className="h-4 w-4 text-blue-600" />
+              </div>
+              Distribute Stock (Step 2 of 2)
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Assign quantities to storage locations. Total must equal {lotFormData.quantity} units.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-3">
+            {/* Lot Summary */}
+            <div className="p-3 bg-muted/50 rounded-lg border">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground">Lot Number</span>
+                <span className="font-mono font-semibold text-sm">{lotFormData.lotNumber}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Total Quantity</span>
+                <span className="font-bold text-lg text-primary">{lotFormData.quantity} units</span>
+              </div>
+            </div>
+
+            {/* Location Distribution */}
+            <div className="space-y-2">
+              <Label className="text-xs font-medium">Distribute Across Locations</Label>
+              {locationAssignments.map((assignment) => {
+                const location = locations.find(l => l.id === assignment.locationId)
+                return (
+                  <div key={assignment.locationId} className="flex items-center gap-2 p-2 bg-background rounded-lg border">
+                    <span className="font-mono text-xs font-semibold min-w-[100px]">
+                      {location?.code || assignment.locationId}
+                    </span>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={assignment.quantity}
+                      onChange={(e) => {
+                        const newQty = parseInt(e.target.value) || 0
+                        setLocationAssignments(prev =>
+                          prev.map(loc =>
+                            loc.locationId === assignment.locationId
+                              ? { ...loc, quantity: newQty }
+                              : loc
+                          )
+                        )
+                      }}
+                      className="h-8 text-sm"
+                      placeholder="0"
+                    />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">units</span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Quick Distribute Options */}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const totalQty = parseInt(lotFormData.quantity) || 0
+                  const numLocations = locationAssignments.length
+                  const qtyPerLocation = Math.floor(totalQty / numLocations)
+                  const remainder = totalQty % numLocations
+
+                  setLocationAssignments(prev =>
+                    prev.map((loc, index) => ({
+                      ...loc,
+                      quantity: index === 0 ? qtyPerLocation + remainder : qtyPerLocation
+                    }))
+                  )
+                }}
+                className="flex-1 text-xs"
+              >
+                Distribute Evenly
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const totalQty = parseInt(lotFormData.quantity) || 0
+                  setLocationAssignments(prev =>
+                    prev.map((loc, index) => ({
+                      ...loc,
+                      quantity: index === 0 ? totalQty : 0
+                    }))
+                  )
+                }}
+                className="flex-1 text-xs"
+              >
+                All to First Location
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLocationAssignments(prev =>
+                    prev.map(loc => ({ ...loc, quantity: 0 }))
+                  )
+                }}
+                className="flex-1 text-xs"
+              >
+                Clear All
+              </Button>
+            </div>
+
+            {/* Total Validation */}
+            {(() => {
+              const totalAssigned = locationAssignments.reduce((sum, loc) => sum + loc.quantity, 0)
+              const totalRequired = parseInt(lotFormData.quantity) || 0
+              const isValid = totalAssigned === totalRequired
+              const difference = totalRequired - totalAssigned
+
+              return (
+                <div className={`text-xs p-3 rounded-lg font-medium border ${isValid
+                    ? 'bg-green-50 text-green-700 border-green-200'
+                    : 'bg-orange-50 text-orange-700 border-orange-200'
+                  }`}>
+                  <div className="flex items-center justify-between">
+                    <span>{isValid ? '✓ Perfect!' : '⚠️ Adjust quantities'}</span>
+                    <span className="font-bold">
+                      {totalAssigned} / {totalRequired} units
+                      {!isValid && difference !== 0 && (
+                        <span className="ml-2 text-xs">
+                          ({difference > 0 ? `${difference} remaining` : `${Math.abs(difference)} over`})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                // Go back to step 1
+                setIsDistributeLotOpen(false)
+                setIsCreateLotOpen(true)
+              }}
+              size="sm"
+              disabled={isSaving}
+            >
+              ← Back
+            </Button>
+            <Button
+              onClick={handleDistributeLot}
+              disabled={
+                isSaving ||
+                locationAssignments.reduce((sum, loc) => sum + loc.quantity, 0) !== parseInt(lotFormData.quantity)
+              }
+              size="sm"
+            >
               {isSaving ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />

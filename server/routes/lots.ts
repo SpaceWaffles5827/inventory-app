@@ -18,4 +18,7 @@ router.patch("/:id/status", lotsController.updateLotStatus);
 // In your lots routes file (e.g., routes/lots.routes.ts)
 router.post("/:id/adjust", lotsController.adjustLotQuantity);
 
+// Update lot details
+router.put("/:id", lotsController.updateLot);
+
 export default router;

@@ -113,6 +113,17 @@ export type CreateLotRequest = {
   }>;
 };
 
+export type UpdateLotRequest = {
+  lotNumber?: string;
+  status?: "ACTIVE" | "DEPLETED" | "EXPIRED" | "QUARANTINED" | "RECALLED";
+  receivedDate?: string;
+  manufactureDate?: string;
+  expirationDate?: string;
+  supplierId?: string;
+  poNumber?: string;
+  notes?: string;
+};
+
 export type UpdateLotStatusRequest = {
   status?: "ACTIVE" | "DEPLETED" | "EXPIRED" | "QUARANTINED" | "RECALLED";
   notes?: string;
@@ -122,7 +133,7 @@ export type AdjustLotQuantityRequest = {
   type: "INPUT" | "OUTPUT";
   quantity: number;
   reason: string;
-  locationId?: string;
+  locationId: string;
 };
 
 // ============================================
@@ -198,6 +209,31 @@ export async function createLotApi(
 
   if (!response.ok) {
     throw new Error(result.message || "Failed to create lot");
+  }
+
+  return result;
+}
+
+/**
+ * Update lot details (lot number, dates, supplier, notes, etc.)
+ */
+export async function updateLotApi(
+  id: string,
+  data: UpdateLotRequest
+): Promise<LotsApiResponse> {
+  const response = await fetch(`/api/lots/${id}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.message || "Failed to update lot");
   }
 
   return result;

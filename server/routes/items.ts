@@ -21,4 +21,7 @@ router.delete("/:id", itemsController.deleteItem);
 // Adjust stock (add/remove quantity)
 router.post("/:id/adjust-stock", itemsController.adjustStock);
 
+// Transfer stock between locations
+router.post("/:id/transfer-stock", itemsController.transferStock);
+
 export default router;
