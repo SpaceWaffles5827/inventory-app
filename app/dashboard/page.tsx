@@ -9,6 +9,7 @@ import { getLotsByItemApi } from "@/lib/api/lots.api"
 import { Label } from "@/components/ui/label"
 import { LayoutGrid, List, TableIcon, ImageIcon } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
+import { StockAdjustmentWizard } from "@/components/stockAdjustmentWizard"
 import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -34,10 +35,11 @@ import {
   SlidersHorizontal,
   Diff,
   MapPin,
+  ArrowRightLeft,
 } from "lucide-react"
 import { getCategoriesApi } from "@/lib/api/categories.api"
 import { getLocationsApi } from "@/lib/api/locations.api"
-import { createItemApi, getItemsApi, adjustStockApi, deleteItemApi, type ItemWithRelations } from "@/lib/api/items.api"
+import { createItemApi, getItemsApi, deleteItemApi, type ItemWithRelations } from "@/lib/api/items.api"
 import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
 import { CategoryWithCount } from "@/lib/api/categories.api"
 import { LocationWithCount } from "@/lib/api/locations.api"
@@ -151,25 +153,7 @@ export default function DashboardPage() {
     storageLocation: "",
     cost: "",
   })
-  const [adjustmentDialog, setAdjustmentDialog] = useState<{
-    open: boolean
-    item: ItemWithRelations | null
-  }>({
-    open: false,
-    item: null,
-  })
-  const [adjustmentQuantity, setAdjustmentQuantity] = useState("")
-  const [newStockAmount, setNewStockAmount] = useState("")
-  const [adjustmentReason, setAdjustmentReason] = useState("")
-  const [selectedLocationId, setSelectedLocationId] = useState<string>("")
-  const [adjustmentNote, setAdjustmentNote] = useState("")
 
-  // NEW: Add these state variables for the 3-step flow
-  const [selectLocationOpen, setSelectLocationOpen] = useState(false)
-  const [selectLotOpen, setSelectLotOpen] = useState(false)
-  const [adjustQuantityOpen, setAdjustQuantityOpen] = useState(false)
-  const [selectedLotId, setSelectedLotId] = useState<string>("")
-  const [itemLots, setItemLots] = useState<any[]>([])
   const [isCreating, setIsCreating] = useState(false)
   const [createError, setCreateError] = useState("")
 
@@ -177,6 +161,29 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState<CategoryWithCount[]>([])
   const [locations, setLocations] = useState<LocationWithCount[]>([])
   const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
+
+  // Transfer dialog state variables
+  const [transferDialog, setTransferDialog] = useState<{
+    open: boolean
+    item: ItemWithRelations | null
+  }>({
+    open: false,
+    item: null,
+  })
+  const [transferSourceLocationOpen, setTransferSourceLocationOpen] = useState(false)
+  const [transferSelectLotOpen, setTransferSelectLotOpen] = useState(false)
+  const [transferDestinationLocationOpen, setTransferDestinationLocationOpen] = useState(false)
+  const [transferQuantityOpen, setTransferQuantityOpen] = useState(false)
+  const [transferSourceLocationId, setTransferSourceLocationId] = useState<string>("")
+  const [transferDestinationLocationId, setTransferDestinationLocationId] = useState<string>("")
+  const [transferLotId, setTransferLotId] = useState<string>("")
+  const [transferQuantity, setTransferQuantity] = useState("")
+  const [transferNote, setTransferNote] = useState("")
+  const [transferItemLots, setTransferItemLots] = useState<any[]>([])
+
+
+  const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false)
+  const [adjustmentDialogItem, setAdjustmentDialogItem] = useState<ItemWithRelations | null>(null)
 
   // Save view mode preference
   useEffect(() => {
@@ -244,26 +251,6 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error("Failed to load suppliers:", err)
-    }
-  }
-
-  const loadItemLots = async (itemId: string) => {
-    try {
-      // Try the lots API endpoint instead
-      const response = await fetch(`/api/lots?itemId=${itemId}`, {
-        credentials: 'include',
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        console.log('Lots API response:', data) // DEBUG
-        setItemLots(data.data?.lots || [])
-      } else {
-        console.error('Lots API error:', response.status, response.statusText)
-      }
-    } catch (err) {
-      console.error("Failed to load lots:", err)
-      setItemLots([])
     }
   }
 
@@ -362,123 +349,9 @@ export default function DashboardPage() {
     }
   }
 
-  const handleLocationSelected = () => {
-    if (!selectedLocationId) {
-      toast.error("Please select a location")
-      return
-    }
-
-    const item = adjustmentDialog.item
-    if (!item) return
-
-    console.log('Item:', item) // DEBUG
-    console.log('Item lotTracking:', item.lotTracking) // DEBUG
-    console.log('All lots:', itemLots) // DEBUG
-    console.log('Selected location:', selectedLocationId) // DEBUG
-
-    // Close location modal
-    setSelectLocationOpen(false)
-
-    // Check if there are lots available at the selected location
-    const lotsAtLocation = itemLots.filter(lot =>
-      lot.locations?.some((lotLoc: any) =>
-        lotLoc.locationId === selectedLocationId && lotLoc.quantity > 0
-      )
-    )
-
-    console.log('Lots at location:', lotsAtLocation) // DEBUG
-    console.log('Lots at location count:', lotsAtLocation.length) // DEBUG
-
-    // If there are lots at this location, show lot selection
-    if (lotsAtLocation.length > 0) {
-      console.log('Opening lot selection dialog') // DEBUG
-      setSelectLotOpen(true)
-    } else {
-      console.log('Skipping to quantity adjustment') // DEBUG
-      // No lots at this location, go straight to quantity adjustment
-      const locationStock = getCurrentLocationStock()
-      setNewStockAmount(String(locationStock))
-      setAdjustQuantityOpen(true)
-    }
-  }
-
-  const handleLotSelected = () => {
-    if (!selectedLotId) {
-      toast.error("Please select a lot")
-      return
-    }
-
-    // Close lot modal, open quantity adjustment
-    setSelectLotOpen(false)
-    const locationStock = getCurrentLocationStock()
-    setNewStockAmount(String(locationStock))
-    setAdjustQuantityOpen(true)
-  }
-
-  const handleGoBackToLocation = () => {
-    setAdjustQuantityOpen(false)
-    setSelectLotOpen(false)
-    setSelectedLotId("")
-    setAdjustmentQuantity("")
-    setNewStockAmount("")
-    setSelectLocationOpen(true)
-  }
-
-  const handleGoBackToLot = () => {
-    setAdjustQuantityOpen(false)
-    setAdjustmentQuantity("")
-    setNewStockAmount("")
-    setSelectLotOpen(true)
-  }
-
-  const closeAllAdjustmentDialogs = () => {
-    setSelectLocationOpen(false)
-    setSelectLotOpen(false)
-    setAdjustQuantityOpen(false)
-    setAdjustmentDialog({ open: false, item: null })
-    setSelectedLocationId("")
-    setSelectedLotId("")
-    setAdjustmentQuantity("")
-    setNewStockAmount("")
-    setAdjustmentReason("")
-    setAdjustmentNote("")
-    setItemLots([])
-  }
-
-  const openAdjustmentDialog = async (item: ItemWithRelations) => {
-    setAdjustmentDialog({ open: true, item })
-    setAdjustmentQuantity("")
-    setNewStockAmount("")
-    setAdjustmentReason("")
-    setAdjustmentNote("")
-    setSelectedLocationId("")
-    setSelectedLotId("")
-    setItemLots([])
-
-    // Load lots using the same API as the item detail page
-    try {
-      const response = await getLotsByItemApi(item.id)
-      if (response.data?.lots) {
-        const lots = response.data.lots
-        console.log('Loaded lots:', lots) // DEBUG
-        console.log('Lots count:', lots.length) // DEBUG
-        setItemLots(lots)
-
-        // Update the item in the dialog with lotTracking status
-        if (lots.length > 0) {
-          console.log('Setting lotTracking to true') // DEBUG
-          setAdjustmentDialog({
-            open: true,
-            item: { ...item, lotTracking: true }
-          })
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load lots:", err)
-    }
-
-    // Open the location selection modal
-    setSelectLocationOpen(true)
+  const openAdjustmentDialog = (item: ItemWithRelations) => {
+    setAdjustmentDialogItem(item)
+    setAdjustmentDialogOpen(true)
   }
 
   // Get current stock for selected location (and lot if selected)
@@ -505,81 +378,149 @@ export default function DashboardPage() {
     return itemLocation?.quantity || 0
   }
 
-  // Handle adjustment quantity changes and update new stock amount
-  const handleAdjustmentQuantityChange = (value: string) => {
-    setAdjustmentQuantity(value)
-    if (value && value !== "-" && value !== "+") {
-      const qty = Number.parseInt(value)
-      if (!isNaN(qty)) {
-        const currentStock = getCurrentLocationStock()
-        setNewStockAmount(String(currentStock + qty))
+  // Transfer handlers
+  const openTransferDialog = async (item: ItemWithRelations) => {
+    setTransferDialog({ open: true, item })
+    setTransferSourceLocationId("")
+    setTransferDestinationLocationId("")
+    setTransferLotId("")
+    setTransferQuantity("")
+    setTransferNote("")
+    setTransferItemLots([])
+
+    // Load lots using the same API as the item detail page
+    try {
+      const response = await getLotsByItemApi(item.id)
+      if (response.data?.lots) {
+        const lots = response.data.lots
+        setTransferItemLots(lots)
       }
+    } catch (err) {
+      console.error("Failed to load lots:", err)
     }
+
+    // Open source location selection
+    setTransferSourceLocationOpen(true)
   }
 
-  // Handle new stock amount changes and calculate adjustment quantity
-  const handleNewStockAmountChange = (value: string) => {
-    setNewStockAmount(value)
-    if (value) {
-      const newStock = Number.parseInt(value)
-      if (!isNaN(newStock)) {
-        const currentStock = getCurrentLocationStock()
-        const adjustment = newStock - currentStock
-        setAdjustmentQuantity(String(adjustment))
-      }
+  const handleTransferSourceLocationSelected = () => {
+    if (!transferSourceLocationId) {
+      toast.error("Please select a source location")
+      return
+    }
+
+    setTransferSourceLocationOpen(false)
+
+    // Check if there are lots at this location
+    const lotsAtLocation = transferItemLots.filter(lot =>
+      lot.locations?.some((lotLoc: any) =>
+        lotLoc.locationId === transferSourceLocationId && lotLoc.quantity > 0
+      )
+    )
+
+    // If lots exist, show lot selection
+    if (lotsAtLocation.length > 0) {
+      setTransferSelectLotOpen(true)
     } else {
-      setAdjustmentQuantity("")
+      // No lots, skip to destination
+      setTransferDestinationLocationOpen(true)
     }
   }
 
-  const handleStockAdjustment = async () => {
+  const handleTransferLotSelected = () => {
+    if (!transferLotId) {
+      toast.error("Please select a lot")
+      return
+    }
+
+    setTransferSelectLotOpen(false)
+    setTransferDestinationLocationOpen(true)
+  }
+
+  const handleTransferDestinationLocationSelected = () => {
+    if (!transferDestinationLocationId) {
+      toast.error("Please select a destination location")
+      return
+    }
+
+    if (transferDestinationLocationId === transferSourceLocationId) {
+      toast.error("Destination must be different from source")
+      return
+    }
+
+    setTransferDestinationLocationOpen(false)
+    setTransferQuantityOpen(true)
+  }
+
+  const getTransferMaxQuantity = () => {
+    if (!transferDialog.item || !transferSourceLocationId) return 0
+
+    if (transferLotId) {
+      const selectedLot = transferItemLots.find(lot => lot.id === transferLotId)
+      if (selectedLot) {
+        const lotLocation = selectedLot.locations?.find(
+          (loc: any) => loc.locationId === transferSourceLocationId
+        )
+        return lotLocation?.quantity || 0
+      }
+      return 0
+    }
+
+    const itemLocation = transferDialog.item.locations?.find(
+      loc => loc.locationId === transferSourceLocationId
+    )
+    return itemLocation?.quantity || 0
+  }
+
+  const closeAllTransferDialogs = () => {
+    setTransferSourceLocationOpen(false)
+    setTransferSelectLotOpen(false)
+    setTransferDestinationLocationOpen(false)
+    setTransferQuantityOpen(false)
+    setTransferDialog({ open: false, item: null })
+    setTransferSourceLocationId("")
+    setTransferDestinationLocationId("")
+    setTransferLotId("")
+    setTransferQuantity("")
+    setTransferNote("")
+    setTransferItemLots([])
+  }
+
+  const handleTransferStock = async () => {
     if (
-      !adjustmentDialog.item ||
-      !adjustmentQuantity ||
-      adjustmentQuantity === "0" ||
-      !selectedLocationId
+      !transferDialog.item ||
+      !transferQuantity ||
+      !transferSourceLocationId ||
+      !transferDestinationLocationId
     ) {
       return
     }
 
-    const quantity = Number.parseInt(adjustmentQuantity)
-    const itemId = adjustmentDialog.item.id
-    const isInput = quantity > 0
+    const quantity = Number.parseInt(transferQuantity)
+    const maxQty = getTransferMaxQuantity()
+
+    if (quantity <= 0 || quantity > maxQty) {
+      toast.error(`Quantity must be between 1 and ${maxQty}`)
+      return
+    }
 
     try {
-      // Use lot-specific endpoint if lot is selected
-      if (selectedLotId) {
-        const response = await fetch(`/api/lots/${selectedLotId}/adjust`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            type: isInput ? "INPUT" : "OUTPUT",
-            quantity: Math.abs(quantity),
-            reason: adjustmentNote || "Stock adjustment",
-            locationId: selectedLocationId,
-          }),
-        })
+      const response = await fetch(`/api/items/${transferDialog.item.id}/transfer-stock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          quantity: quantity,
+          fromLocationId: transferSourceLocationId,
+          toLocationId: transferDestinationLocationId,
+          lotId: transferLotId || undefined,
+          reason: transferNote || "Stock transfer",
+        }),
+      })
 
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Failed to adjust lot stock')
-        }
-      } else {
-        // Regular stock adjustment (non-lot-tracked items)
-        const response = await adjustStockApi(itemId, {
-          type: isInput ? "INPUT" : "OUTPUT",
-          quantity: Math.abs(quantity),
-          reason: adjustmentNote || "Stock adjustment",
-          locationId: selectedLocationId,
-        })
-
-        if (response.data?.item) {
-          const updatedItem = response.data.item
-          setInventory((prev) =>
-            prev.map((item) => (item.id === itemId ? updatedItem : item))
-          )
-        }
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Failed to transfer stock')
       }
 
       // Reload items to refresh totals
@@ -587,12 +528,31 @@ export default function DashboardPage() {
         loadItems(currentWorkspaceId)
       }
 
-      closeAllAdjustmentDialogs()
-      toast.success("Stock adjusted successfully")
+      closeAllTransferDialogs()
+      toast.success("Stock transferred successfully")
     } catch (error) {
-      console.error("Failed to adjust stock:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to adjust stock")
+      console.error("Failed to transfer stock:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to transfer stock")
     }
+  }
+
+  const handleGoBackToTransferSource = () => {
+    setTransferDestinationLocationOpen(false)
+    setTransferSelectLotOpen(false)
+    setTransferDestinationLocationId("")
+    setTransferSourceLocationOpen(true)
+  }
+
+  const handleGoBackToTransferLot = () => {
+    setTransferDestinationLocationOpen(false)
+    setTransferDestinationLocationId("")
+    setTransferSelectLotOpen(true)
+  }
+
+  const handleGoBackToTransferDestination = () => {
+    setTransferQuantityOpen(false)
+    setTransferQuantity("")
+    setTransferDestinationLocationOpen(true)
   }
 
   const filteredInventory = inventory
@@ -658,16 +618,6 @@ export default function DashboardPage() {
   const totalItems = inventory.reduce((sum, item) => sum + item.onHand, 0)
   const lowStockItems = inventory.filter((item) => item.status === "LOW_STOCK" || item.status === "OUT_OF_STOCK").length
   const totalValue = inventory.reduce((sum, item) => sum + item.onHand * item.cost, 0)
-
-  const incrementQuantity = () => {
-    const current = Number.parseInt(adjustmentQuantity || "0")
-    handleAdjustmentQuantityChange(String(current + 1))
-  }
-
-  const decrementQuantity = () => {
-    const current = Number.parseInt(adjustmentQuantity || "0")
-    handleAdjustmentQuantityChange(String(current - 1))
-  }
 
   if (loading) {
     return (
@@ -1168,6 +1118,19 @@ export default function DashboardPage() {
                               >
                                 <Diff className="h-4 w-4" />
                               </Button>
+                              {/* ADD THIS TRANSFER BUTTON */}
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="flex-1 h-9 hover:bg-blue-500/10 hover:text-blue-600 bg-transparent"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openTransferDialog(item)
+                                }}
+                                title="Transfer stock between locations"
+                              >
+                                <ArrowRightLeft className="h-4 w-4" />
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="icon"
@@ -1251,7 +1214,7 @@ export default function DashboardPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-9 w-9 hover:bg-accent/10 hover:text-accent bg-transparent"
+                              className="flex-1 h-9 hover:bg-accent/10 hover:text-accent bg-transparent"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 openAdjustmentDialog(item)
@@ -1344,7 +1307,7 @@ export default function DashboardPage() {
                                 <Button
                                   variant="outline"
                                   size="icon"
-                                  className="h-9 w-9 hover:bg-accent/10 hover:text-accent bg-transparent"
+                                  className="flex-1 h-9 hover:bg-accent/10 hover:text-accent bg-transparent"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     openAdjustmentDialog(item)
@@ -1377,403 +1340,20 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Step 1: Select Location Dialog */}
-      <Dialog open={selectLocationOpen} onOpenChange={(open) => !open && closeAllAdjustmentDialogs()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base">Select Location (Step 1 of {adjustmentDialog.item?.lotTracking ? '3' : '2'})</DialogTitle>
-            <DialogDescription className="text-xs">
-              Choose which location to adjust stock for.
-            </DialogDescription>
-          </DialogHeader>
-
-          {adjustmentDialog.item && (
-            <div className="space-y-4 py-3">
-              {/* Item Info */}
-              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
-                <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Package className="h-6 w-6 text-muted-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm truncate">{adjustmentDialog.item.name}</h3>
-                  <p className="text-xs text-muted-foreground truncate">
-                    Total: {adjustmentDialog.item.onHand} units | ${(adjustmentDialog.item.cost * adjustmentDialog.item.onHand).toFixed(2)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Location Selection */}
-              <div className="space-y-2">
-                <Label className="text-xs flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5" />
-                  Select Location
-                </Label>
-                <RadioGroup value={selectedLocationId} onValueChange={setSelectedLocationId}>
-                  <div className="space-y-1.5">
-                    {adjustmentDialog.item.locations && adjustmentDialog.item.locations.length > 0 ? (
-                      adjustmentDialog.item.locations.map((itemLocation) => (
-                        <div
-                          key={itemLocation.id}
-                          className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLocationId === itemLocation.locationId
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:border-primary/50"
-                            }`}
-                          onClick={() => setSelectedLocationId(itemLocation.locationId)}
-                        >
-                          <RadioGroupItem
-                            value={itemLocation.locationId}
-                            id={`location-${itemLocation.locationId}`}
-                            className="flex-shrink-0"
-                          />
-                          <Label
-                            htmlFor={`location-${itemLocation.locationId}`}
-                            className="flex-1 cursor-pointer min-w-0"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-mono font-semibold text-xs truncate">{itemLocation.location.code}</p>
-                                {itemLocation.location.name && (
-                                  <p className="text-[10px] text-muted-foreground truncate">{itemLocation.location.name}</p>
-                                )}
-                              </div>
-                              <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">{itemLocation.quantity} units</p>
-                            </div>
-                          </Label>
-                        </div>
-                      ))
-                    ) : (
-                      <Alert className="py-2">
-                        <AlertCircle className="h-3.5 w-3.5" />
-                        <AlertDescription className="text-xs">No locations assigned to this item.</AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeAllAdjustmentDialogs} size="sm">
-              Cancel
-            </Button>
-            <Button onClick={handleLocationSelected} disabled={!selectedLocationId} size="sm">
-              Next: {adjustmentDialog.item?.lotTracking ? 'Select Lot' : 'Adjust Quantity'} →
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Step 2: Select Lot Dialog (only for lot-tracked items) */}
-      <Dialog open={selectLotOpen} onOpenChange={(open) => !open && closeAllAdjustmentDialogs()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base">Select Lot (Step 2 of 3)</DialogTitle>
-            <DialogDescription className="text-xs">
-              Choose which lot to adjust at the selected location.
-            </DialogDescription>
-          </DialogHeader>
-
-          {adjustmentDialog.item && (
-            <div className="space-y-4 py-3">
-              {/* Item & Location Info */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
-                  <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-xs truncate">{adjustmentDialog.item.name}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      Location: {adjustmentDialog.item.locations?.find(l => l.locationId === selectedLocationId)?.location.code}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Lot Selection */}
-              <div className="space-y-2">
-                <Label className="text-xs flex items-center gap-1.5">
-                  Select Lot/Batch
-                </Label>
-                <RadioGroup value={selectedLotId} onValueChange={setSelectedLotId}>
-                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-                    {itemLots.length > 0 ? (
-                      (() => {
-                        const lotsAtLocation = itemLots
-                          .filter(lot => {
-                            // Filter lots that have stock at the selected location
-                            const lotLocation = lot.locations?.find((lotLoc: any) =>
-                              lotLoc.locationId === selectedLocationId
-                            )
-                            return lotLocation && lotLocation.quantity > 0
-                          })
-                          .sort((a, b) => {
-                            // FIFO: sort by expiration date (earliest first)
-                            if (!a.expirationDate) return 1
-                            if (!b.expirationDate) return -1
-                            return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
-                          })
-
-                        if (lotsAtLocation.length === 0) {
-                          return (
-                            <Alert className="py-2">
-                              <AlertCircle className="h-3.5 w-3.5" />
-                              <AlertDescription className="text-xs">
-                                No lots available at this location. This location may contain unlotted stock.
-                              </AlertDescription>
-                            </Alert>
-                          )
-                        }
-
-                        return lotsAtLocation.map((lot) => {
-                          const lotLocation = lot.locations?.find((l: any) => l.locationId === selectedLocationId)
-                          const daysUntilExpiration = lot.expirationDate
-                            ? Math.ceil((new Date(lot.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-                            : null
-
-                          return (
-                            <div
-                              key={lot.id}
-                              className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLotId === lot.id
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:border-primary/50"
-                                }`}
-                              onClick={() => setSelectedLotId(lot.id)}
-                            >
-                              <RadioGroupItem
-                                value={lot.id}
-                                id={`lot-${lot.id}`}
-                                className="flex-shrink-0"
-                              />
-                              <Label
-                                htmlFor={`lot-${lot.id}`}
-                                className="flex-1 cursor-pointer min-w-0"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-mono font-semibold text-xs truncate">{lot.lotNumber}</p>
-                                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                                      {lot.expirationDate && (
-                                        <span className={
-                                          daysUntilExpiration !== null && daysUntilExpiration < 0
-                                            ? "text-red-600"
-                                            : daysUntilExpiration !== null && daysUntilExpiration <= 7
-                                              ? "text-orange-600"
-                                              : ""
-                                        }>
-                                          Exp: {new Date(lot.expirationDate).toLocaleDateString()}
-                                          {daysUntilExpiration !== null && daysUntilExpiration < 0 && " (Expired)"}
-                                          {daysUntilExpiration !== null && daysUntilExpiration >= 0 && daysUntilExpiration <= 7 && ` (${daysUntilExpiration}d)`}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">
-                                    {lotLocation?.quantity || 0} units
-                                  </p>
-                                </div>
-                              </Label>
-                            </div>
-                          )
-                        })
-                      })()
-                    ) : (
-                      <Alert className="py-2">
-                        <AlertCircle className="h-3.5 w-3.5" />
-                        <AlertDescription className="text-xs">Loading lots...</AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={handleGoBackToLocation} size="sm">
-              ← Back
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                // Skip lot selection and adjust non-lotted stock
-                setSelectLotOpen(false)
-                setSelectedLotId("")
-                const locationStock = getCurrentLocationStock()
-                setNewStockAmount(String(locationStock))
-                setAdjustQuantityOpen(true)
-              }}
-              size="sm"
-              className="text-xs"
-            >
-              Skip (Adjust Non-Lotted Stock)
-            </Button>
-            <Button onClick={handleLotSelected} disabled={!selectedLotId} size="sm">
-              Next: Adjust Quantity →
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Step 3: Adjust Quantity Dialog */}
-      <Dialog open={adjustQuantityOpen} onOpenChange={(open) => !open && closeAllAdjustmentDialogs()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base">
-              Adjust Quantity (Step {adjustmentDialog.item?.lotTracking ? '3 of 3' : '2 of 2'})
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Update the stock quantity at the selected location{selectedLotId ? ' for the selected lot' : ''}.
-            </DialogDescription>
-          </DialogHeader>
-
-          {adjustmentDialog.item && (
-            <div className="space-y-3 py-3">
-              {/* Context Info */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
-                  <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-xs truncate">{adjustmentDialog.item.name}</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      Location: {adjustmentDialog.item.locations?.find(l => l.locationId === selectedLocationId)?.location.code}
-                      {selectedLotId && (
-                        <> | Lot: {itemLots.find(l => l.id === selectedLotId)?.lotNumber}</>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Current Stock */}
-              <div className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg border">
-                <span className="text-xs text-muted-foreground">Current Quantity</span>
-                <span className="text-base font-bold">{getCurrentLocationStock()}</span>
-              </div>
-
-              {/* Adjustment Amount with +/- Buttons */}
-              <div className="space-y-1">
-                <Label className="text-xs">Adjustment Amount</Label>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={decrementQuantity}
-                    className="flex-shrink-0 h-9 w-9"
-                  >
-                    <span className="text-lg">−</span>
-                  </Button>
-
-                  <Input
-                    type="text"
-                    value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
-                    onChange={(e) => {
-                      const val = e.target.value
-
-                      if (val === "") {
-                        setAdjustmentQuantity("")
-                        setNewStockAmount(String(getCurrentLocationStock()))
-                        return
-                      }
-
-                      if (val === "-" || val === "+") {
-                        setAdjustmentQuantity(val)
-                        return
-                      }
-
-                      const cleaned = val.replace(/[^0-9-+]/g, "")
-                      const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
-                      const numbers = cleaned.replace(/[-+]/g, "")
-                      const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
-
-                      if (finalValue === "-" || finalValue === "+") {
-                        setAdjustmentQuantity(finalValue)
-                      } else {
-                        const num = Number.parseInt(finalValue)
-                        if (!isNaN(num)) {
-                          handleAdjustmentQuantityChange(String(num))
-                        }
-                      }
-                    }}
-                    className="text-center font-semibold flex-1 min-w-0 h-9 text-sm"
-                    placeholder="0"
-                  />
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={incrementQuantity}
-                    className="flex-shrink-0 h-9 w-9"
-                  >
-                    <span className="text-lg">+</span>
-                  </Button>
-                </div>
-              </div>
-
-              {/* New Quantity Input */}
-              <div className="space-y-1">
-                <Label htmlFor="newStock" className="text-xs">New Quantity</Label>
-                <Input
-                  id="newStock"
-                  type="number"
-                  min="0"
-                  value={newStockAmount}
-                  onChange={(e) => handleNewStockAmountChange(e.target.value)}
-                  className="font-semibold h-9 text-sm"
-                />
-                {Number.parseInt(newStockAmount) < 0 && (
-                  <Alert variant="destructive" className="py-1.5">
-                    <AlertCircle className="h-3.5 w-3.5" />
-                    <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
-                  </Alert>
-                )}
-              </div>
-
-              {/* Transaction Note */}
-              <div className="space-y-1">
-                <Label htmlFor="note" className="text-xs">Transaction Note (Optional)</Label>
-                <Textarea
-                  id="note"
-                  placeholder="Reason for adjustment..."
-                  value={adjustmentNote}
-                  onChange={(e) => setAdjustmentNote(e.target.value)}
-                  className="min-h-14 resize-none text-xs"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (adjustmentDialog.item?.lotTracking && selectedLotId) {
-                  handleGoBackToLot()
-                } else {
-                  handleGoBackToLocation()
-                }
-              }}
-              size="sm"
-            >
-              ← Back
-            </Button>
-            <Button
-              onClick={handleStockAdjustment}
-              disabled={
-                !adjustmentQuantity ||
-                adjustmentQuantity === "0" ||
-                adjustmentQuantity === "+" ||
-                adjustmentQuantity === "-" ||
-                Number.parseInt(newStockAmount) < 0
-              }
-              size="sm"
-            >
-              Update Stock
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Stock Adjustment Wizard */}
+      <StockAdjustmentWizard
+        item={adjustmentDialogItem}
+        open={adjustmentDialogOpen}
+        onClose={() => {
+          setAdjustmentDialogOpen(false)
+          setAdjustmentDialogItem(null)
+        }}
+        onSuccess={() => {
+          if (currentWorkspaceId) {
+            loadItems(currentWorkspaceId)
+          }
+        }}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog
@@ -1833,6 +1413,452 @@ export default function DashboardPage() {
                   Delete Item
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transfer Dialog - Step 1: Select Source Location */}
+      <Dialog open={transferSourceLocationOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <ArrowRightLeft className="h-4 w-4" />
+              Transfer Stock (Step 1 of {transferItemLots.length > 0 ? '4' : '3'})
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Select the source location to transfer stock from.
+            </DialogDescription>
+          </DialogHeader>
+
+          {transferDialog.item && (
+            <div className="space-y-4 py-3">
+              {/* Item Info */}
+              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
+                <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Package className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm truncate">{transferDialog.item.name}</h3>
+                  <p className="text-xs text-muted-foreground truncate">
+                    Total: {transferDialog.item.onHand} units
+                  </p>
+                </div>
+              </div>
+
+              {/* Source Location Selection */}
+              <div className="space-y-2">
+                <Label className="text-xs flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5" />
+                  Source Location (Transfer From)
+                </Label>
+                <RadioGroup value={transferSourceLocationId} onValueChange={setTransferSourceLocationId}>
+                  <div className="space-y-1.5">
+                    {transferDialog.item.locations && transferDialog.item.locations.length > 0 ? (
+                      transferDialog.item.locations.filter(loc => loc.quantity > 0).map((itemLocation) => (
+                        <div
+                          key={itemLocation.id}
+                          className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${transferSourceLocationId === itemLocation.locationId
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/50"
+                            }`}
+                          onClick={() => setTransferSourceLocationId(itemLocation.locationId)}
+                        >
+                          <RadioGroupItem
+                            value={itemLocation.locationId}
+                            id={`transfer-source-${itemLocation.locationId}`}
+                            className="flex-shrink-0"
+                          />
+                          <Label
+                            htmlFor={`transfer-source-${itemLocation.locationId}`}
+                            className="flex-1 cursor-pointer min-w-0"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-mono font-semibold text-xs truncate">{itemLocation.location.code}</p>
+                              </div>
+                              <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">{itemLocation.quantity} units</p>
+                            </div>
+                          </Label>
+                        </div>
+                      ))
+                    ) : (
+                      <Alert className="py-2">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        <AlertDescription className="text-xs">No locations with stock available.</AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                </RadioGroup>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeAllTransferDialogs} size="sm">
+              Cancel
+            </Button>
+            <Button onClick={handleTransferSourceLocationSelected} disabled={!transferSourceLocationId} size="sm">
+              Next: {transferItemLots.length > 0 ? 'Select Lot' : 'Select Destination'} →
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transfer Dialog - Step 2: Select Lot (if lot-tracked) */}
+      <Dialog open={transferSelectLotOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <ArrowRightLeft className="h-4 w-4" />
+              Transfer Stock (Step 2 of 4)
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Select which lot/batch to transfer.
+            </DialogDescription>
+          </DialogHeader>
+
+          {transferDialog.item && (
+            <div className="space-y-4 py-3">
+              {/* Context Info */}
+              <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
+                <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-xs truncate">{transferDialog.item.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    From: {transferDialog.item.locations?.find(l => l.locationId === transferSourceLocationId)?.location.code}
+                  </p>
+                </div>
+              </div>
+
+              {/* Lot Selection */}
+              <div className="space-y-2">
+                <Label className="text-xs">Select Lot/Batch to Transfer</Label>
+                <RadioGroup value={transferLotId} onValueChange={setTransferLotId}>
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                    {(() => {
+                      const lotsAtLocation = transferItemLots
+                        .filter(lot => {
+                          const lotLocation = lot.locations?.find((lotLoc: any) =>
+                            lotLoc.locationId === transferSourceLocationId
+                          )
+                          return lotLocation && lotLocation.quantity > 0
+                        })
+                        .sort((a, b) => {
+                          if (!a.expirationDate) return 1
+                          if (!b.expirationDate) return -1
+                          return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
+                        })
+
+                      if (lotsAtLocation.length === 0) {
+                        return (
+                          <Alert className="py-2">
+                            <AlertCircle className="h-3.5 w-3.5" />
+                            <AlertDescription className="text-xs">No lots at this location.</AlertDescription>
+                          </Alert>
+                        )
+                      }
+
+                      return lotsAtLocation.map((lot) => {
+                        const lotLocation = lot.locations?.find((l: any) => l.locationId === transferSourceLocationId)
+                        const daysUntilExpiration = lot.expirationDate
+                          ? Math.ceil((new Date(lot.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                          : null
+
+                        return (
+                          <div
+                            key={lot.id}
+                            className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${transferLotId === lot.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/50"
+                              }`}
+                            onClick={() => setTransferLotId(lot.id)}
+                          >
+                            <RadioGroupItem
+                              value={lot.id}
+                              id={`transfer-lot-${lot.id}`}
+                              className="flex-shrink-0"
+                            />
+                            <Label
+                              htmlFor={`transfer-lot-${lot.id}`}
+                              className="flex-1 cursor-pointer min-w-0"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-mono font-semibold text-xs truncate">{lot.lotNumber}</p>
+                                  {lot.expirationDate && (
+                                    <span className={`text-[10px] ${daysUntilExpiration !== null && daysUntilExpiration < 0
+                                      ? "text-red-600"
+                                      : daysUntilExpiration !== null && daysUntilExpiration <= 7
+                                        ? "text-orange-600"
+                                        : "text-muted-foreground"
+                                      }`}>
+                                      Exp: {new Date(lot.expirationDate).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="font-semibold text-sm flex-shrink-0">{lotLocation?.quantity || 0} units</p>
+                              </div>
+                            </Label>
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+                </RadioGroup>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleGoBackToTransferSource} size="sm">
+              ← Back
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setTransferSelectLotOpen(false)
+                setTransferLotId("")
+                setTransferDestinationLocationOpen(true)
+              }}
+              size="sm"
+              className="text-xs"
+            >
+              Skip (Transfer Non-Lotted)
+            </Button>
+            <Button onClick={handleTransferLotSelected} disabled={!transferLotId} size="sm">
+              Next: Select Destination →
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transfer Dialog - Step 3: Select Destination Location */}
+      <Dialog open={transferDestinationLocationOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <ArrowRightLeft className="h-4 w-4" />
+              Transfer Stock (Step {transferItemLots.length > 0 ? '3 of 4' : '2 of 3'})
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Select the destination location to transfer stock to.
+            </DialogDescription>
+          </DialogHeader>
+
+          {transferDialog.item && (
+            <div className="space-y-4 py-3">
+              {/* Context Info */}
+              <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
+                <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-xs truncate">{transferDialog.item.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    From: {transferDialog.item.locations?.find(l => l.locationId === transferSourceLocationId)?.location.code}
+                    {transferLotId && <> | Lot: {transferItemLots.find(l => l.id === transferLotId)?.lotNumber}</>}
+                  </p>
+                </div>
+              </div>
+
+              {/* Destination Location Selection - ALL LOCATIONS */}
+              <div className="space-y-2">
+                <Label className="text-xs flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5" />
+                  Destination Location (Transfer To)
+                </Label>
+                <RadioGroup value={transferDestinationLocationId} onValueChange={setTransferDestinationLocationId}>
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                    {locations.length > 0 ? (
+                      locations
+                        .filter(loc => loc.id !== transferSourceLocationId)
+                        .map((location) => {
+                          // Check if item already has stock at this location
+                          const itemLocation = transferDialog.item.locations?.find(
+                            il => il.locationId === location.id
+                          )
+                          const currentQty = itemLocation?.quantity || 0
+
+                          return (
+                            <div
+                              key={location.id}
+                              className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${transferDestinationLocationId === location.id
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-primary/50"
+                                }`}
+                              onClick={() => setTransferDestinationLocationId(location.id)}
+                            >
+                              <RadioGroupItem
+                                value={location.id}
+                                id={`transfer-dest-${location.id}`}
+                                className="flex-shrink-0"
+                              />
+                              <Label
+                                htmlFor={`transfer-dest-${location.id}`}
+                                className="flex-1 cursor-pointer min-w-0"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="font-mono font-semibold text-xs truncate">{location.code}</p>
+                                    {location.name && (
+                                      <p className="text-[10px] text-muted-foreground truncate">{location.name}</p>
+                                    )}
+                                  </div>
+                                  <div className="text-right flex-shrink-0">
+                                    {currentQty > 0 ? (
+                                      <p className="text-sm text-muted-foreground">{currentQty} units</p>
+                                    ) : (
+                                      <Badge variant="outline" className="text-xs">Empty</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              </Label>
+                            </div>
+                          )
+                        })
+                    ) : (
+                      <Alert className="py-2">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        <AlertDescription className="text-xs">No other locations available.</AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {transferDestinationLocationId && (
+                <Alert className="py-2">
+                  <AlertCircle className="h-3.5 w-3.5 text-blue-600" />
+                  <AlertDescription className="text-xs text-blue-800">
+                    {(() => {
+                      const destLocation = transferDialog.item.locations?.find(
+                        il => il.locationId === transferDestinationLocationId
+                      )
+                      return destLocation
+                        ? `This item currently has ${destLocation.quantity} units at this location.`
+                        : "This location will be added to the item's storage locations."
+                    })()}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (transferItemLots.length > 0 && transferLotId) {
+                  handleGoBackToTransferLot()
+                } else {
+                  handleGoBackToTransferSource()
+                }
+              }}
+              size="sm"
+            >
+              ← Back
+            </Button>
+            <Button onClick={handleTransferDestinationLocationSelected} disabled={!transferDestinationLocationId} size="sm">
+              Next: Enter Quantity →
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transfer Dialog - Step 4: Enter Quantity */}
+      <Dialog open={transferQuantityOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <ArrowRightLeft className="h-4 w-4" />
+              Transfer Stock (Step {transferItemLots.length > 0 ? '4 of 4' : '3 of 3'})
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Enter the quantity to transfer.
+            </DialogDescription>
+          </DialogHeader>
+
+          {transferDialog.item && (
+            <div className="space-y-3 py-3">
+              {/* Transfer Summary */}
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <ArrowRightLeft className="h-4 w-4 text-blue-600" />
+                  <p className="font-semibold text-sm text-blue-900">Transfer Summary</p>
+                </div>
+                <div className="space-y-1 text-xs text-blue-800">
+                  <p><span className="font-medium">Item:</span> {transferDialog.item.name}</p>
+                  <p>
+                    <span className="font-medium">From:</span>{" "}
+                    {transferDialog.item.locations?.find(l => l.locationId === transferSourceLocationId)?.location.code}
+                  </p>
+                  <p>
+                    <span className="font-medium">To:</span>{" "}
+                    {transferDialog.item.locations?.find(l => l.locationId === transferDestinationLocationId)?.location.code}
+                  </p>
+                  {transferLotId && (
+                    <p>
+                      <span className="font-medium">Lot:</span>{" "}
+                      {transferItemLots.find(l => l.id === transferLotId)?.lotNumber}
+                    </p>
+                  )}
+                  <p>
+                    <span className="font-medium">Available:</span> {getTransferMaxQuantity()} units
+                  </p>
+                </div>
+              </div>
+
+              {/* Quantity Input */}
+              <div className="space-y-1">
+                <Label htmlFor="transferQty" className="text-xs">Transfer Quantity</Label>
+                <Input
+                  id="transferQty"
+                  type="number"
+                  min="1"
+                  max={getTransferMaxQuantity()}
+                  value={transferQuantity}
+                  onChange={(e) => setTransferQuantity(e.target.value)}
+                  placeholder={`Max: ${getTransferMaxQuantity()}`}
+                  className="font-semibold h-9"
+                />
+                {transferQuantity && parseInt(transferQuantity) > getTransferMaxQuantity() && (
+                  <Alert variant="destructive" className="py-1.5">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <AlertDescription className="text-xs">
+                      Cannot transfer more than {getTransferMaxQuantity()} units.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+
+              {/* Transfer Note */}
+              <div className="space-y-1">
+                <Label htmlFor="transferNote" className="text-xs">Note (Optional)</Label>
+                <Textarea
+                  id="transferNote"
+                  placeholder="Reason for transfer..."
+                  value={transferNote}
+                  onChange={(e) => setTransferNote(e.target.value)}
+                  className="min-h-14 resize-none text-xs"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleGoBackToTransferDestination} size="sm">
+              ← Back
+            </Button>
+            <Button
+              onClick={handleTransferStock}
+              disabled={
+                !transferQuantity ||
+                parseInt(transferQuantity) <= 0 ||
+                parseInt(transferQuantity) > getTransferMaxQuantity()
+              }
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Transfer Stock
             </Button>
           </DialogFooter>
         </DialogContent>
