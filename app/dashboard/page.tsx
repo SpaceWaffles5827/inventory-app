@@ -5,23 +5,13 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { getLotsByItemApi } from "@/lib/api/lots.api"
 import { Label } from "@/components/ui/label"
+import { TransferStockWizard } from "@/components/transferStockWizard"
+import { DeleteItemDialog } from "@/components/deleteItemDialog"
 import { AddItemDialog } from "@/components/addItemDialog"
 import { LayoutGrid, List, TableIcon, ImageIcon } from "lucide-react"
-import { Textarea } from "@/components/ui/textarea"
 import { StockAdjustmentWizard } from "@/components/stockAdjustmentWizard"
-import { toast } from "sonner"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -35,17 +25,14 @@ import {
   X,
   SlidersHorizontal,
   Diff,
-  MapPin,
   ArrowRightLeft,
 } from "lucide-react"
 import { getCategoriesApi } from "@/lib/api/categories.api"
 import { getLocationsApi } from "@/lib/api/locations.api"
-import { createItemApi, getItemsApi, deleteItemApi, type ItemWithRelations } from "@/lib/api/items.api"
 import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
+import { getItemsApi, type ItemWithRelations } from "@/lib/api/items.api"
 import { CategoryWithCount } from "@/lib/api/categories.api"
 import { LocationWithCount } from "@/lib/api/locations.api"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 
 // Helper component for item images
 const ItemImage = ({ itemId, alt, className }: { itemId: string; alt: string; className?: string }) => {
@@ -135,39 +122,16 @@ export default function DashboardPage() {
     return "table"
   })
   const [isAddItemOpen, setIsAddItemOpen] = useState(false)
-  const [deleteDialog, setDeleteDialog] = useState<{
-    open: boolean
-    item: ItemWithRelations | null
-  }>({
-    open: false,
-    item: null,
-  })
-  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deleteDialogItem, setDeleteDialogItem] = useState<ItemWithRelations | null>(null)
 
   // Add state for categories, locations, and suppliers
   const [categories, setCategories] = useState<CategoryWithCount[]>([])
   const [locations, setLocations] = useState<LocationWithCount[]>([])
   const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
 
-  // Transfer dialog state variables
-  const [transferDialog, setTransferDialog] = useState<{
-    open: boolean
-    item: ItemWithRelations | null
-  }>({
-    open: false,
-    item: null,
-  })
-  const [transferSourceLocationOpen, setTransferSourceLocationOpen] = useState(false)
-  const [transferSelectLotOpen, setTransferSelectLotOpen] = useState(false)
-  const [transferDestinationLocationOpen, setTransferDestinationLocationOpen] = useState(false)
-  const [transferQuantityOpen, setTransferQuantityOpen] = useState(false)
-  const [transferSourceLocationId, setTransferSourceLocationId] = useState<string>("")
-  const [transferDestinationLocationId, setTransferDestinationLocationId] = useState<string>("")
-  const [transferLotId, setTransferLotId] = useState<string>("")
-  const [transferQuantity, setTransferQuantity] = useState("")
-  const [transferNote, setTransferNote] = useState("")
-  const [transferItemLots, setTransferItemLots] = useState<any[]>([])
-
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false)
+  const [transferDialogItem, setTransferDialogItem] = useState<ItemWithRelations | null>(null)
 
   const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false)
   const [adjustmentDialogItem, setAdjustmentDialogItem] = useState<ItemWithRelations | null>(null)
@@ -241,6 +205,11 @@ export default function DashboardPage() {
     }
   }
 
+  const openTransferDialog = (item: ItemWithRelations) => {
+    setTransferDialogItem(item)
+    setTransferDialogOpen(true)
+  }
+
   const loadItems = async (workspaceId: string) => {
     try {
       setLoading(true)
@@ -256,230 +225,14 @@ export default function DashboardPage() {
     }
   }
 
-  const handleDeleteItem = async () => {
-    if (!deleteDialog.item) return
-
-    setIsDeleting(true)
-    try {
-      await deleteItemApi(deleteDialog.item.id)
-
-      // Remove item from local state
-      setInventory((prev) => prev.filter((item) => item.id !== deleteDialog.item?.id))
-
-      setDeleteDialog({ open: false, item: null })
-      toast.success("Item deleted successfully")
-    } catch (error) {
-      console.error("Failed to delete item:", error)
-      alert(error instanceof Error ? error.message : "Failed to delete item")
-    } finally {
-      setIsDeleting(false)
-    }
+  const openDeleteDialog = (item: ItemWithRelations) => {
+    setDeleteDialogItem(item)
+    setDeleteDialogOpen(true)
   }
 
   const openAdjustmentDialog = (item: ItemWithRelations) => {
     setAdjustmentDialogItem(item)
     setAdjustmentDialogOpen(true)
-  }
-
-  // Get current stock for selected location (and lot if selected)
-  const getCurrentLocationStock = () => {
-    if (!adjustmentDialog.item || !selectedLocationId) return 0
-
-    // If a lot is selected, get quantity from that specific lot at this location
-    if (selectedLotId) {
-      const selectedLot = itemLots.find(lot => lot.id === selectedLotId)
-      if (selectedLot) {
-        const lotLocation = selectedLot.locations?.find(
-          (loc: any) => loc.locationId === selectedLocationId
-        )
-        return lotLocation?.quantity || 0
-      }
-      return 0
-    }
-
-    // Otherwise, get total item quantity at this location
-    const itemLocation = adjustmentDialog.item.locations?.find(
-      loc => loc.locationId === selectedLocationId
-    )
-
-    return itemLocation?.quantity || 0
-  }
-
-  // Transfer handlers
-  const openTransferDialog = async (item: ItemWithRelations) => {
-    setTransferDialog({ open: true, item })
-    setTransferSourceLocationId("")
-    setTransferDestinationLocationId("")
-    setTransferLotId("")
-    setTransferQuantity("")
-    setTransferNote("")
-    setTransferItemLots([])
-
-    // Load lots using the same API as the item detail page
-    try {
-      const response = await getLotsByItemApi(item.id)
-      if (response.data?.lots) {
-        const lots = response.data.lots
-        setTransferItemLots(lots)
-      }
-    } catch (err) {
-      console.error("Failed to load lots:", err)
-    }
-
-    // Open source location selection
-    setTransferSourceLocationOpen(true)
-  }
-
-  const handleTransferSourceLocationSelected = () => {
-    if (!transferSourceLocationId) {
-      toast.error("Please select a source location")
-      return
-    }
-
-    setTransferSourceLocationOpen(false)
-
-    // Check if there are lots at this location
-    const lotsAtLocation = transferItemLots.filter(lot =>
-      lot.locations?.some((lotLoc: any) =>
-        lotLoc.locationId === transferSourceLocationId && lotLoc.quantity > 0
-      )
-    )
-
-    // If lots exist, show lot selection
-    if (lotsAtLocation.length > 0) {
-      setTransferSelectLotOpen(true)
-    } else {
-      // No lots, skip to destination
-      setTransferDestinationLocationOpen(true)
-    }
-  }
-
-  const handleTransferLotSelected = () => {
-    if (!transferLotId) {
-      toast.error("Please select a lot")
-      return
-    }
-
-    setTransferSelectLotOpen(false)
-    setTransferDestinationLocationOpen(true)
-  }
-
-  const handleTransferDestinationLocationSelected = () => {
-    if (!transferDestinationLocationId) {
-      toast.error("Please select a destination location")
-      return
-    }
-
-    if (transferDestinationLocationId === transferSourceLocationId) {
-      toast.error("Destination must be different from source")
-      return
-    }
-
-    setTransferDestinationLocationOpen(false)
-    setTransferQuantityOpen(true)
-  }
-
-  const getTransferMaxQuantity = () => {
-    if (!transferDialog.item || !transferSourceLocationId) return 0
-
-    if (transferLotId) {
-      const selectedLot = transferItemLots.find(lot => lot.id === transferLotId)
-      if (selectedLot) {
-        const lotLocation = selectedLot.locations?.find(
-          (loc: any) => loc.locationId === transferSourceLocationId
-        )
-        return lotLocation?.quantity || 0
-      }
-      return 0
-    }
-
-    const itemLocation = transferDialog.item.locations?.find(
-      loc => loc.locationId === transferSourceLocationId
-    )
-    return itemLocation?.quantity || 0
-  }
-
-  const closeAllTransferDialogs = () => {
-    setTransferSourceLocationOpen(false)
-    setTransferSelectLotOpen(false)
-    setTransferDestinationLocationOpen(false)
-    setTransferQuantityOpen(false)
-    setTransferDialog({ open: false, item: null })
-    setTransferSourceLocationId("")
-    setTransferDestinationLocationId("")
-    setTransferLotId("")
-    setTransferQuantity("")
-    setTransferNote("")
-    setTransferItemLots([])
-  }
-
-  const handleTransferStock = async () => {
-    if (
-      !transferDialog.item ||
-      !transferQuantity ||
-      !transferSourceLocationId ||
-      !transferDestinationLocationId
-    ) {
-      return
-    }
-
-    const quantity = Number.parseInt(transferQuantity)
-    const maxQty = getTransferMaxQuantity()
-
-    if (quantity <= 0 || quantity > maxQty) {
-      toast.error(`Quantity must be between 1 and ${maxQty}`)
-      return
-    }
-
-    try {
-      const response = await fetch(`/api/items/${transferDialog.item.id}/transfer-stock`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          quantity: quantity,
-          fromLocationId: transferSourceLocationId,
-          toLocationId: transferDestinationLocationId,
-          lotId: transferLotId || undefined,
-          reason: transferNote || "Stock transfer",
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || 'Failed to transfer stock')
-      }
-
-      // Reload items to refresh totals
-      if (currentWorkspaceId) {
-        loadItems(currentWorkspaceId)
-      }
-
-      closeAllTransferDialogs()
-      toast.success("Stock transferred successfully")
-    } catch (error) {
-      console.error("Failed to transfer stock:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to transfer stock")
-    }
-  }
-
-  const handleGoBackToTransferSource = () => {
-    setTransferDestinationLocationOpen(false)
-    setTransferSelectLotOpen(false)
-    setTransferDestinationLocationId("")
-    setTransferSourceLocationOpen(true)
-  }
-
-  const handleGoBackToTransferLot = () => {
-    setTransferDestinationLocationOpen(false)
-    setTransferDestinationLocationId("")
-    setTransferSelectLotOpen(true)
-  }
-
-  const handleGoBackToTransferDestination = () => {
-    setTransferQuantityOpen(false)
-    setTransferQuantity("")
-    setTransferDestinationLocationOpen(true)
   }
 
   const filteredInventory = inventory
@@ -909,7 +662,7 @@ export default function DashboardPage() {
                                 className="flex-1 h-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  setDeleteDialog({ open: true, item })
+                                  openDeleteDialog(item)
                                 }}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -997,10 +750,10 @@ export default function DashboardPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                              className="flex-1 h-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setDeleteDialog({ open: true, item })
+                                openDeleteDialog(item)
                               }}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -1090,10 +843,10 @@ export default function DashboardPage() {
                                 <Button
                                   variant="outline"
                                   size="icon"
-                                  className="h-9 w-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
+                                  className="flex-1 h-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    setDeleteDialog({ open: true, item })
+                                    openDeleteDialog(item)
                                   }}
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -1127,514 +880,22 @@ export default function DashboardPage() {
         }}
       />
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={deleteDialog.open}
+      {/* Delete Item Dialog */}
+      <DeleteItemDialog
+        item={deleteDialogItem}
+        open={deleteDialogOpen}
         onOpenChange={(open) => {
+          setDeleteDialogOpen(open)
           if (!open) {
-            setDeleteDialog({ open: false, item: null })
+            setDeleteDialogItem(null)
           }
         }}
-      >
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-destructive" />
-              Delete Item
-            </DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this item? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-
-          {deleteDialog.item && (
-            <div className="py-4">
-              <div className="p-4 rounded-lg border border-destructive/20 bg-destructive/5">
-                <p className="font-semibold text-sm">{deleteDialog.item.name}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Item #: {deleteDialog.item.itemNumber}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Current Stock: {deleteDialog.item.onHand} units
-                </p>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setDeleteDialog({ open: false, item: null })}
-              disabled={isDeleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteItem}
-              disabled={isDeleting}
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete Item
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Transfer Dialog - Step 1: Select Source Location */}
-      <Dialog open={transferSourceLocationOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base flex items-center gap-2">
-              <ArrowRightLeft className="h-4 w-4" />
-              Transfer Stock (Step 1 of {transferItemLots.length > 0 ? '4' : '3'})
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Select the source location to transfer stock from.
-            </DialogDescription>
-          </DialogHeader>
-
-          {transferDialog.item && (
-            <div className="space-y-4 py-3">
-              {/* Item Info */}
-              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
-                <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Package className="h-6 w-6 text-muted-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm truncate">{transferDialog.item.name}</h3>
-                  <p className="text-xs text-muted-foreground truncate">
-                    Total: {transferDialog.item.onHand} units
-                  </p>
-                </div>
-              </div>
-
-              {/* Source Location Selection */}
-              <div className="space-y-2">
-                <Label className="text-xs flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5" />
-                  Source Location (Transfer From)
-                </Label>
-                <RadioGroup value={transferSourceLocationId} onValueChange={setTransferSourceLocationId}>
-                  <div className="space-y-1.5">
-                    {transferDialog.item.locations && transferDialog.item.locations.length > 0 ? (
-                      transferDialog.item.locations.filter(loc => loc.quantity > 0).map((itemLocation) => (
-                        <div
-                          key={itemLocation.id}
-                          className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${transferSourceLocationId === itemLocation.locationId
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:border-primary/50"
-                            }`}
-                          onClick={() => setTransferSourceLocationId(itemLocation.locationId)}
-                        >
-                          <RadioGroupItem
-                            value={itemLocation.locationId}
-                            id={`transfer-source-${itemLocation.locationId}`}
-                            className="flex-shrink-0"
-                          />
-                          <Label
-                            htmlFor={`transfer-source-${itemLocation.locationId}`}
-                            className="flex-1 cursor-pointer min-w-0"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-mono font-semibold text-xs truncate">{itemLocation.location.code}</p>
-                              </div>
-                              <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">{itemLocation.quantity} units</p>
-                            </div>
-                          </Label>
-                        </div>
-                      ))
-                    ) : (
-                      <Alert className="py-2">
-                        <AlertCircle className="h-3.5 w-3.5" />
-                        <AlertDescription className="text-xs">No locations with stock available.</AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeAllTransferDialogs} size="sm">
-              Cancel
-            </Button>
-            <Button onClick={handleTransferSourceLocationSelected} disabled={!transferSourceLocationId} size="sm">
-              Next: {transferItemLots.length > 0 ? 'Select Lot' : 'Select Destination'} →
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Transfer Dialog - Step 2: Select Lot (if lot-tracked) */}
-      <Dialog open={transferSelectLotOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base flex items-center gap-2">
-              <ArrowRightLeft className="h-4 w-4" />
-              Transfer Stock (Step 2 of 4)
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Select which lot/batch to transfer.
-            </DialogDescription>
-          </DialogHeader>
-
-          {transferDialog.item && (
-            <div className="space-y-4 py-3">
-              {/* Context Info */}
-              <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
-                <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-xs truncate">{transferDialog.item.name}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    From: {transferDialog.item.locations?.find(l => l.locationId === transferSourceLocationId)?.location.code}
-                  </p>
-                </div>
-              </div>
-
-              {/* Lot Selection */}
-              <div className="space-y-2">
-                <Label className="text-xs">Select Lot/Batch to Transfer</Label>
-                <RadioGroup value={transferLotId} onValueChange={setTransferLotId}>
-                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-                    {(() => {
-                      const lotsAtLocation = transferItemLots
-                        .filter(lot => {
-                          const lotLocation = lot.locations?.find((lotLoc: any) =>
-                            lotLoc.locationId === transferSourceLocationId
-                          )
-                          return lotLocation && lotLocation.quantity > 0
-                        })
-                        .sort((a, b) => {
-                          if (!a.expirationDate) return 1
-                          if (!b.expirationDate) return -1
-                          return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
-                        })
-
-                      if (lotsAtLocation.length === 0) {
-                        return (
-                          <Alert className="py-2">
-                            <AlertCircle className="h-3.5 w-3.5" />
-                            <AlertDescription className="text-xs">No lots at this location.</AlertDescription>
-                          </Alert>
-                        )
-                      }
-
-                      return lotsAtLocation.map((lot) => {
-                        const lotLocation = lot.locations?.find((l: any) => l.locationId === transferSourceLocationId)
-                        const daysUntilExpiration = lot.expirationDate
-                          ? Math.ceil((new Date(lot.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-                          : null
-
-                        return (
-                          <div
-                            key={lot.id}
-                            className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${transferLotId === lot.id
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:border-primary/50"
-                              }`}
-                            onClick={() => setTransferLotId(lot.id)}
-                          >
-                            <RadioGroupItem
-                              value={lot.id}
-                              id={`transfer-lot-${lot.id}`}
-                              className="flex-shrink-0"
-                            />
-                            <Label
-                              htmlFor={`transfer-lot-${lot.id}`}
-                              className="flex-1 cursor-pointer min-w-0"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className="font-mono font-semibold text-xs truncate">{lot.lotNumber}</p>
-                                  {lot.expirationDate && (
-                                    <span className={`text-[10px] ${daysUntilExpiration !== null && daysUntilExpiration < 0
-                                      ? "text-red-600"
-                                      : daysUntilExpiration !== null && daysUntilExpiration <= 7
-                                        ? "text-orange-600"
-                                        : "text-muted-foreground"
-                                      }`}>
-                                      Exp: {new Date(lot.expirationDate).toLocaleDateString()}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="font-semibold text-sm flex-shrink-0">{lotLocation?.quantity || 0} units</p>
-                              </div>
-                            </Label>
-                          </div>
-                        )
-                      })
-                    })()}
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={handleGoBackToTransferSource} size="sm">
-              ← Back
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setTransferSelectLotOpen(false)
-                setTransferLotId("")
-                setTransferDestinationLocationOpen(true)
-              }}
-              size="sm"
-              className="text-xs"
-            >
-              Skip (Transfer Non-Lotted)
-            </Button>
-            <Button onClick={handleTransferLotSelected} disabled={!transferLotId} size="sm">
-              Next: Select Destination →
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Transfer Dialog - Step 3: Select Destination Location */}
-      <Dialog open={transferDestinationLocationOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base flex items-center gap-2">
-              <ArrowRightLeft className="h-4 w-4" />
-              Transfer Stock (Step {transferItemLots.length > 0 ? '3 of 4' : '2 of 3'})
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Select the destination location to transfer stock to.
-            </DialogDescription>
-          </DialogHeader>
-
-          {transferDialog.item && (
-            <div className="space-y-4 py-3">
-              {/* Context Info */}
-              <div className="flex items-center gap-3 p-2.5 bg-muted/50 rounded-lg border">
-                <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-xs truncate">{transferDialog.item.name}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    From: {transferDialog.item.locations?.find(l => l.locationId === transferSourceLocationId)?.location.code}
-                    {transferLotId && <> | Lot: {transferItemLots.find(l => l.id === transferLotId)?.lotNumber}</>}
-                  </p>
-                </div>
-              </div>
-
-              {/* Destination Location Selection - ALL LOCATIONS */}
-              <div className="space-y-2">
-                <Label className="text-xs flex items-center gap-1.5">
-                  <MapPin className="h-3.5 w-3.5" />
-                  Destination Location (Transfer To)
-                </Label>
-                <RadioGroup value={transferDestinationLocationId} onValueChange={setTransferDestinationLocationId}>
-                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-                    {locations.length > 0 ? (
-                      locations
-                        .filter(loc => loc.id !== transferSourceLocationId)
-                        .map((location) => {
-                          // Check if item already has stock at this location
-                          const itemLocation = transferDialog.item.locations?.find(
-                            il => il.locationId === location.id
-                          )
-                          const currentQty = itemLocation?.quantity || 0
-
-                          return (
-                            <div
-                              key={location.id}
-                              className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${transferDestinationLocationId === location.id
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:border-primary/50"
-                                }`}
-                              onClick={() => setTransferDestinationLocationId(location.id)}
-                            >
-                              <RadioGroupItem
-                                value={location.id}
-                                id={`transfer-dest-${location.id}`}
-                                className="flex-shrink-0"
-                              />
-                              <Label
-                                htmlFor={`transfer-dest-${location.id}`}
-                                className="flex-1 cursor-pointer min-w-0"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-mono font-semibold text-xs truncate">{location.code}</p>
-                                    {location.name && (
-                                      <p className="text-[10px] text-muted-foreground truncate">{location.name}</p>
-                                    )}
-                                  </div>
-                                  <div className="text-right flex-shrink-0">
-                                    {currentQty > 0 ? (
-                                      <p className="text-sm text-muted-foreground">{currentQty} units</p>
-                                    ) : (
-                                      <Badge variant="outline" className="text-xs">Empty</Badge>
-                                    )}
-                                  </div>
-                                </div>
-                              </Label>
-                            </div>
-                          )
-                        })
-                    ) : (
-                      <Alert className="py-2">
-                        <AlertCircle className="h-3.5 w-3.5" />
-                        <AlertDescription className="text-xs">No other locations available.</AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                </RadioGroup>
-              </div>
-
-              {transferDestinationLocationId && (
-                <Alert className="py-2">
-                  <AlertCircle className="h-3.5 w-3.5 text-blue-600" />
-                  <AlertDescription className="text-xs text-blue-800">
-                    {(() => {
-                      const destLocation = transferDialog.item.locations?.find(
-                        il => il.locationId === transferDestinationLocationId
-                      )
-                      return destLocation
-                        ? `This item currently has ${destLocation.quantity} units at this location.`
-                        : "This location will be added to the item's storage locations."
-                    })()}
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (transferItemLots.length > 0 && transferLotId) {
-                  handleGoBackToTransferLot()
-                } else {
-                  handleGoBackToTransferSource()
-                }
-              }}
-              size="sm"
-            >
-              ← Back
-            </Button>
-            <Button onClick={handleTransferDestinationLocationSelected} disabled={!transferDestinationLocationId} size="sm">
-              Next: Enter Quantity →
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Transfer Dialog - Step 4: Enter Quantity */}
-      <Dialog open={transferQuantityOpen} onOpenChange={(open) => !open && closeAllTransferDialogs()}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base flex items-center gap-2">
-              <ArrowRightLeft className="h-4 w-4" />
-              Transfer Stock (Step {transferItemLots.length > 0 ? '4 of 4' : '3 of 3'})
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Enter the quantity to transfer.
-            </DialogDescription>
-          </DialogHeader>
-
-          {transferDialog.item && (
-            <div className="space-y-3 py-3">
-              {/* Transfer Summary */}
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 mb-2">
-                  <ArrowRightLeft className="h-4 w-4 text-blue-600" />
-                  <p className="font-semibold text-sm text-blue-900">Transfer Summary</p>
-                </div>
-                <div className="space-y-1 text-xs text-blue-800">
-                  <p><span className="font-medium">Item:</span> {transferDialog.item.name}</p>
-                  <p>
-                    <span className="font-medium">From:</span>{" "}
-                    {transferDialog.item.locations?.find(l => l.locationId === transferSourceLocationId)?.location.code}
-                  </p>
-                  <p>
-                    <span className="font-medium">To:</span>{" "}
-                    {transferDialog.item.locations?.find(l => l.locationId === transferDestinationLocationId)?.location.code}
-                  </p>
-                  {transferLotId && (
-                    <p>
-                      <span className="font-medium">Lot:</span>{" "}
-                      {transferItemLots.find(l => l.id === transferLotId)?.lotNumber}
-                    </p>
-                  )}
-                  <p>
-                    <span className="font-medium">Available:</span> {getTransferMaxQuantity()} units
-                  </p>
-                </div>
-              </div>
-
-              {/* Quantity Input */}
-              <div className="space-y-1">
-                <Label htmlFor="transferQty" className="text-xs">Transfer Quantity</Label>
-                <Input
-                  id="transferQty"
-                  type="number"
-                  min="1"
-                  max={getTransferMaxQuantity()}
-                  value={transferQuantity}
-                  onChange={(e) => setTransferQuantity(e.target.value)}
-                  placeholder={`Max: ${getTransferMaxQuantity()}`}
-                  className="font-semibold h-9"
-                />
-                {transferQuantity && parseInt(transferQuantity) > getTransferMaxQuantity() && (
-                  <Alert variant="destructive" className="py-1.5">
-                    <AlertCircle className="h-3.5 w-3.5" />
-                    <AlertDescription className="text-xs">
-                      Cannot transfer more than {getTransferMaxQuantity()} units.
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
-
-              {/* Transfer Note */}
-              <div className="space-y-1">
-                <Label htmlFor="transferNote" className="text-xs">Note (Optional)</Label>
-                <Textarea
-                  id="transferNote"
-                  placeholder="Reason for transfer..."
-                  value={transferNote}
-                  onChange={(e) => setTransferNote(e.target.value)}
-                  className="min-h-14 resize-none text-xs"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={handleGoBackToTransferDestination} size="sm">
-              ← Back
-            </Button>
-            <Button
-              onClick={handleTransferStock}
-              disabled={
-                !transferQuantity ||
-                parseInt(transferQuantity) <= 0 ||
-                parseInt(transferQuantity) > getTransferMaxQuantity()
-              }
-              size="sm"
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Transfer Stock
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onSuccess={() => {
+          if (currentWorkspaceId) {
+            loadItems(currentWorkspaceId)
+          }
+        }}
+      />
 
       <AddItemDialog
         open={isAddItemOpen}
@@ -1648,6 +909,22 @@ export default function DashboardPage() {
             loadItems(currentWorkspaceId)
           }
         }}
+      />
+
+      {/* Transfer Stock Wizard */}
+      <TransferStockWizard
+        item={transferDialogItem}
+        open={transferDialogOpen}
+        onClose={() => {
+          setTransferDialogOpen(false)
+          setTransferDialogItem(null)
+        }}
+        onSuccess={() => {
+          if (currentWorkspaceId) {
+            loadItems(currentWorkspaceId)
+          }
+        }}
+        locations={locations}
       />
     </div>
   )
