@@ -140,9 +140,9 @@ model Category {
 // Location model for warehouse storage locations
 model Location {
   id          String   @id @default(cuid())
-  code        String   // e.g., "A-01-01-A" or "NORTH-3-205" or "BLDG1-FL2-RM305"
-  barcode     String?  // NEW: Barcode for location scanning
-  structure   Json     // Flexible structure: [{ label: "Zone", value: "A" }, { label: "Aisle", value: "01" }]
+  code        String
+  barcode     String?
+  structure   Json
   capacity    Int      @default(100)
   description String?
   createdAt   DateTime @default(now())
@@ -155,6 +155,8 @@ model Location {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   items     ItemLocation[]
   lots      LotLocation[]
+  transactionsFrom StockTransaction[] @relation("TransactionFromLocation")
+  transactionsTo   StockTransaction[] @relation("TransactionToLocation")
 
   @@unique([workspaceId, code])
   @@unique([workspaceId, barcode])
@@ -377,13 +379,17 @@ model ItemImage {
 // Stock transaction model for audit trail
 model StockTransaction {
   id            String            @id @default(cuid())
-  type          TransactionType   // INPUT or OUTPUT
+  type          TransactionType   // INPUT, OUTPUT, or TRANSFER
   quantity      Int
   previousStock Int
   newStock      Int
   reason        String
   lotId         String            // REQUIRED: Always references a lot (SYSTEM lot for non-lotted items)
   createdAt     DateTime          @default(now())
+
+  // NEW: Location tracking for transfers
+  fromLocationId String?          // Source location (for transfers and outputs)
+  toLocationId   String?          // Destination location (for transfers and inputs)
 
   // Foreign keys
   itemId      String
@@ -395,9 +401,13 @@ model StockTransaction {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   lot       Lot       @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  fromLocation Location? @relation("TransactionFromLocation", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  toLocation   Location? @relation("TransactionToLocation", fields: [toLocationId], references: [id], onDelete: SetNull)
 
   @@index([lotId])
   @@index([itemId])
+  @@index([fromLocationId])
+  @@index([toLocationId])
   @@map("stock_transactions")
 }
 
@@ -444,6 +454,7 @@ enum ItemStatus {
 enum TransactionType {
   INPUT
   OUTPUT
+  TRANSFER
 }
 
 enum SubscriptionPlan {

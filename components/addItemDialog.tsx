@@ -91,14 +91,6 @@ export function AddItemDialog({
             setError("Item name is required")
             return false
         }
-        if (!formData.category.trim()) {
-            setError("Category is required")
-            return false
-        }
-        if (!formData.supplier.trim()) {
-            setError("Supplier is required")
-            return false
-        }
         if (!formData.onHand) {
             setError("Initial stock is required")
             return false
@@ -107,6 +99,14 @@ export function AddItemDialog({
             setError("Unit cost is required")
             return false
         }
+
+        // If they have inventory, they must specify a location
+        const onHand = Number.parseInt(formData.onHand)
+        if (onHand > 0 && !formData.storageLocation) {
+            setError("Storage location is required when initial stock is greater than 0")
+            return false
+        }
+
         return true
     }
 
@@ -145,9 +145,9 @@ export function AddItemDialog({
                 description: formData.description || undefined,
                 onHand: onHand,
                 cost: cost,
-                categoryId: formData.category,
+                categoryId: formData.category || undefined,
                 locationId: formData.storageLocation || undefined,
-                supplierId: formData.supplier,
+                supplierId: formData.supplier || undefined,
             })
 
             if (response.data?.item) {
@@ -166,8 +166,6 @@ export function AddItemDialog({
 
     const isFormValid =
         formData.name.trim() &&
-        formData.category.trim() &&
-        formData.supplier.trim() &&
         formData.onHand &&
         formData.cost
 
@@ -206,11 +204,71 @@ export function AddItemDialog({
                         </div>
                     </div>
 
+                    {/* Initial Stock, Cost, Location */}
+                    <div className="grid md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="item-onhand">
+                                Initial Stock <span className="text-destructive">*</span>
+                            </Label>
+                            <Input
+                                id="item-onhand"
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={formData.onHand}
+                                onChange={(e) => updateFormField("onHand", e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="item-cost">
+                                Unit Cost <span className="text-destructive">*</span>
+                            </Label>
+                            <Input
+                                id="item-cost"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={formData.cost}
+                                onChange={(e) => updateFormField("cost", e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="item-location">
+                                Storage Location
+                                {formData.onHand && Number.parseInt(formData.onHand) > 0 && (
+                                    <span className="text-destructive">*</span>
+                                )}
+                            </Label>
+                            <Select
+                                value={formData.storageLocation}
+                                onValueChange={(value) => updateFormField("storageLocation", value)}
+                            >
+                                <SelectTrigger id="item-location">
+                                    <SelectValue placeholder="Select location" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {locations.length > 0 ? (
+                                        locations.map((location) => (
+                                            <SelectItem key={location.id} value={location.id}>
+                                                {location.code}
+                                            </SelectItem>
+                                        ))
+                                    ) : (
+                                        <div className="p-2 text-sm text-muted-foreground">
+                                            No locations available
+                                        </div>
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
                     {/* Category & Supplier */}
                     <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label htmlFor="item-category">
-                                Category <span className="text-destructive">*</span>
+                                Category
                             </Label>
                             <Select
                                 value={formData.category}
@@ -236,7 +294,7 @@ export function AddItemDialog({
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="item-supplier">
-                                Supplier <span className="text-destructive">*</span>
+                                Supplier
                             </Label>
                             <Select
                                 value={formData.supplier}
@@ -272,61 +330,6 @@ export function AddItemDialog({
                             onChange={(e) => updateFormField("description", e.target.value)}
                             rows={3}
                         />
-                    </div>
-
-                    {/* Initial Stock, Cost, Location */}
-                    <div className="grid md:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="item-onhand">
-                                Initial Stock <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                                id="item-onhand"
-                                type="number"
-                                min="0"
-                                placeholder="0"
-                                value={formData.onHand}
-                                onChange={(e) => updateFormField("onHand", e.target.value)}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="item-cost">
-                                Unit Cost <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                                id="item-cost"
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="0.00"
-                                value={formData.cost}
-                                onChange={(e) => updateFormField("cost", e.target.value)}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="item-location">Storage Location</Label>
-                            <Select
-                                value={formData.storageLocation}
-                                onValueChange={(value) => updateFormField("storageLocation", value)}
-                            >
-                                <SelectTrigger id="item-location">
-                                    <SelectValue placeholder="Select location" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {locations.length > 0 ? (
-                                        locations.map((location) => (
-                                            <SelectItem key={location.id} value={location.id}>
-                                                {location.code}
-                                            </SelectItem>
-                                        ))
-                                    ) : (
-                                        <div className="p-2 text-sm text-muted-foreground">
-                                            No locations available
-                                        </div>
-                                    )}
-                                </SelectContent>
-                            </Select>
-                        </div>
                     </div>
 
                     {/* Error Message */}

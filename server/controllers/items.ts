@@ -488,6 +488,16 @@ const itemsController = {
                   email: true,
                 },
               },
+              fromLocation: {
+                select: {
+                  code: true,
+                },
+              },
+              toLocation: {
+                select: {
+                  code: true,
+                },
+              },
             },
           },
         },
@@ -1309,6 +1319,24 @@ const itemsController = {
         });
       }
 
+      // Fetch location details for better transaction reason
+      const fromLocation = await prisma.location.findUnique({
+        where: { id: fromLocationId },
+        select: { code: true },
+      });
+
+      const toLocation = await prisma.location.findUnique({
+        where: { id: toLocationId },
+        select: { code: true },
+      });
+
+      if (!fromLocation || !toLocation) {
+        return res.status(404).json({
+          status: "error",
+          message: "One or both locations not found",
+        });
+      }
+
       // Determine which lot to use
       let targetLotId = lotId;
 
@@ -1394,33 +1422,21 @@ const itemsController = {
           },
         });
 
-        // Create transaction record (OUTPUT from source)
+        // Create SINGLE transfer transaction with location tracking
         await tx.stockTransaction.create({
           data: {
-            type: "OUTPUT",
+            type: "TRANSFER",
             quantity: quantity,
             previousStock: previousStock,
             newStock: previousStock, // Total doesn't change in transfer
-            reason: reason || `Transfer to location`,
+            reason:
+              reason || `Transfer: ${fromLocation.code} → ${toLocation.code}`,
             lotId: targetLotId,
             itemId: id,
             workspaceId: item.workspaceId,
             userId: userId,
-          },
-        });
-
-        // Create transaction record (INPUT to destination)
-        await tx.stockTransaction.create({
-          data: {
-            type: "INPUT",
-            quantity: quantity,
-            previousStock: previousStock,
-            newStock: previousStock, // Total doesn't change in transfer
-            reason: reason || `Transfer from location`,
-            lotId: targetLotId,
-            itemId: id,
-            workspaceId: item.workspaceId,
-            userId: userId,
+            fromLocationId: fromLocationId, // NEW: Track source
+            toLocationId: toLocationId, // NEW: Track destination
           },
         });
       });

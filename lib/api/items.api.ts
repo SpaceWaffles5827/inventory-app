@@ -51,6 +51,16 @@ export const itemWithDetailsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()({
             email: true,
           },
         },
+        fromLocation: {
+          select: {
+            code: true,
+          },
+        },
+        toLocation: {
+          select: {
+            code: true,
+          },
+        },
       },
     },
   },

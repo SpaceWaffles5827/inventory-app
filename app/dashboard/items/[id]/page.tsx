@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin, ImageIcon, Hash, Tag, Upload, Star, X, ExternalLink, Diff, AlertCircle, Minus, Package, ArrowDownToLine, ArrowUpFromLine, Scan, QrCode, Printer, Calendar, PackageCheck, AlertTriangle, Clock } from "lucide-react"
+import { ArrowLeft, ArrowRightLeft, Save, History, Edit2, Barcode, Loader2, Users, Building2, Plus, Trash2, MapPin, ImageIcon, Hash, Tag, Upload, Star, X, ExternalLink, Diff, AlertCircle, Minus, Package, ArrowDownToLine, ArrowUpFromLine, Scan, QrCode, Printer, Calendar, PackageCheck, AlertTriangle, Clock } from "lucide-react"
 import { getItemByIdApi, updateItemApi, adjustStockApi, type ItemWithDetails } from "@/lib/api/items.api"
 import { getLotsByItemApi, createLotApi, adjustLotQuantityApi, type LotWithRelations } from "@/lib/api/lots.api"
 import { Switch } from "@/components/ui/switch"
@@ -2038,6 +2038,7 @@ export default function ItemDetailPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="text-xs">Type</TableHead>
+                        <TableHead className="text-xs">Details</TableHead>
                         <TableHead className="text-xs text-right">Qty</TableHead>
                         <TableHead className="text-xs hidden sm:table-cell">User</TableHead>
                         <TableHead className="text-xs">Date</TableHead>
@@ -2048,25 +2049,86 @@ export default function ItemDetailPage() {
                         <TableRow key={transaction.id}>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <div className={`p-1.5 rounded ${transaction.type === "INPUT" ? "bg-green-50" : "bg-red-50"}`}>
-                                <History className={`h-3.5 w-3.5 ${transaction.type === "INPUT" ? "text-green-600" : "text-red-600"}`} />
+                              <div className={`p-1.5 rounded ${transaction.type === "INPUT"
+                                ? "bg-green-50"
+                                : transaction.type === "OUTPUT"
+                                  ? "bg-red-50"
+                                  : "bg-blue-50"
+                                }`}>
+                                {transaction.type === "TRANSFER" ? (
+                                  <ArrowRightLeft className="h-3.5 w-3.5 text-blue-600" />
+                                ) : (
+                                  <History className={`h-3.5 w-3.5 ${transaction.type === "INPUT" ? "text-green-600" : "text-red-600"
+                                    }`} />
+                                )}
                               </div>
-                              <span className="text-sm hidden sm:inline">
-                                {transaction.type === "INPUT" ? "Stock Added" : "Stock Removed"}
+                              <span className="text-sm hidden md:inline">
+                                {transaction.type === "INPUT"
+                                  ? "Stock Added"
+                                  : transaction.type === "OUTPUT"
+                                    ? "Stock Removed"
+                                    : "Transfer"}
                               </span>
                             </div>
                           </TableCell>
+                          <TableCell>
+                            {transaction.type === "TRANSFER" ? (
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-1.5 text-xs">
+                                  <span className="text-muted-foreground">To:</span>
+                                  <code className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">
+                                    {transaction.toLocation?.code || "Unknown"}
+                                  </code>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-xs">
+                                  <span className="text-muted-foreground">From:</span>
+                                  <code className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">
+                                    {transaction.fromLocation?.code || "Unknown"}
+                                  </code>
+                                </div>
+                                {transaction.reason && !transaction.reason.startsWith("Transfer:") && (
+                                  <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[180px]">
+                                    {transaction.reason}
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-0.5">
+                                {transaction.fromLocationId && (
+                                  <div className="flex items-center gap-1.5 text-xs">
+                                    <span className="text-muted-foreground">Location:</span>
+                                    <code className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">
+                                      {transaction.fromLocation?.code || transaction.toLocation?.code || "Unknown"}
+                                    </code>
+                                  </div>
+                                )}
+                                <p className="text-xs text-muted-foreground truncate max-w-[200px]">
+                                  {transaction.reason || "—"}
+                                </p>
+                              </div>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right">
                             <span
-                              className={`text-sm font-semibold ${transaction.type === "INPUT" ? "text-green-600" : "text-red-600"
+                              className={`text-sm font-semibold ${transaction.type === "INPUT"
+                                ? "text-green-600"
+                                : transaction.type === "OUTPUT"
+                                  ? "text-red-600"
+                                  : "text-blue-600"
                                 }`}
                             >
-                              {transaction.type === "INPUT" ? "+" : "-"}
+                              {transaction.type === "INPUT"
+                                ? "+"
+                                : transaction.type === "OUTPUT"
+                                  ? "-"
+                                  : ""}
                               {transaction.quantity}
                             </span>
                           </TableCell>
                           <TableCell className="hidden sm:table-cell">
-                            <span className="text-sm text-muted-foreground">{transaction.user?.name || "Unknown User"}</span>
+                            <span className="text-sm text-muted-foreground">
+                              {transaction.user?.name || "Unknown User"}
+                            </span>
                           </TableCell>
                           <TableCell>
                             <span className="text-xs text-muted-foreground">
@@ -3330,8 +3392,8 @@ export default function ItemDetailPage() {
 
               return (
                 <div className={`text-xs p-3 rounded-lg font-medium border ${isValid
-                    ? 'bg-green-50 text-green-700 border-green-200'
-                    : 'bg-orange-50 text-orange-700 border-orange-200'
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-orange-50 text-orange-700 border-orange-200'
                   }`}>
                   <div className="flex items-center justify-between">
                     <span>{isValid ? '✓ Perfect!' : '⚠️ Adjust quantities'}</span>
