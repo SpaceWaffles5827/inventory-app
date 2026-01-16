@@ -4,26 +4,16 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, Users, Search, Mail, Phone } from "lucide-react"
 import {
   getSuppliersApi,
-  createSupplierApi,
   updateSupplierApi,
   deleteSupplierApi,
 } from "@/lib/api/suppliers.api"
 import type { SupplierWithCount } from "@/lib/api/suppliers.api"
+import { AddSupplierDialog } from "@/components/addSupplierDialog"
+import { EditSupplierDialog } from "@/components/editSupplierDialog"
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
@@ -31,13 +21,6 @@ export default function SuppliersPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<SupplierWithCount | null>(null)
-  const [formData, setFormData] = useState({
-    name: "",
-    contactPerson: "",
-    email: "",
-    phone: "",
-    address: "",
-  })
 
   // Get workspaceId directly from localStorage
   const workspaceId = typeof window !== 'undefined' ? localStorage.getItem("currentWorkspaceId") : null
@@ -67,55 +50,14 @@ export default function SuppliersPage() {
       (supplier.email || "").toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  const handleCreate = async () => {
-    if (!formData.name.trim() || !workspaceId) return
-
-    try {
-      const response = await createSupplierApi({
-        name: formData.name,
-        contactPerson: formData.contactPerson || undefined,
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
-        address: formData.address || undefined,
-        workspaceId: workspaceId,
-      })
-
-      if (response.data?.supplier) {
-        setSuppliers([...suppliers, response.data.supplier])
-        setFormData({ name: "", contactPerson: "", email: "", phone: "", address: "" })
-        setIsCreateOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to create supplier:", error)
-      alert(error instanceof Error ? error.message : "Failed to create supplier")
-    }
+  const handleCreateSuccess = (supplier: SupplierWithCount) => {
+    setSuppliers([...suppliers, supplier])
   }
 
-  const handleEdit = async () => {
-    if (!editingSupplier || !formData.name.trim() || !workspaceId) return
-
-    try {
-      const response = await updateSupplierApi(editingSupplier.id, {
-        name: formData.name,
-        contactPerson: formData.contactPerson || undefined,
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
-        address: formData.address || undefined,
-        workspaceId: workspaceId,
-      })
-
-      if (response.data?.supplier) {
-        setSuppliers(
-          suppliers.map((sup) => (sup.id === editingSupplier.id ? response.data.supplier! : sup)),
-        )
-        setFormData({ name: "", contactPerson: "", email: "", phone: "", address: "" })
-        setEditingSupplier(null)
-        setIsEditOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to update supplier:", error)
-      alert(error instanceof Error ? error.message : "Failed to update supplier")
-    }
+  const handleEditSuccess = (updatedSupplier: SupplierWithCount) => {
+    setSuppliers(
+      suppliers.map((sup) => (sup.id === updatedSupplier.id ? updatedSupplier : sup)),
+    )
   }
 
   const handleDelete = async (id: string) => {
@@ -156,13 +98,6 @@ export default function SuppliersPage() {
 
   const openEditDialog = (supplier: SupplierWithCount) => {
     setEditingSupplier(supplier)
-    setFormData({
-      name: supplier.name,
-      contactPerson: supplier.contactPerson || "",
-      email: supplier.email || "",
-      phone: supplier.phone || "",
-      address: supplier.address || "",
-    })
     setIsEditOpen(true)
   }
 
@@ -248,82 +183,13 @@ export default function SuppliersPage() {
                   />
                 </div>
 
-                {/* Create Supplier Dialog */}
-                <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="shadow-lg shadow-accent/20 text-white">
-                      <Plus className="h-4 w-4" />
-                      Add Supplier
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Create New Supplier</DialogTitle>
-                      <DialogDescription>Add a new supplier to your inventory management system.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="name">
-                            Supplier Name <span className="text-destructive">*</span>
-                          </Label>
-                          <Input
-                            id="name"
-                            placeholder="e.g., TechSupply Co."
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="contactPerson">Contact Person</Label>
-                          <Input
-                            id="contactPerson"
-                            placeholder="e.g., John Smith"
-                            value={formData.contactPerson}
-                            onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="email">Email</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            placeholder="contact@supplier.com"
-                            value={formData.email}
-                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="phone">Phone</Label>
-                          <Input
-                            id="phone"
-                            placeholder="+1 (555) 123-4567"
-                            value={formData.phone}
-                            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="address">Address</Label>
-                        <Textarea
-                          id="address"
-                          placeholder="Full address including street, city, state, and zip code"
-                          value={formData.address}
-                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                          rows={2}
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button onClick={handleCreate}>Create Supplier</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <Button
+                  className="shadow-lg shadow-accent/20 text-white"
+                  onClick={() => setIsCreateOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Supplier
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -414,76 +280,22 @@ export default function SuppliersPage() {
           </CardContent>
         </Card>
 
+        {/* Add Supplier Dialog */}
+        <AddSupplierDialog
+          open={isCreateOpen}
+          onOpenChange={setIsCreateOpen}
+          workspaceId={workspaceId || ""}
+          onSuccess={handleCreateSuccess}
+        />
+
         {/* Edit Supplier Dialog */}
-        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Edit Supplier</DialogTitle>
-              <DialogDescription>Update supplier information and contact details.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-name">
-                    Supplier Name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="edit-name"
-                    placeholder="e.g., TechSupply Co."
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-contactPerson">Contact Person</Label>
-                  <Input
-                    id="edit-contactPerson"
-                    placeholder="e.g., John Smith"
-                    value={formData.contactPerson}
-                    onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-email">Email</Label>
-                  <Input
-                    id="edit-email"
-                    type="email"
-                    placeholder="contact@supplier.com"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-phone">Phone</Label>
-                  <Input
-                    id="edit-phone"
-                    placeholder="+1 (555) 123-4567"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-address">Address</Label>
-                <Textarea
-                  id="edit-address"
-                  placeholder="Full address including street, city, state, and zip code"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  rows={2}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleEdit}>Save Changes</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <EditSupplierDialog
+          open={isEditOpen}
+          onOpenChange={setIsEditOpen}
+          workspaceId={workspaceId || ""}
+          supplier={editingSupplier}
+          onSuccess={handleEditSuccess}
+        />
       </div>
     </div>
   )

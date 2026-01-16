@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -27,20 +27,20 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { Check, ChevronsUpDown } from "lucide-react"
+import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createItemApi } from "@/lib/api/items.api"
-import type { CategoryWithCount } from "@/lib/api/categories.api"
-import type { LocationWithCount } from "@/lib/api/locations.api"
-import type { SupplierWithCount } from "@/lib/api/suppliers.api"
+import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
+import { getLocationsApi, getWorkspaceStructureApi, type LocationWithCount, type LocationTemplate } from "@/lib/api/locations.api"
+import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
+import { AddCategoryDialog } from "@/components/addCategoryDialog"
+import { AddSupplierDialog } from "@/components/addSupplierDialog"
+import { AddLocationDialog } from "@/components/addLocationDialog"
 
 interface AddItemDialogProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     workspaceId: string
-    categories: CategoryWithCount[]
-    locations: LocationWithCount[]
-    suppliers: SupplierWithCount[]
     onSuccess?: () => void
 }
 
@@ -70,9 +70,6 @@ export function AddItemDialog({
     open,
     onOpenChange,
     workspaceId,
-    categories,
-    locations,
-    suppliers,
     onSuccess,
 }: AddItemDialogProps) {
     const [formData, setFormData] = useState<ItemFormData>(initialFormState)
@@ -81,6 +78,87 @@ export function AddItemDialog({
     const [categoryOpen, setCategoryOpen] = useState(false)
     const [supplierOpen, setSupplierOpen] = useState(false)
     const [locationOpen, setLocationOpen] = useState(false)
+
+    // Self-managed data
+    const [categories, setCategories] = useState<CategoryWithCount[]>([])
+    const [locations, setLocations] = useState<LocationWithCount[]>([])
+    const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
+    const [defaultLocationStructure, setDefaultLocationStructure] = useState<LocationTemplate | null>(null)
+    const [isLoadingData, setIsLoadingData] = useState(false)
+
+    // Sub-dialog states
+    const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
+    const [isAddSupplierOpen, setIsAddSupplierOpen] = useState(false)
+    const [isAddLocationOpen, setIsAddLocationOpen] = useState(false)
+
+    // Load all data when dialog opens
+    useEffect(() => {
+        if (open && workspaceId) {
+            loadAllData()
+        }
+    }, [open, workspaceId])
+
+    const loadAllData = async () => {
+        if (!workspaceId) return
+
+        setIsLoadingData(true)
+        try {
+            await Promise.all([
+                loadCategories(),
+                loadLocations(),
+                loadSuppliers(),
+                loadLocationStructure(),
+            ])
+        } catch (error) {
+            console.error("Failed to load data:", error)
+        } finally {
+            setIsLoadingData(false)
+        }
+    }
+
+    const loadCategories = async () => {
+        try {
+            const response = await getCategoriesApi(workspaceId)
+            if (response.data?.categories) {
+                setCategories(response.data.categories)
+            }
+        } catch (err) {
+            console.error("Failed to load categories:", err)
+        }
+    }
+
+    const loadLocations = async () => {
+        try {
+            const response = await getLocationsApi(workspaceId)
+            if (response.data?.locations) {
+                setLocations(response.data.locations)
+            }
+        } catch (err) {
+            console.error("Failed to load locations:", err)
+        }
+    }
+
+    const loadSuppliers = async () => {
+        try {
+            const response = await getSuppliersApi(workspaceId)
+            if (response.data?.suppliers) {
+                setSuppliers(response.data.suppliers)
+            }
+        } catch (err) {
+            console.error("Failed to load suppliers:", err)
+        }
+    }
+
+    const loadLocationStructure = async () => {
+        try {
+            const response = await getWorkspaceStructureApi(workspaceId)
+            if (response.data?.structure) {
+                setDefaultLocationStructure(response.data.structure)
+            }
+        } catch (err) {
+            console.error("Failed to load location structure:", err)
+        }
+    }
 
     // Reset form when dialog closes
     const handleOpenChange = (newOpen: boolean) => {
@@ -178,259 +256,346 @@ export function AddItemDialog({
         }
     }
 
+    const handleCategoryCreated = async (category: CategoryWithCount) => {
+        // Refresh categories list
+        await loadCategories()
+        // Select the newly created category
+        updateFormField("category", category.id)
+        setCategoryOpen(false)
+    }
+
+    const handleSupplierCreated = async (supplier: SupplierWithCount) => {
+        // Refresh suppliers list
+        await loadSuppliers()
+        // Select the newly created supplier
+        updateFormField("supplier", supplier.id)
+        setSupplierOpen(false)
+    }
+
+    const handleLocationCreated = async (location: LocationWithCount) => {
+        // Refresh locations list
+        await loadLocations()
+        // Select the newly created location
+        updateFormField("storageLocation", location.id)
+        setLocationOpen(false)
+    }
+
+    const handleLocationStructureUpdate = async (structure: LocationTemplate) => {
+        setDefaultLocationStructure(structure)
+    }
+
     const isFormValid =
         formData.name.trim() &&
         formData.onHand &&
         formData.cost
 
     return (
-        <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle>Add New Item</DialogTitle>
-                    <DialogDescription>
-                        Add a new item to your inventory with all required details.
-                    </DialogDescription>
-                </DialogHeader>
+        <>
+            <Dialog open={open} onOpenChange={handleOpenChange}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Add New Item</DialogTitle>
+                        <DialogDescription>
+                            Add a new item to your inventory with all required details.
+                        </DialogDescription>
+                    </DialogHeader>
 
-                <div className="space-y-4 py-4">
-                    {/* Item Name & Unit */}
-                    <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="item-name">
-                                Item Name <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                                id="item-name"
-                                placeholder="e.g., Wireless Mouse"
-                                value={formData.name}
-                                onChange={(e) => updateFormField("name", e.target.value)}
-                            />
+                    <div className="space-y-4 py-4">
+                        {/* Item Name & Unit */}
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="item-name">
+                                    Item Name <span className="text-destructive">*</span>
+                                </Label>
+                                <Input
+                                    id="item-name"
+                                    placeholder="e.g., Wireless Mouse"
+                                    value={formData.name}
+                                    onChange={(e) => updateFormField("name", e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="item-unit">Unit</Label>
+                                <Input
+                                    id="item-unit"
+                                    placeholder="e.g., EA, BOX, LB, KG, GAL"
+                                    value={formData.unit}
+                                    onChange={(e) => updateFormField("unit", e.target.value)}
+                                />
+                            </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="item-unit">Unit</Label>
-                            <Input
-                                id="item-unit"
-                                placeholder="e.g., EA, BOX, LB, KG, GAL"
-                                value={formData.unit}
-                                onChange={(e) => updateFormField("unit", e.target.value)}
-                            />
-                        </div>
-                    </div>
 
-                    {/* Category & Supplier */}
-                    <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="item-category">
-                                Category
-                            </Label>
-                            <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        role="combobox"
-                                        aria-expanded={categoryOpen}
-                                        className="w-full justify-between h-9 font-normal bg-transparent"
-                                    >
-                                        {formData.category
-                                            ? categories.find((category) => category.id === formData.category)?.name
-                                            : "Search categories..."}
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-                                    <Command>
-                                        <CommandInput placeholder="Search category..." />
-                                        <CommandList>
-                                            <CommandEmpty>No category found.</CommandEmpty>
-                                            <CommandGroup>
-                                                {categories.map((category) => (
+                        {/* Category & Supplier */}
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="item-category">
+                                    Category
+                                </Label>
+                                <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={categoryOpen}
+                                            className="w-full justify-between h-9 font-normal bg-transparent"
+                                            disabled={isLoadingData}
+                                        >
+                                            {formData.category
+                                                ? categories.find((category) => category.id === formData.category)?.name
+                                                : "Search categories..."}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search category..." className="h-9" />
+                                            <CommandList>
+                                                <CommandEmpty>No category found.</CommandEmpty>
+                                                <CommandGroup>
                                                     <CommandItem
-                                                        key={category.id}
-                                                        value={category.name}
                                                         onSelect={() => {
-                                                            updateFormField("category", category.id)
                                                             setCategoryOpen(false)
+                                                            setIsAddCategoryOpen(true)
                                                         }}
+                                                        className="bg-primary/5 border-b"
                                                     >
-                                                        <Check
-                                                            className={cn(
-                                                                "mr-2 h-4 w-4",
-                                                                formData.category === category.id ? "opacity-100" : "opacity-0"
-                                                            )}
-                                                        />
-                                                        {category.name}
+                                                        <Plus className="mr-2 h-4 w-4 text-primary" />
+                                                        <span className="font-medium text-primary">Create new category</span>
                                                     </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                            </Popover>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="item-supplier">
-                                Supplier
-                            </Label>
-                            <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        role="combobox"
-                                        aria-expanded={supplierOpen}
-                                        className="w-full justify-between h-9 font-normal bg-transparent"
-                                    >
-                                        {formData.supplier
-                                            ? suppliers.find((supplier) => supplier.id === formData.supplier)?.name
-                                            : "Search suppliers..."}
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-                                    <Command>
-                                        <CommandInput placeholder="Search supplier..." />
-                                        <CommandList>
-                                            <CommandEmpty>No supplier found.</CommandEmpty>
-                                            <CommandGroup>
-                                                {suppliers.map((supplier) => (
+                                                    {categories.map((category) => (
+                                                        <CommandItem
+                                                            key={category.id}
+                                                            value={category.name}
+                                                            onSelect={() => {
+                                                                updateFormField("category", category.id)
+                                                                setCategoryOpen(false)
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={cn(
+                                                                    "mr-2 h-4 w-4",
+                                                                    formData.category === category.id ? "opacity-100" : "opacity-0"
+                                                                )}
+                                                            />
+                                                            {category.name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="item-supplier">
+                                    Supplier
+                                </Label>
+                                <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={supplierOpen}
+                                            className="w-full justify-between h-9 font-normal bg-transparent"
+                                            disabled={isLoadingData}
+                                        >
+                                            {formData.supplier
+                                                ? suppliers.find((supplier) => supplier.id === formData.supplier)?.name
+                                                : "Search suppliers..."}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search supplier..." className="h-9" />
+                                            <CommandList>
+                                                <CommandEmpty>No supplier found.</CommandEmpty>
+                                                <CommandGroup>
                                                     <CommandItem
-                                                        key={supplier.id}
-                                                        value={supplier.name}
                                                         onSelect={() => {
-                                                            updateFormField("supplier", supplier.id)
                                                             setSupplierOpen(false)
+                                                            setIsAddSupplierOpen(true)
                                                         }}
+                                                        className="bg-primary/5 border-b"
                                                     >
-                                                        <Check
-                                                            className={cn(
-                                                                "mr-2 h-4 w-4",
-                                                                formData.supplier === supplier.id ? "opacity-100" : "opacity-0"
-                                                            )}
-                                                        />
-                                                        {supplier.name}
+                                                        <Plus className="mr-2 h-4 w-4 text-primary" />
+                                                        <span className="font-medium text-primary">Create new supplier</span>
                                                     </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                            </Popover>
+                                                    {suppliers.map((supplier) => (
+                                                        <CommandItem
+                                                            key={supplier.id}
+                                                            value={supplier.name}
+                                                            onSelect={() => {
+                                                                updateFormField("supplier", supplier.id)
+                                                                setSupplierOpen(false)
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={cn(
+                                                                    "mr-2 h-4 w-4",
+                                                                    formData.supplier === supplier.id ? "opacity-100" : "opacity-0"
+                                                                )}
+                                                            />
+                                                            {supplier.name}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
                         </div>
-                    </div>
 
-                    {/* Description */}
-                    <div className="space-y-2">
-                        <Label htmlFor="item-description">Description</Label>
-                        <Textarea
-                            id="item-description"
-                            placeholder="Brief description of the item..."
-                            value={formData.description}
-                            onChange={(e) => updateFormField("description", e.target.value)}
-                            rows={3}
-                        />
-                    </div>
-
-                    {/* Initial Stock, Cost, Location */}
-                    <div className="grid md:grid-cols-3 gap-4">
+                        {/* Description */}
                         <div className="space-y-2">
-                            <Label htmlFor="item-onhand">
-                                Initial Stock <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                                id="item-onhand"
-                                type="number"
-                                min="0"
-                                placeholder="0"
-                                value={formData.onHand}
-                                onChange={(e) => updateFormField("onHand", e.target.value)}
+                            <Label htmlFor="item-description">Description</Label>
+                            <Textarea
+                                id="item-description"
+                                placeholder="Brief description of the item..."
+                                value={formData.description}
+                                onChange={(e) => updateFormField("description", e.target.value)}
+                                rows={3}
                             />
                         </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="item-cost">
-                                Unit Cost <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                                id="item-cost"
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="0.00"
-                                value={formData.cost}
-                                onChange={(e) => updateFormField("cost", e.target.value)}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="item-location">Storage Location</Label>
-                            <Popover open={locationOpen} onOpenChange={setLocationOpen}>
-                                <PopoverTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        role="combobox"
-                                        aria-expanded={locationOpen}
-                                        className="w-full justify-between h-9 font-normal bg-transparent"
-                                    >
-                                        {formData.storageLocation
-                                            ? locations.find((location) => location.id === formData.storageLocation)?.code
-                                            : "Search locations..."}
-                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-                                    <Command>
-                                        <CommandInput placeholder="Search location..." />
-                                        <CommandList>
-                                            <CommandEmpty>No location found.</CommandEmpty>
-                                            <CommandGroup>
-                                                {locations.map((location) => (
+
+                        {/* Initial Stock, Cost, Location */}
+                        <div className="grid md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="item-onhand">
+                                    Initial Stock <span className="text-destructive">*</span>
+                                </Label>
+                                <Input
+                                    id="item-onhand"
+                                    type="number"
+                                    min="0"
+                                    placeholder="0"
+                                    value={formData.onHand}
+                                    onChange={(e) => updateFormField("onHand", e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="item-cost">
+                                    Unit Cost <span className="text-destructive">*</span>
+                                </Label>
+                                <Input
+                                    id="item-cost"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={formData.cost}
+                                    onChange={(e) => updateFormField("cost", e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="item-location">Storage Location</Label>
+                                <Popover open={locationOpen} onOpenChange={setLocationOpen}>
+                                    <PopoverTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            role="combobox"
+                                            aria-expanded={locationOpen}
+                                            className="w-full justify-between h-9 font-normal bg-transparent"
+                                            disabled={isLoadingData}
+                                        >
+                                            {formData.storageLocation
+                                                ? locations.find((location) => location.id === formData.storageLocation)?.code
+                                                : "Search locations..."}
+                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
+                                        <Command>
+                                            <CommandInput placeholder="Search location..." className="h-9" />
+                                            <CommandList>
+                                                <CommandEmpty>No location found.</CommandEmpty>
+                                                <CommandGroup>
                                                     <CommandItem
-                                                        key={location.id}
-                                                        value={location.code}
                                                         onSelect={() => {
-                                                            updateFormField("storageLocation", location.id)
                                                             setLocationOpen(false)
+                                                            setIsAddLocationOpen(true)
                                                         }}
+                                                        className="bg-primary/5 border-b"
                                                     >
-                                                        <Check
-                                                            className={cn(
-                                                                "mr-2 h-4 w-4",
-                                                                formData.storageLocation === location.id ? "opacity-100" : "opacity-0"
-                                                            )}
-                                                        />
-                                                        {location.code}
+                                                        <Plus className="mr-2 h-4 w-4 text-primary" />
+                                                        <span className="font-medium text-primary">Create new location</span>
                                                     </CommandItem>
-                                                ))}
-                                            </CommandGroup>
-                                        </CommandList>
-                                    </Command>
-                                </PopoverContent>
-                            </Popover>
+                                                    {locations.map((location) => (
+                                                        <CommandItem
+                                                            key={location.id}
+                                                            value={location.code}
+                                                            onSelect={() => {
+                                                                updateFormField("storageLocation", location.id)
+                                                                setLocationOpen(false)
+                                                            }}
+                                                        >
+                                                            <Check
+                                                                className={cn(
+                                                                    "mr-2 h-4 w-4",
+                                                                    formData.storageLocation === location.id ? "opacity-100" : "opacity-0"
+                                                                )}
+                                                            />
+                                                            {location.code}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </CommandList>
+                                        </Command>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
                         </div>
+
+                        {/* Error Message */}
+                        {error && (
+                            <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                                {error}
+                            </div>
+                        )}
                     </div>
 
-                    {/* Error Message */}
-                    {error && (
-                        <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3">
-                            {error}
-                        </div>
-                    )}
-                </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => handleOpenChange(false)}
+                            disabled={isCreating}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleSubmit}
+                            disabled={isCreating || !isFormValid || isLoadingData}
+                        >
+                            {isCreating ? "Creating..." : "Add Item"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={() => handleOpenChange(false)}
-                        disabled={isCreating}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleSubmit}
-                        disabled={isCreating || !isFormValid}
-                    >
-                        {isCreating ? "Creating..." : "Add Item"}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+            {/* Nested Dialogs */}
+            <AddCategoryDialog
+                open={isAddCategoryOpen}
+                onOpenChange={setIsAddCategoryOpen}
+                workspaceId={workspaceId}
+                onSuccess={handleCategoryCreated}
+            />
+
+            <AddSupplierDialog
+                open={isAddSupplierOpen}
+                onOpenChange={setIsAddSupplierOpen}
+                workspaceId={workspaceId}
+                onSuccess={handleSupplierCreated}
+            />
+
+            <AddLocationDialog
+                open={isAddLocationOpen}
+                onOpenChange={setIsAddLocationOpen}
+                workspaceId={workspaceId}
+                defaultStructure={defaultLocationStructure}
+                onSuccess={handleLocationCreated}
+                onStructureUpdate={handleLocationStructureUpdate}
+            />
+        </>
     )
 }

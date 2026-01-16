@@ -4,26 +4,15 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Plus, Pencil, Trash2, FolderOpen, Search } from "lucide-react"
 import {
   getCategoriesApi,
-  createCategoryApi,
-  updateCategoryApi,
   deleteCategoryApi,
   type CategoryWithCount,
 } from "@/lib/api/categories.api"
+import { AddCategoryDialog } from "@/components/addCategoryDialog"
+import { EditCategoryDialog } from "@/components/editCategoryDialog"
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<CategoryWithCount[]>([])
@@ -31,7 +20,6 @@ export default function CategoriesPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<CategoryWithCount | null>(null)
-  const [formData, setFormData] = useState({ name: "", description: "" })
   const [workspaceId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem("currentWorkspaceId") || ""
@@ -63,50 +51,14 @@ export default function CategoriesPage() {
       (category.description || "").toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
-  const handleCreate = async () => {
-    if (!formData.name.trim()) return
-
-    try {
-      const response = await createCategoryApi({
-        name: formData.name,
-        description: formData.description,
-        workspaceId: workspaceId,
-      })
-
-      if (response.data?.category) {
-        setCategories([...categories, response.data.category])
-        setFormData({ name: "", description: "" })
-        setIsCreateOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to create category:", error)
-      alert(error instanceof Error ? error.message : "Failed to create category")
-    }
+  const handleCreateSuccess = (category: CategoryWithCount) => {
+    setCategories([...categories, category])
   }
 
-  const handleEdit = async () => {
-    if (!editingCategory || !formData.name.trim()) return
-
-    try {
-      const response = await updateCategoryApi(editingCategory.id, {
-        name: formData.name,
-        description: formData.description,
-        workspaceId: workspaceId,
-      })
-
-      const updatedCategory = response.data?.category
-      if (updatedCategory) {
-        setCategories(
-          categories.map((cat) => (cat.id === editingCategory.id ? updatedCategory : cat)),
-        )
-        setFormData({ name: "", description: "" })
-        setEditingCategory(null)
-        setIsEditOpen(false)
-      }
-    } catch (error) {
-      console.error("Failed to update category:", error)
-      alert(error instanceof Error ? error.message : "Failed to update category")
-    }
+  const handleEditSuccess = (updatedCategory: CategoryWithCount) => {
+    setCategories(
+      categories.map((cat) => (cat.id === updatedCategory.id ? updatedCategory : cat)),
+    )
   }
 
   const handleDelete = async (id: string) => {
@@ -125,7 +77,6 @@ export default function CategoriesPage() {
 
   const openEditDialog = (category: CategoryWithCount) => {
     setEditingCategory(category)
-    setFormData({ name: category.name, description: category.description || "" })
     setIsEditOpen(true)
   }
 
@@ -199,48 +150,13 @@ export default function CategoriesPage() {
                   />
                 </div>
 
-                {/* Create Category Dialog */}
-                <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-                  <DialogTrigger asChild>
-                    <Button className="shadow-lg shadow-accent/20 text-white">
-                      <Plus className="h-4 w-4" />
-                      Add Category
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Create New Category</DialogTitle>
-                      <DialogDescription>Add a new category to organize your inventory items.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">Category Name</Label>
-                        <Input
-                          id="name"
-                          placeholder="e.g., Electronics, Furniture"
-                          value={formData.name}
-                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="description">Description</Label>
-                        <Textarea
-                          id="description"
-                          placeholder="Brief description of this category..."
-                          value={formData.description}
-                          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                          rows={3}
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button onClick={handleCreate}>Create Category</Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <Button
+                  className="shadow-lg shadow-accent/20 text-white"
+                  onClick={() => setIsCreateOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Category
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -307,42 +223,22 @@ export default function CategoriesPage() {
           </CardContent>
         </Card>
 
+        {/* Add Category Dialog */}
+        <AddCategoryDialog
+          open={isCreateOpen}
+          onOpenChange={setIsCreateOpen}
+          workspaceId={workspaceId}
+          onSuccess={handleCreateSuccess}
+        />
+
         {/* Edit Category Dialog */}
-        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Category</DialogTitle>
-              <DialogDescription>Update the category name and description.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-name">Category Name</Label>
-                <Input
-                  id="edit-name"
-                  placeholder="e.g., Electronics, Furniture"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-description">Description</Label>
-                <Textarea
-                  id="edit-description"
-                  placeholder="Brief description of this category..."
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleEdit}>Save Changes</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <EditCategoryDialog
+          open={isEditOpen}
+          onOpenChange={setIsEditOpen}
+          workspaceId={workspaceId}
+          category={editingCategory}
+          onSuccess={handleEditSuccess}
+        />
       </div>
     </div>
   )
