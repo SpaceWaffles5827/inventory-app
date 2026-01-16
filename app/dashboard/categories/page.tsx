@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -15,6 +16,7 @@ import { AddCategoryDialog } from "@/components/addCategoryDialog"
 import { EditCategoryDialog } from "@/components/editCategoryDialog"
 
 export default function CategoriesPage() {
+  const router = useRouter()
   const [categories, setCategories] = useState<CategoryWithCount[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -181,7 +183,11 @@ export default function CategoriesPage() {
                     </TableRow>
                   ) : (
                     filteredCategories.map((category) => (
-                      <TableRow key={category.id} className="hover:bg-muted/30 transition-colors">
+                      <TableRow
+                        key={category.id}
+                        className="hover:bg-muted/30 transition-colors cursor-pointer"
+                        onClick={() => router.push(`/dashboard/categories/${category.id}`)}
+                      >
                         <TableCell className="font-medium">{category.name}</TableCell>
                         <TableCell className="text-muted-foreground max-w-md truncate">
                           {category.description || "No description"}
@@ -195,7 +201,7 @@ export default function CategoriesPage() {
                           {new Date(category.createdAt).toLocaleDateString()}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
+                          <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                             <Button
                               variant="ghost"
                               size="sm"
