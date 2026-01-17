@@ -17,6 +17,7 @@ import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.a
 import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
 import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
 import { getCustomersApi, type CustomerWithCount } from "@/lib/api/customers.api"
+import { BarcodeScannerDialog } from "@/components/barcodeScannerDialog"
 import {
   getItemImagesApi,
   smartUploadImageApi,
@@ -69,15 +70,6 @@ export default function ItemDetailPage() {
   // Barcode scanning state
   const [isBarcodeScanOpen, setIsBarcodeScanOpen] = useState(false)
   const [scannedBarcode, setScannedBarcode] = useState("")
-  const [isScanning, setIsScanning] = useState(false)
-  const [cameraError, setCameraError] = useState("")
-  const [verificationCount, setVerificationCount] = useState(0)
-  const [verificationCode, setVerificationCode] = useState<string | null>(null)
-  const html5QrcodeRef = useRef<Html5Qrcode | null>(null)
-  const scannerElementId = "barcode-reader"
-  const initAttemptRef = useRef(0)
-  const verificationCodeRef = useRef<string | null>(null)
-  const verificationCountRef = useRef(0)
 
   // Label generation state
   const [isLabelGenerateOpen, setIsLabelGenerateOpen] = useState(false)
@@ -213,11 +205,6 @@ export default function ItemDetailPage() {
     }
   }, [itemId])
 
-  useEffect(() => {
-    return () => {
-      stopScanner()
-    }
-  }, [])
 
   const loadImages = async (itemId: string) => {
     try {
@@ -389,192 +376,18 @@ export default function ItemDetailPage() {
     }
   }
 
-  const startScanner = async () => {
-    console.log("[BARCODE] Starting scanner (attempt", initAttemptRef.current + 1, ")...")
-    initAttemptRef.current++
-
-    try {
-      const element = document.getElementById(scannerElementId)
-      if (!element) {
-        console.error("[BARCODE] Scanner element not found, retrying...")
-        if (initAttemptRef.current < 5) {
-          setTimeout(startScanner, 300)
-        } else {
-          setCameraError("Failed to initialize scanner. Please try again.")
-        }
-        return
-      }
-
-      html5QrcodeRef.current = new Html5Qrcode(scannerElementId)
-
-      const config = {
-        fps: 5,
-        qrbox: { width: 250, height: 250 },
-        formatsToSupport: [
-          Html5QrcodeSupportedFormats.QR_CODE,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.CODE_93,
-          Html5QrcodeSupportedFormats.ITF,
-          Html5QrcodeSupportedFormats.DATA_MATRIX,
-          Html5QrcodeSupportedFormats.CODABAR,
-        ],
-      }
-
-      console.log("[BARCODE] Getting cameras...")
-
-      let cameras
-      try {
-        cameras = await Html5Qrcode.getCameras()
-      } catch (err: any) {
-        console.error("[BARCODE] Camera access error:", err)
-        setCameraError("Camera access denied. Please allow camera permissions in your browser settings.")
-        return
-      }
-
-      console.log("[BARCODE] Available cameras:", cameras.length)
-
-      if (cameras.length === 0) {
-        setCameraError("No cameras found. Please check your device permissions.")
-        return
-      }
-
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-      let cameraConfig: any
-
-      if (isMobile) {
-        console.log("[BARCODE] Mobile device detected, using facingMode")
-        cameraConfig = { facingMode: "environment" }
-      } else {
-        let cameraId = cameras[0].id
-        const rearCamera = cameras.find(camera =>
-          camera.label.toLowerCase().includes('back') ||
-          camera.label.toLowerCase().includes('rear') ||
-          camera.label.toLowerCase().includes('environment')
-        )
-
-        if (rearCamera) {
-          cameraId = rearCamera.id
-          console.log("[BARCODE] Using rear camera:", rearCamera.label)
-        } else {
-          console.log("[BARCODE] Using camera:", cameras[0].label)
-        }
-        cameraConfig = cameraId
-      }
-
-      console.log("[BARCODE] Starting camera with config:", cameraConfig)
-
-      await html5QrcodeRef.current.start(
-        cameraConfig,
-        config,
-        (decodedText, decodedResult) => {
-          console.log(`[BARCODE] 📷 Detected: ${decodedText}`)
-
-          if (decodedText.length < 3 || decodedText.length > 100) {
-            console.log("[BARCODE] ⚠️ Rejected: Invalid length")
-            return
-          }
-
-          if (verificationCodeRef.current === decodedText) {
-            verificationCountRef.current++
-            const newCount = verificationCountRef.current
-            setVerificationCount(newCount)
-            console.log(`[BARCODE] ✓ Verification ${newCount}/5`)
-
-            if (newCount >= 5) {
-              console.log("[BARCODE] ✅ VERIFIED!")
-
-              verificationCodeRef.current = null
-              verificationCountRef.current = 0
-              setVerificationCode(null)
-              setVerificationCount(0)
-              setIsScanning(false)
-
-              if (html5QrcodeRef.current) {
-                html5QrcodeRef.current.pause(true)
-              }
-
-              // Auto-save and close
-              setFormData({ ...formData, barcode: decodedText })
-              stopScanner()
-              setIsBarcodeScanOpen(false)
-            }
-          } else {
-            console.log("[BARCODE] 🆕 New code, starting verification")
-            verificationCodeRef.current = decodedText
-            verificationCountRef.current = 1
-            setVerificationCode(decodedText)
-            setVerificationCount(1)
-          }
-        },
-        (errorMessage) => {
-          // Silently ignore "not found" errors
-        }
-      )
-
-      setIsScanning(true)
-      console.log("[BARCODE] ✅ Camera started successfully")
-
-    } catch (err: any) {
-      console.error("[BARCODE] Failed to start:", err)
-
-      let errorMsg = "Failed to start camera. "
-      if (err.message?.includes("Permission") || err.message?.includes("NotAllowed")) {
-        errorMsg += "Please allow camera access in your browser settings."
-      } else if (err.message?.includes("NotFound")) {
-        errorMsg += "No camera found on this device."
-      } else if (err.message?.includes("NotReadable")) {
-        errorMsg += "Camera is being used by another app. Please close other apps and try again."
-      } else {
-        errorMsg += err.message || "Unknown error."
-      }
-
-      setCameraError(errorMsg)
-      setIsScanning(false)
-    }
-  }
-
-  const stopScanner = async () => {
-    console.log("[BARCODE] Stopping scanner...")
-
-    if (html5QrcodeRef.current) {
-      try {
-        const state = html5QrcodeRef.current.getState()
-        if (state === 2) {
-          await html5QrcodeRef.current.stop()
-          console.log("[BARCODE] Camera stopped")
-        }
-        await html5QrcodeRef.current.clear()
-      } catch (err) {
-        console.error("[BARCODE] Error stopping:", err)
-      }
-      html5QrcodeRef.current = null
-    }
-
-    setIsScanning(false)
-  }
-
   const handleOpenBarcodeScanner = () => {
     setScannedBarcode(formData.barcode || "")
-    setVerificationCode(null)
-    setVerificationCount(0)
-    setCameraError("")
-    verificationCodeRef.current = null
-    verificationCountRef.current = 0
-    initAttemptRef.current = 0
+    // setVerificationCode(null)
+    // setVerificationCount(0)
+    // setCameraError("")
+    // verificationCodeRef.current = null
+    // verificationCountRef.current = 0
+    // initAttemptRef.current = 0
     setIsBarcodeScanOpen(true)
     setTimeout(() => {
-      startScanner()
+      // startScanner()
     }, 500)
-  }
-
-  const handleCloseBarcodeScanner = () => {
-    stopScanner()
-    setIsBarcodeScanOpen(false)
   }
 
   const handleAddCustomer = () => {
@@ -793,31 +606,6 @@ export default function ItemDetailPage() {
       toast.error(error instanceof Error ? error.message : "Failed to adjust stock")
     }
   }
-
-  const handleQuickStockAdjustment = async (adjustment: number, locationId: string) => {
-    try {
-      const isInput = adjustment > 0
-      await adjustStockApi(itemId, {
-        type: isInput ? "INPUT" : "OUTPUT",
-        quantity: Math.abs(adjustment),
-        reason: "Quick adjustment",
-        locationId: locationId,
-      })
-
-      // Reload the full item data with all relationships including transactions
-      const refreshResponse = await getItemByIdApi(itemId)
-      if (refreshResponse.data?.item) {
-        setItem(refreshResponse.data.item as ItemWithDetails)
-        toast.success(
-          `${adjustment > 0 ? "Added" : "Removed"} ${Math.abs(adjustment)} unit${Math.abs(adjustment) !== 1 ? "s" : ""}`
-        )
-      }
-    } catch (error) {
-      console.error("Failed to update quantity:", error)
-      toast.error("Failed to update quantity")
-    }
-  }
-
 
   const generateItemLabel = async () => {
     setIsGeneratingLabel(true)
@@ -2153,45 +1941,14 @@ export default function ItemDetailPage() {
       </div>
 
       {/* Barcode Scanner Dialog */}
-      <Dialog open={isBarcodeScanOpen} onOpenChange={handleCloseBarcodeScanner}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Scan Barcode</DialogTitle>
-            <DialogDescription>Position the barcode within the frame</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Camera Scanner */}
-            <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
-              {cameraError ? (
-                <div className="absolute inset-0 flex items-center justify-center p-4">
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription className="text-sm">{cameraError}</AlertDescription>
-                  </Alert>
-                </div>
-              ) : (
-                <div id={scannerElementId} className="w-full h-full" />
-              )}
-            </div>
-
-            {/* Verification Progress - Only show counter, no scan history */}
-            {verificationCount > 0 && !cameraError && (
-              <div className="p-3 bg-muted/50 rounded-lg text-center">
-                <p className="text-sm font-semibold text-green-500">
-                  Verifying {verificationCount}/5
-                </p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCloseBarcodeScanner} className="w-full">
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <BarcodeScannerDialog
+        isOpen={isBarcodeScanOpen}
+        onClose={() => setIsBarcodeScanOpen(false)}
+        currentBarcode={formData.barcode}
+        onBarcodeScanned={(barcode) => {
+          setFormData({ ...formData, barcode })
+        }}
+      />
 
       {/* Label Generation Dialog */}
       <Dialog open={isLabelGenerateOpen} onOpenChange={setIsLabelGenerateOpen}>
