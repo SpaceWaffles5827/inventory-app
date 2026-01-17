@@ -29,6 +29,7 @@ import { LocationWithCount } from "@/lib/api/locations.api"
 import { ItemTableView } from "@/components/itemTableview"
 import { ItemGridView } from "@/components/itemgridview"
 import { ItemListView } from "@/components/itemListView"
+import { ItemMobileView } from "@/components/itemMobileview"
 
 export default function DashboardPage() {
   const [inventory, setInventory] = useState<ItemWithRelations[]>([])
@@ -297,97 +298,105 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Header Section - Mobile Optimized */}
-        <div className="px-3 sm:px-0 py-3 sm:py-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 sm:mb-6">
+        {/* Header Section - Desktop Only */}
+        <div className="hidden sm:flex px-0 sm:px-0 py-0 sm:py-0 flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 sm:mb-6">
           <div>
             <h1 className="text-lg sm:text-3xl font-bold">Inventory</h1>
             <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
               Manage your products and stock levels
             </p>
           </div>
-          <Button onClick={() => setIsAddItemOpen(true)} size="sm" className="w-full sm:w-auto shadow-lg shadow-accent/20">
-            <Plus className="h-4 w-4 mr-2" />
-            Add Item
-          </Button>
+          <div className="flex items-center gap-3">
+            <Select value={viewMode} onValueChange={(value: "table" | "grid" | "list") => setViewMode(value)}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="list">List</SelectItem>
+                <SelectItem value="grid">Grid</SelectItem>
+                <SelectItem value="table">Table</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={() => setIsAddItemOpen(true)} size="sm" className="shadow-lg shadow-accent/20">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Item
+            </Button>
+          </div>
         </div>
 
-        {/* Filters - Mobile Optimized */}
+        {/* Filters Section */}
         <div className="border-b sm:border sm:rounded-lg sm:mb-6 bg-card mb-0">
           <div className="p-3 sm:p-6">
             <div className="flex flex-col gap-3">
-              {/* Search Bar */}
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search items..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 h-9 sm:h-11 text-sm"
-                />
-              </div>
+              {/* Search Bar with Filter Button - Desktop */}
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search items..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 h-9 sm:h-11 text-sm"
+                  />
+                </div>
 
-              {/* Compact Filter Row - Mobile */}
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                  <SelectTrigger className="w-[140px] h-9 text-sm">
-                    <SelectValue placeholder="Category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {inventoryCategories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[120px] h-9 text-sm">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    {statuses.map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {status === "IN_STOCK" ? "In Stock" : status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Select value={viewMode} onValueChange={(value: "table" | "grid" | "list") => setViewMode(value)}>
-                  <SelectTrigger className="w-[100px] h-9 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="list">List</SelectItem>
-                    <SelectItem value="grid">Grid</SelectItem>
-                    <SelectItem value="table">Table</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Desktop Filters - Hidden on Mobile */}
-              <div className="hidden sm:flex items-center gap-3">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setShowFilters(!showFilters)}
-                  className={showFilters ? "bg-accent/10 border-accent/20" : ""}
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                </Button>
-                {hasActiveFilters && (
-                  <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-2">
-                    <X className="h-4 w-4" />
-                    Clear
+                {/* Filter Toggle Button - Desktop Only */}
+                <div className="hidden sm:flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setShowFilters(!showFilters)}
+                    className={showFilters ? "bg-accent/10 border-accent/20" : ""}
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
                   </Button>
-                )}
+
+                  {hasActiveFilters && (
+                    <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-2">
+                      <X className="h-4 w-4" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
               </div>
 
+              {/* Desktop Advanced Filters - HIDDEN ON MOBILE */}
               {showFilters && (
                 <div className="hidden sm:grid grid-cols-1 md:grid-cols-4 gap-3 p-4 rounded-lg border border-border/50 bg-muted/30">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Category</Label>
+                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Categories" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        {inventoryCategories.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">Status</Label>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Status</SelectItem>
+                        {statuses.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status === "IN_STOCK" ? "In Stock" : status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <div className="space-y-2">
                     <Label className="text-xs font-medium text-muted-foreground">Supplier</Label>
                     <Select value={supplierFilter} onValueChange={setSupplierFilter}>
@@ -424,8 +433,9 @@ export default function DashboardPage() {
                 </div>
               )}
 
+              {/* Active Filters Badges - DESKTOP ONLY */}
               {hasActiveFilters && (
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="hidden sm:flex items-center gap-2 flex-wrap">
                   <span className="text-sm text-muted-foreground">Active filters:</span>
                   {categoryFilter !== "all" && (
                     <Badge variant="secondary" className="gap-1">
@@ -457,41 +467,54 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              <div className="text-sm text-muted-foreground px-1 sm:px-0">
+              {/* Item Count - DESKTOP ONLY */}
+              <div className="hidden sm:block text-sm text-muted-foreground">
                 Showing {filteredInventory.length} of {inventory.length} items
               </div>
             </div>
           </div>
         </div>
 
-        {/* Inventory Display - Mobile Optimized */}
+        {/* Inventory Display - Mobile uses dedicated ItemMobileView */}
         <div className="sm:border sm:rounded-lg bg-card">
-          {viewMode === "table" && (
-            <ItemTableView
+          {/* Mobile View - Always show ItemMobileView */}
+          <div className="sm:hidden">
+            <ItemMobileView
               items={filteredInventory}
               onAdjustmentClick={openAdjustmentDialog}
-              onTransferClick={openTransferDialog}
               onDeleteClick={openDeleteDialog}
             />
-          )}
+          </div>
 
-          {viewMode === "grid" && (
-            <div className="p-3 sm:p-6">
-              <ItemGridView
+          {/* Desktop Views - Hidden on mobile */}
+          <div className="hidden sm:block">
+            {viewMode === "table" && (
+              <ItemTableView
+                items={filteredInventory}
+                onAdjustmentClick={openAdjustmentDialog}
+                onTransferClick={openTransferDialog}
+                onDeleteClick={openDeleteDialog}
+              />
+            )}
+
+            {viewMode === "grid" && (
+              <div className="p-6">
+                <ItemGridView
+                  items={filteredInventory}
+                  onAdjustmentClick={openAdjustmentDialog}
+                  onDeleteClick={openDeleteDialog}
+                />
+              </div>
+            )}
+
+            {viewMode === "list" && (
+              <ItemListView
                 items={filteredInventory}
                 onAdjustmentClick={openAdjustmentDialog}
                 onDeleteClick={openDeleteDialog}
               />
-            </div>
-          )}
-
-          {viewMode === "list" && (
-            <ItemListView
-              items={filteredInventory}
-              onAdjustmentClick={openAdjustmentDialog}
-              onDeleteClick={openDeleteDialog}
-            />
-          )}
+            )}
+          </div>
         </div>
       </div>
 
