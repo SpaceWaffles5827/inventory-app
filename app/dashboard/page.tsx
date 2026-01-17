@@ -238,25 +238,25 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="px-0 sm:px-6 lg:px-8 py-0 sm:py-6">
+      <div className="px-0 lg:px-6 lg:py-6">
         {/* Stats Cards - Mobile Compact / Desktop Cards */}
-        <div className="grid grid-cols-3 gap-0 border-b sm:border-0 sm:grid-cols-3 sm:gap-6 mb-0 sm:mb-8">
+        <div className="grid grid-cols-3 gap-0 border-b lg:border-0 lg:grid-cols-3 lg:gap-6 mb-0 lg:mb-8">
           {/* Mobile: Compact Stats */}
-          <div className="sm:hidden p-3 border-r">
+          <div className="lg:hidden p-3 border-r">
             <div className="text-xs text-muted-foreground mb-1">Items</div>
             <div className="text-xl font-bold">{totalItems}</div>
           </div>
-          <div className="sm:hidden p-3 border-r">
+          <div className="lg:hidden p-3 border-r">
             <div className="text-xs text-muted-foreground mb-1">Low Stock</div>
             <div className="text-xl font-bold text-destructive">{lowStockItems}</div>
           </div>
-          <div className="sm:hidden p-3">
+          <div className="lg:hidden p-3">
             <div className="text-xs text-muted-foreground mb-1">Value</div>
             <div className="text-xl font-bold">${(totalValue / 1000).toFixed(1)}k</div>
           </div>
 
           {/* Desktop: Full Cards */}
-          <Card className="hidden sm:block border-border/50 bg-linear-to-br from-card to-card/50">
+          <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
               <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -269,7 +269,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="hidden sm:block border-border/50 bg-linear-to-br from-card to-card/50">
+          <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Low Stock Alerts</CardTitle>
               <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
@@ -282,7 +282,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="hidden sm:block border-border/50 bg-linear-to-br from-card to-card/50">
+          <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Value</CardTitle>
               <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -298,50 +298,51 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Header Section - Desktop Only */}
-        <div className="hidden sm:flex px-0 sm:px-0 py-0 sm:py-0 flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 sm:mb-6">
-          <div>
-            <h1 className="text-lg sm:text-3xl font-bold">Inventory</h1>
-            <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
-              Manage your products and stock levels
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Select value={viewMode} onValueChange={(value: "table" | "grid" | "list") => setViewMode(value)}>
-              <SelectTrigger className="w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="list">List</SelectItem>
-                <SelectItem value="grid">Grid</SelectItem>
-                <SelectItem value="table">Table</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button onClick={() => setIsAddItemOpen(true)} size="sm" className="shadow-lg shadow-accent/20">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Item
-            </Button>
-          </div>
-        </div>
+        {/* Main Inventory Card - Contains everything except stats */}
+        <div className="border-b lg:border lg:rounded-lg bg-card mb-0">
+          <div className="p-3 lg:p-4">
+            {/* Header Section - Desktop Only */}
+            <div className="hidden lg:flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2 lg:gap-3 mb-4">
+              <div>
+                <h1 className="text-lg lg:text-3xl font-bold">Inventory</h1>
+                <p className="text-xs lg:text-sm text-muted-foreground hidden lg:block">
+                  Manage your products and stock levels
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select value={viewMode} onValueChange={(value: "table" | "grid" | "list") => setViewMode(value)}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="list">List</SelectItem>
+                    <SelectItem value="grid">Grid</SelectItem>
+                    <SelectItem value="table">Table</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={() => setIsAddItemOpen(true)} size="sm" className="shadow-lg shadow-accent/20">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Item
+                </Button>
+              </div>
+            </div>
 
-        {/* Filters Section */}
-        <div className="border-b sm:border sm:rounded-lg sm:mb-6 bg-card mb-0">
-          <div className="p-3 sm:p-6">
-            <div className="flex flex-col gap-3">
-              {/* Search Bar with Filter Button - Desktop */}
-              <div className="flex items-center gap-3">
+            {/* Filters Section */}
+            <div className="flex flex-col gap-3 mb-4">
+              {/* Search Bar with Filter Button */}
+              <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search items..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 h-9 sm:h-11 text-sm"
+                    className="pl-9 h-9 lg:h-9 text-sm"
                   />
                 </div>
 
                 {/* Filter Toggle Button - Desktop Only */}
-                <div className="hidden sm:flex items-center gap-3">
+                <div className="hidden lg:flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="icon"
@@ -362,7 +363,7 @@ export default function DashboardPage() {
 
               {/* Desktop Advanced Filters - HIDDEN ON MOBILE */}
               {showFilters && (
-                <div className="hidden sm:grid grid-cols-1 md:grid-cols-4 gap-3 p-4 rounded-lg border border-border/50 bg-muted/30">
+                <div className="hidden lg:grid grid-cols-1 md:grid-cols-4 gap-3 p-3 rounded-lg border border-border/50 bg-muted/30">
                   <div className="space-y-2">
                     <Label className="text-xs font-medium text-muted-foreground">Category</Label>
                     <Select value={categoryFilter} onValueChange={setCategoryFilter}>
@@ -435,7 +436,7 @@ export default function DashboardPage() {
 
               {/* Active Filters Badges - DESKTOP ONLY */}
               {hasActiveFilters && (
-                <div className="hidden sm:flex items-center gap-2 flex-wrap">
+                <div className="hidden lg:flex items-center gap-2 flex-wrap">
                   <span className="text-sm text-muted-foreground">Active filters:</span>
                   {categoryFilter !== "all" && (
                     <Badge variant="secondary" className="gap-1">
@@ -468,52 +469,48 @@ export default function DashboardPage() {
               )}
 
               {/* Item Count - DESKTOP ONLY */}
-              <div className="hidden sm:block text-sm text-muted-foreground">
+              <div className="hidden lg:block text-sm text-muted-foreground">
                 Showing {filteredInventory.length} of {inventory.length} items
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Inventory Display - Mobile uses dedicated ItemMobileView */}
-        <div className="sm:border sm:rounded-lg bg-card">
-          {/* Mobile View - Always show ItemMobileView */}
-          <div className="sm:hidden">
-            <ItemMobileView
-              items={filteredInventory}
-              onAdjustmentClick={openAdjustmentDialog}
-              onDeleteClick={openDeleteDialog}
-            />
-          </div>
-
-          {/* Desktop Views - Hidden on mobile */}
-          <div className="hidden sm:block">
-            {viewMode === "table" && (
-              <ItemTableView
+            {/* Inventory Display - Mobile uses dedicated ItemMobileView */}
+            {/* Mobile View - Always show ItemMobileView */}
+            <div className="lg:hidden">
+              <ItemMobileView
                 items={filteredInventory}
                 onAdjustmentClick={openAdjustmentDialog}
-                onTransferClick={openTransferDialog}
                 onDeleteClick={openDeleteDialog}
               />
-            )}
+            </div>
 
-            {viewMode === "grid" && (
-              <div className="p-6">
+            {/* Desktop Views - Hidden on mobile */}
+            <div className="hidden lg:block">
+              {viewMode === "table" && (
+                <ItemTableView
+                  items={filteredInventory}
+                  onAdjustmentClick={openAdjustmentDialog}
+                  onTransferClick={openTransferDialog}
+                  onDeleteClick={openDeleteDialog}
+                />
+              )}
+
+              {viewMode === "grid" && (
                 <ItemGridView
                   items={filteredInventory}
                   onAdjustmentClick={openAdjustmentDialog}
                   onDeleteClick={openDeleteDialog}
                 />
-              </div>
-            )}
+              )}
 
-            {viewMode === "list" && (
-              <ItemListView
-                items={filteredInventory}
-                onAdjustmentClick={openAdjustmentDialog}
-                onDeleteClick={openDeleteDialog}
-              />
-            )}
+              {viewMode === "list" && (
+                <ItemListView
+                  items={filteredInventory}
+                  onAdjustmentClick={openAdjustmentDialog}
+                  onDeleteClick={openDeleteDialog}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>

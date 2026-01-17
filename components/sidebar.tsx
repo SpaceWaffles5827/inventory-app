@@ -685,8 +685,8 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-card/95 backdrop-blur-xl border-b border-border/40 z-50 flex items-center px-4">
+      {/* Mobile Header - COMMENTED OUT FOR CUSTOM PAGE HEADERS */}
+      {/* <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-card/95 backdrop-blur-xl border-b border-border/40 z-50 flex items-center px-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-accent to-primary flex items-center justify-center">
             <Package className="h-5 w-5 text-accent-foreground" />
@@ -698,10 +698,36 @@ export function Sidebar() {
             <ScanLine className="h-6 w-6" />
           </Button>
         </div>
-      </div>
+      </div> */}
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-xl border-t border-border/40">
+        <div className="flex items-center justify-around h-16 px-2">
+          {navItems.slice(0, 5).map((item) => {
+            const isActive = item.href === "/dashboard"
+              ? pathname === "/dashboard"
+              : pathname === item.href || pathname.startsWith(item.href + "/")
+            const Icon = item.icon
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors ${isActive
+                  ? "text-accent"
+                  : "text-muted-foreground active:text-foreground"
+                  }`}
+              >
+                <Icon className={`h-5 w-5 ${isActive ? "fill-accent/20" : ""}`} />
+                <span className="text-[10px] font-medium">{item.name}</span>
+              </Link>
+            )
+          })}
+        </div>
+      </nav>
 
       {/* Mobile FAB */}
-      <button onClick={() => setShowScanModal(true)} className="lg:hidden fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full bg-gradient-to-br from-accent to-primary shadow-lg flex items-center justify-center transition-all hover:scale-110">
+      <button onClick={() => setShowScanModal(true)} className="lg:hidden fixed bottom-20 right-6 z-50 h-14 w-14 rounded-full bg-gradient-to-br from-accent to-primary shadow-lg flex items-center justify-center transition-all hover:scale-110">
         <ScanLine className="h-6 w-6 text-accent-foreground" />
       </button>
 
@@ -1033,8 +1059,8 @@ export function Sidebar() {
                       key={location.locationId}
                       onClick={() => handleLocationSelect(location.locationId)}
                       className={`w-full p-3 sm:p-2.5 rounded-lg border-2 transition-all text-left ${selectedLocationId === location.locationId
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50 hover:bg-accent/5"
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/50 hover:bg-accent/5"
                         }`}
                     >
                       <div className="flex items-start justify-between gap-2">
