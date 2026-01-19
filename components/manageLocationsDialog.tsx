@@ -1,56 +1,95 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, Save, Trash2, Plus, MapPin } from "lucide-react"
-import type { LocationWithCount } from "@/lib/api/locations.api"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { MapPin, Plus, Trash2, Save, Loader2 } from "lucide-react"
+import { updateItemApi, getItemByIdApi, type ItemWithDetails } from "@/lib/api/items.api"
+import { type LocationWithCount } from "@/lib/api/locations.api"
+import { toast } from "sonner"
 
 interface ManageLocationsDialogProps {
     isOpen: boolean
     onClose: () => void
-    locations: LocationWithCount[]
+    itemId: string
     currentLocationIds: string[]
-    onUpdate: (locationIds: string[]) => Promise<void>
-    isSaving: boolean
+    locations: LocationWithCount[]
+    onSuccess: (updatedItem: ItemWithDetails) => void
 }
 
 export function ManageLocationsDialog({
     isOpen,
     onClose,
-    locations,
+    itemId,
     currentLocationIds,
-    onUpdate,
-    isSaving
+    locations,
+    onSuccess,
 }: ManageLocationsDialogProps) {
     const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>(currentLocationIds)
     const [newLocationId, setNewLocationId] = useState("")
+    const [isSaving, setIsSaving] = useState(false)
 
-    useEffect(() => {
+    // Update state when dialog opens with new location IDs
+    useState(() => {
         if (isOpen) {
             setSelectedLocationIds(currentLocationIds)
             setNewLocationId("")
         }
-    }, [isOpen, currentLocationIds])
+    })
 
     const handleAddLocation = () => {
         if (newLocationId && !selectedLocationIds.includes(newLocationId)) {
-            const updatedIds = [...selectedLocationIds, newLocationId]
-            setSelectedLocationIds(updatedIds)
+            setSelectedLocationIds([...selectedLocationIds, newLocationId])
             setNewLocationId("")
         }
     }
 
     const handleRemoveLocation = (locationId: string) => {
-        const updatedIds = selectedLocationIds.filter((id) => id !== locationId)
-        setSelectedLocationIds(updatedIds)
+        setSelectedLocationIds(selectedLocationIds.filter((id) => id !== locationId))
     }
 
-    const handleSubmit = async () => {
-        await onUpdate(selectedLocationIds)
+    const handleUpdateLocations = async () => {
+        setIsSaving(true)
+        try {
+            const updateData = {
+                locationIds: selectedLocationIds,
+            }
+
+            const response = await updateItemApi(itemId, updateData)
+
+            if (response.data?.item) {
+                // Reload the full item data with all relationships including transactions
+                const refreshResponse = await getItemByIdApi(itemId)
+                if (refreshResponse.data?.item) {
+                    onSuccess(refreshResponse.data.item as ItemWithDetails)
+                }
+                onClose()
+                toast.success("Locations updated successfully!")
+            }
+        } catch (error) {
+            console.error("Failed to update locations:", error)
+            toast.error(error instanceof Error ? error.message : "Failed to update locations")
+        } finally {
+            setIsSaving(false)
+        }
     }
+
+    const selectedLocations = locations.filter((l) => selectedLocationIds.includes(l.id))
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -76,7 +115,7 @@ export function ManageLocationsDialog({
                             </div>
                         ) : (
                             <div className="space-y-1.5">
-                                {locations.filter(l => selectedLocationIds.includes(l.id)).map((location) => (
+                                {selectedLocations.map((location) => (
                                     <div
                                         key={location.id}
                                         className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/30"
@@ -140,7 +179,7 @@ export function ManageLocationsDialog({
                     >
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} disabled={isSaving} size="sm">
+                    <Button onClick={handleUpdateLocations} disabled={isSaving} size="sm">
                         {isSaving ? (
                             <>
                                 <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />

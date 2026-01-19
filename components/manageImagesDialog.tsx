@@ -2,34 +2,120 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Upload, Star, Trash2, Plus, ImageIcon } from "lucide-react"
-import type { ItemImage as APIItemImage } from "@/lib/api/itemImages.api"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { ImageIcon, Upload, Plus, Star, Trash2, Loader2 } from "lucide-react"
+import {
+    smartUploadImageApi,
+    setPrimaryImageApi,
+    deleteItemImageApi,
+    getItemImagesApi,
+    type ItemImage as APIItemImage
+} from "@/lib/api/itemImages.api"
+import { toast } from "sonner"
 
 interface ManageImagesDialogProps {
     isOpen: boolean
     onClose: () => void
+    itemId: string
     images: APIItemImage[]
-    onUpload: () => void
-    onSetPrimary: (imageId: string) => Promise<void>
-    onDelete: (imageId: string) => Promise<void>
+    onImagesChange: (images: APIItemImage[]) => void
     onImageClick: (imageUrl: string) => void
-    isUploading: boolean
-    uploadProgress: number
 }
 
 export function ManageImagesDialog({
     isOpen,
     onClose,
+    itemId,
     images,
-    onUpload,
-    onSetPrimary,
-    onDelete,
+    onImagesChange,
     onImageClick,
-    isUploading,
-    uploadProgress
 }: ManageImagesDialogProps) {
+    const [isUploadingImage, setIsUploadingImage] = useState(false)
+    const [uploadProgress, setUploadProgress] = useState(0)
+
+    const handleSetPrimaryImage = async (imageId: string) => {
+        try {
+            await setPrimaryImageApi(imageId)
+            onImagesChange(
+                images.map((img) => ({
+                    ...img,
+                    isPrimary: img.id === imageId,
+                }))
+            )
+            toast.success("Primary image updated")
+        } catch (error) {
+            console.error("Failed to set primary image:", error)
+            toast.error("Failed to set primary image")
+        }
+    }
+
+    const handleDeleteImage = async (imageId: string) => {
+        try {
+            await deleteItemImageApi(imageId)
+            onImagesChange(images.filter((img) => img.id !== imageId))
+            toast.success("Image deleted")
+        } catch (error) {
+            console.error("Failed to delete image:", error)
+            toast.error("Failed to delete image")
+        }
+    }
+
+    const handleUploadImages = () => {
+        const input = document.createElement("input")
+        input.type = "file"
+        input.accept = "image/jpeg,image/png,image/gif,image/webp"
+        input.multiple = true
+        input.onchange = async (e) => {
+            const files = (e.target as HTMLInputElement).files
+            if (!files || files.length === 0) return
+
+            setIsUploadingImage(true)
+            setUploadProgress(0)
+
+            try {
+                const isPrimary = images.length === 0
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i]
+                    const isFirst = i === 0
+
+                    await smartUploadImageApi(
+                        itemId,
+                        file,
+                        isPrimary && isFirst,
+                        (progress) => {
+                            setUploadProgress(Math.round(((i + progress / 100) / files.length) * 100))
+                        }
+                    )
+                }
+
+                // Reload images
+                const response = await getItemImagesApi(itemId)
+                if (response.data?.images) {
+                    onImagesChange(response.data.images as APIItemImage[])
+                }
+
+                toast.success(`${files.length} image(s) uploaded successfully`)
+            } catch (error) {
+                console.error("Failed to upload images:", error)
+                toast.error("Failed to upload images")
+            } finally {
+                setIsUploadingImage(false)
+                setUploadProgress(0)
+            }
+        }
+        input.click()
+    }
+
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[650px]">
@@ -54,13 +140,13 @@ export function ManageImagesDialog({
                             Drag and drop images or click to browse
                         </p>
                         <Button
-                            onClick={onUpload}
+                            onClick={handleUploadImages}
                             variant="outline"
                             size="sm"
                             className="gap-1.5 h-7"
-                            disabled={isUploading}
+                            disabled={isUploadingImage}
                         >
-                            {isUploading ? (
+                            {isUploadingImage ? (
                                 <>
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                     Uploading... {uploadProgress}%
@@ -120,7 +206,7 @@ export function ManageImagesDialog({
                                                         className="flex-1 bg-white/90 hover:bg-white backdrop-blur-sm h-6 text-xs"
                                                         onClick={(e) => {
                                                             e.stopPropagation()
-                                                            onSetPrimary(image.id)
+                                                            handleSetPrimaryImage(image.id)
                                                         }}
                                                     >
                                                         <Star className="h-2.5 w-2.5 mr-0.5" />
@@ -135,7 +221,7 @@ export function ManageImagesDialog({
                                                     className="shadow-lg h-6 w-6 p-0"
                                                     onClick={(e) => {
                                                         e.stopPropagation()
-                                                        onDelete(image.id)
+                                                        handleDeleteImage(image.id)
                                                     }}
                                                 >
                                                     <Trash2 className="h-2.5 w-2.5" />

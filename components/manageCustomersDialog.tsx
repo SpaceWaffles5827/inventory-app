@@ -1,59 +1,97 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Save, Trash2, Plus, Users, Building2 } from "lucide-react"
-import type { CustomerWithCount } from "@/lib/api/customers.api"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { Users, Building2, Plus, Trash2, Save, Loader2 } from "lucide-react"
+import { updateItemApi } from "@/lib/api/items.api"
+import { getItemByIdApi, type ItemWithDetails } from "@/lib/api/items.api"
+import { type CustomerWithCount } from "@/lib/api/customers.api"
+import { toast } from "sonner"
 
 interface ManageCustomersDialogProps {
     isOpen: boolean
     onClose: () => void
-    customers: CustomerWithCount[]
+    itemId: string
     currentCustomerIds: string[]
-    onUpdate: (customerIds: string[]) => Promise<void>
-    isSaving: boolean
+    customers: CustomerWithCount[]
+    onSuccess: (updatedItem: ItemWithDetails) => void
 }
 
 export function ManageCustomersDialog({
     isOpen,
     onClose,
-    customers,
+    itemId,
     currentCustomerIds,
-    onUpdate,
-    isSaving
+    customers,
+    onSuccess,
 }: ManageCustomersDialogProps) {
     const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>(currentCustomerIds)
     const [newCustomerId, setNewCustomerId] = useState("")
+    const [isSaving, setIsSaving] = useState(false)
 
-    useEffect(() => {
+    // Update state when dialog opens with new customer IDs
+    useState(() => {
         if (isOpen) {
             setSelectedCustomerIds(currentCustomerIds)
             setNewCustomerId("")
         }
-    }, [isOpen, currentCustomerIds])
+    })
 
     const handleAddCustomer = () => {
         if (newCustomerId && !selectedCustomerIds.includes(newCustomerId)) {
-            const updatedIds = [...selectedCustomerIds, newCustomerId]
-            setSelectedCustomerIds(updatedIds)
+            setSelectedCustomerIds([...selectedCustomerIds, newCustomerId])
             setNewCustomerId("")
         }
     }
 
     const handleRemoveCustomer = (customerId: string) => {
-        const updatedIds = selectedCustomerIds.filter((id) => id !== customerId)
-        setSelectedCustomerIds(updatedIds)
+        setSelectedCustomerIds(selectedCustomerIds.filter((id) => id !== customerId))
     }
 
-    const handleSubmit = async () => {
-        await onUpdate(selectedCustomerIds)
+    const handleUpdateCustomers = async () => {
+        setIsSaving(true)
+        try {
+            const updateData = {
+                customerIds: selectedCustomerIds,
+            }
+
+            const response = await updateItemApi(itemId, updateData)
+
+            if (response.data?.item) {
+                // Reload the full item data with all relationships including transactions
+                const refreshResponse = await getItemByIdApi(itemId)
+                if (refreshResponse.data?.item) {
+                    onSuccess(refreshResponse.data.item as ItemWithDetails)
+                }
+                onClose()
+                toast.success("Customers updated successfully!")
+            }
+        } catch (error) {
+            console.error("Failed to update customers:", error)
+            toast.error(error instanceof Error ? error.message : "Failed to update customers")
+        } finally {
+            setIsSaving(false)
+        }
     }
 
-    const selectedCustomers = customers.filter(c => selectedCustomerIds.includes(c.id))
+    const selectedCustomers = customers.filter((c) => selectedCustomerIds.includes(c.id))
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -152,7 +190,7 @@ export function ManageCustomersDialog({
                     >
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} disabled={isSaving} size="sm">
+                    <Button onClick={handleUpdateCustomers} disabled={isSaving} size="sm">
                         {isSaving ? (
                             <>
                                 <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
