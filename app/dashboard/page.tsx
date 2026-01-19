@@ -255,11 +255,11 @@ export default function DashboardPage() {
           {/* Stats Cards - Mobile Compact / Desktop Cards */}
           <div className="grid grid-cols-3 gap-0 border-b lg:border-0 lg:grid-cols-3 lg:gap-6 mb-0 lg:mb-8">
             {/* Mobile: Compact Stats */}
-            <div className="lg:hidden p-3 border-r">
+            <div className="lg:hidden p-4 border-r">
               <div className="text-xs text-muted-foreground mb-1">Items</div>
               <div className="text-xl font-bold">{totalItems}</div>
             </div>
-            <div className="lg:hidden p-3 border-r">
+            <div className="lg:hidden p-4 border-r">
               <div className="text-xs text-muted-foreground mb-1">Low Stock</div>
               <div className="text-xl font-bold text-destructive">{lowStockItems}</div>
             </div>
@@ -313,7 +313,7 @@ export default function DashboardPage() {
 
           {/* Main Inventory Card - Contains everything except stats */}
           <div className="border-b lg:border lg:rounded-lg bg-card mb-0">
-            <div className="p-3 lg:p-4">
+            <div className="p-0 lg:p-4">
               {/* Header Section - Desktop Only */}
               <div className="hidden lg:flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2 lg:gap-3 mb-4">
                 <div>
@@ -341,7 +341,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Filters Section */}
-              <div className="flex flex-col gap-3 mb-4">
+              <div className="flex flex-col gap-3 mb-0 lg:mb-4">
                 {/* Search Bar with Filter Button - DESKTOP ONLY (moved to mobile header on mobile) */}
                 <div className="hidden lg:flex items-center gap-2">
                   <div className="relative flex-1">

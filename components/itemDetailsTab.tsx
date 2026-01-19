@@ -98,7 +98,7 @@ export function ItemDetailsTab({
                                             placeholder="Enter item number"
                                         />
                                     ) : (
-                                        <p className="text-sm mt-1 font-mono font-medium">{item.itemNumber}</p>
+                                        <p className="text-sm mt-1 font-mono font-medium truncate">{item.itemNumber}</p>
                                     )}
                                 </div>
                                 <div>
@@ -122,7 +122,7 @@ export function ItemDetailsTab({
                                             </Button>
                                         </div>
                                     ) : (
-                                        <p className="text-sm mt-1 font-mono font-medium">{item.barcode || "—"}</p>
+                                        <p className="text-sm mt-1 font-mono font-medium truncate">{item.barcode || "—"}</p>
                                     )}
                                 </div>
                             </div>

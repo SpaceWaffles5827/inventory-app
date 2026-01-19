@@ -1,3 +1,4 @@
+// app/dashboard/suppliers/page.tsx
 "use client"
 
 import { useState, useEffect } from "react"
@@ -14,6 +15,8 @@ import {
 import type { SupplierWithCount } from "@/lib/api/suppliers.api"
 import { AddSupplierDialog } from "@/components/addSupplierDialog"
 import { EditSupplierDialog } from "@/components/editSupplierDialog"
+import { MobileHeader } from "@/components/mobileHeader"
+import { SupplierMobileView } from "@/components/supplierMobileView"
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
@@ -103,200 +106,241 @@ export default function SuppliersPage() {
 
   const activeSuppliers = suppliers.filter((s) => s.isActive).length
   const totalItems = suppliers.reduce((sum, sup) => sum + (sup._count?.items || 0), 0)
+  const avgItems = suppliers.length > 0 ? Math.round(totalItems / suppliers.length) : 0
 
   return (
-    <div className="min-h-screen">
-      <div className="px-8 py-8">
-        {/* Header Stats */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Suppliers</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                <Users className="h-4 w-4 text-accent" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">{suppliers.length}</div>
-              <p className="text-xs text-muted-foreground mt-1">Registered suppliers</p>
-            </CardContent>
-          </Card>
+    <>
+      {/* Mobile Header with Search */}
+      <MobileHeader
+        title="Suppliers"
+        showAddButton={true}
+        onAddClick={() => setIsCreateOpen(true)}
+        showSearch={true}
+        searchValue={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search suppliers..."
+      />
 
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Active Suppliers</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Users className="h-4 w-4 text-primary" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">{activeSuppliers}</div>
-              <p className="text-xs text-muted-foreground mt-1">Currently active</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                <Users className="h-4 w-4 text-accent" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">{totalItems}</div>
-              <p className="text-xs text-muted-foreground mt-1">From all suppliers</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Avg Items per Supplier</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Users className="h-4 w-4 text-primary" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">
-                {suppliers.length > 0 ? Math.round(totalItems / suppliers.length) : 0}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Items per supplier</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Suppliers Table */}
-        <Card className="border-border/50">
-          <CardHeader>
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div>
-                <CardTitle className="text-2xl">Suppliers</CardTitle>
-                <CardDescription>Manage your supplier relationships and contacts</CardDescription>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1 md:w-80">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search suppliers..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-
-                <Button
-                  className="shadow-lg shadow-accent/20 text-white"
-                  onClick={() => setIsCreateOpen(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Supplier
-                </Button>
-              </div>
+      <div className="min-h-screen bg-background pt-14 lg:pt-0">
+        <div className="px-0 lg:px-6 lg:py-6">
+          {/* Stats Cards - Mobile Compact / Desktop Cards */}
+          <div className="grid grid-cols-4 gap-0 border-b lg:border-0 lg:grid-cols-4 lg:gap-6 mb-0 lg:mb-8">
+            {/* Mobile: Compact Stats */}
+            <div className="lg:hidden p-3 border-r">
+              <div className="text-xs text-muted-foreground mb-1">Total</div>
+              <div className="text-xl font-bold">{suppliers.length}</div>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-lg border border-border/50 overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead className="font-semibold">Supplier Name</TableHead>
-                    <TableHead className="font-semibold">Contact Person</TableHead>
-                    <TableHead className="font-semibold">Contact Info</TableHead>
-                    <TableHead className="text-center font-semibold">Items</TableHead>
-                    <TableHead className="text-center font-semibold">Status</TableHead>
-                    <TableHead className="text-right font-semibold">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredSuppliers.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        No suppliers found. Create your first supplier to get started.
-                      </TableCell>
+            <div className="lg:hidden p-3 border-r">
+              <div className="text-xs text-muted-foreground mb-1">Active</div>
+              <div className="text-xl font-bold">{activeSuppliers}</div>
+            </div>
+            <div className="lg:hidden p-3 border-r">
+              <div className="text-xs text-muted-foreground mb-1">Items</div>
+              <div className="text-xl font-bold">{totalItems}</div>
+            </div>
+            <div className="lg:hidden p-3">
+              <div className="text-xs text-muted-foreground mb-1">Avg</div>
+              <div className="text-xl font-bold">{avgItems}</div>
+            </div>
+
+            {/* Desktop: Full Cards */}
+            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Suppliers</CardTitle>
+                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                  <Users className="h-4 w-4 text-accent" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-card-foreground">{suppliers.length}</div>
+                <p className="text-xs text-muted-foreground mt-1">Registered suppliers</p>
+              </CardContent>
+            </Card>
+
+            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Active Suppliers</CardTitle>
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Users className="h-4 w-4 text-primary" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-card-foreground">{activeSuppliers}</div>
+                <p className="text-xs text-muted-foreground mt-1">Currently active</p>
+              </CardContent>
+            </Card>
+
+            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
+                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                  <Users className="h-4 w-4 text-accent" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-card-foreground">{totalItems}</div>
+                <p className="text-xs text-muted-foreground mt-1">From all suppliers</p>
+              </CardContent>
+            </Card>
+
+            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Avg Items per Supplier</CardTitle>
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Users className="h-4 w-4 text-primary" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-3xl font-bold text-card-foreground">{avgItems}</div>
+                <p className="text-xs text-muted-foreground mt-1">Items per supplier</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Main Suppliers Card */}
+          <div className="border-b lg:border lg:rounded-lg bg-card mb-0">
+            <div className="p-0 lg:p-4">
+              {/* Header Section - Desktop Only */}
+              <div className="hidden lg:flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                <div>
+                  <h1 className="text-2xl font-bold">Suppliers</h1>
+                  <p className="text-sm text-muted-foreground">Manage your supplier relationships and contacts</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1 md:w-80">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search suppliers..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+
+                  <Button
+                    className="shadow-lg shadow-accent/20 text-white"
+                    onClick={() => setIsCreateOpen(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Supplier
+                  </Button>
+                </div>
+              </div>
+
+              {/* Mobile View */}
+              <div className="lg:hidden">
+                <SupplierMobileView
+                  suppliers={filteredSuppliers}
+                  onEditClick={openEditDialog}
+                  onDeleteClick={handleDelete}
+                  onToggleStatus={toggleStatus}
+                />
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden lg:block rounded-lg border border-border/50 overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="font-semibold">Supplier Name</TableHead>
+                      <TableHead className="font-semibold">Contact Person</TableHead>
+                      <TableHead className="font-semibold">Contact Info</TableHead>
+                      <TableHead className="text-center font-semibold">Items</TableHead>
+                      <TableHead className="text-center font-semibold">Status</TableHead>
+                      <TableHead className="text-right font-semibold">Actions</TableHead>
                     </TableRow>
-                  ) : (
-                    filteredSuppliers.map((supplier) => (
-                      <TableRow key={supplier.id} className="hover:bg-muted/30 transition-colors">
-                        <TableCell className="font-medium">{supplier.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{supplier.contactPerson || "—"}</TableCell>
-                        <TableCell>
-                          <div className="space-y-1 text-sm">
-                            {supplier.email && (
-                              <div className="flex items-center gap-2 text-muted-foreground">
-                                <Mail className="h-3 w-3" />
-                                <span className="truncate max-w-[200px]">{supplier.email}</span>
-                              </div>
-                            )}
-                            {supplier.phone && (
-                              <div className="flex items-center gap-2 text-muted-foreground">
-                                <Phone className="h-3 w-3" />
-                                <span>{supplier.phone}</span>
-                              </div>
-                            )}
-                            {!supplier.email && !supplier.phone && <span className="text-muted-foreground">—</span>}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-accent/10 text-accent ring-1 ring-accent/20">
-                            {supplier._count?.items || 0} items
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <button
-                            onClick={() => toggleStatus(supplier)}
-                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 transition-colors ${supplier.isActive
-                              ? "bg-primary/10 text-primary ring-primary/20 hover:bg-primary/20"
-                              : "bg-muted text-muted-foreground ring-border hover:bg-muted/80"
-                              }`}
-                          >
-                            {supplier.isActive ? "Active" : "Inactive"}
-                          </button>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="hover:bg-accent/10 hover:text-accent"
-                              onClick={() => openEditDialog(supplier)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => handleDelete(supplier.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSuppliers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          No suppliers found. Create your first supplier to get started.
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    ) : (
+                      filteredSuppliers.map((supplier) => (
+                        <TableRow key={supplier.id} className="hover:bg-muted/30 transition-colors">
+                          <TableCell className="font-medium">{supplier.name}</TableCell>
+                          <TableCell className="text-muted-foreground">{supplier.contactPerson || "—"}</TableCell>
+                          <TableCell>
+                            <div className="space-y-1 text-sm">
+                              {supplier.email && (
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Mail className="h-3 w-3" />
+                                  <span className="truncate max-w-[200px]">{supplier.email}</span>
+                                </div>
+                              )}
+                              {supplier.phone && (
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Phone className="h-3 w-3" />
+                                  <span>{supplier.phone}</span>
+                                </div>
+                              )}
+                              {!supplier.email && !supplier.phone && <span className="text-muted-foreground">—</span>}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-accent/10 text-accent ring-1 ring-accent/20">
+                              {supplier._count?.items || 0} items
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <button
+                              onClick={() => toggleStatus(supplier)}
+                              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ring-1 transition-colors ${supplier.isActive
+                                ? "bg-primary/10 text-primary ring-primary/20 hover:bg-primary/20"
+                                : "bg-muted text-muted-foreground ring-border hover:bg-muted/80"
+                                }`}
+                            >
+                              {supplier.isActive ? "Active" : "Inactive"}
+                            </button>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="hover:bg-accent/10 hover:text-accent"
+                                onClick={() => openEditDialog(supplier)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => handleDelete(supplier.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Add Supplier Dialog */}
-        <AddSupplierDialog
-          open={isCreateOpen}
-          onOpenChange={setIsCreateOpen}
-          workspaceId={workspaceId || ""}
-          onSuccess={handleCreateSuccess}
-        />
-
-        {/* Edit Supplier Dialog */}
-        <EditSupplierDialog
-          open={isEditOpen}
-          onOpenChange={setIsEditOpen}
-          workspaceId={workspaceId || ""}
-          supplier={editingSupplier}
-          onSuccess={handleEditSuccess}
-        />
+          </div>
+        </div>
       </div>
-    </div>
+
+      {/* Dialogs */}
+      <AddSupplierDialog
+        open={isCreateOpen}
+        onOpenChange={setIsCreateOpen}
+        workspaceId={workspaceId || ""}
+        onSuccess={handleCreateSuccess}
+      />
+
+      <EditSupplierDialog
+        open={isEditOpen}
+        onOpenChange={setIsEditOpen}
+        workspaceId={workspaceId || ""}
+        supplier={editingSupplier}
+        onSuccess={handleEditSuccess}
+      />
+    </>
   )
 }

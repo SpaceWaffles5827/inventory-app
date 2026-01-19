@@ -1,3 +1,4 @@
+// app/dashboard/customers/page.tsx
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
@@ -45,6 +46,8 @@ import {
     type UpdateCustomerRequest,
 } from "@/lib/api/customers.api"
 import { useRouter } from "next/navigation"
+import { MobileHeader } from "@/components/mobileHeader"
+import { CustomerMobileView } from "@/components/customerMobileView"
 
 export default function CustomersPage() {
     const router = useRouter()
@@ -342,6 +345,9 @@ export default function CustomersPage() {
         setEmailError("")
     }
 
+    const activeCustomers = customers.filter(c => c.status === "ACTIVE").length
+    const totalOrders = customers.reduce((sum, c) => sum + (c._count?.items || 0), 0)
+
     const customersTable = useMemo(() => {
         return (
             <div className="rounded-lg border border-border/50 overflow-hidden">
@@ -443,405 +449,470 @@ export default function CustomersPage() {
     }, [paginatedCustomers, searchQuery, handleCustomerClick, toggleStatus])
 
     return (
-        <div className="min-h-screen bg-background">
-            <div className="px-8 py-8">
-                {/* Header Stats */}
-                <div className="grid md:grid-cols-4 gap-6 mb-8">
-                    <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">Total Customers</CardTitle>
-                            <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                                <Users className="h-4 w-4 text-accent" />
-                            </div>
-                        </CardHeader>
-                    </Card>
+        <>
+            {/* Mobile Header with Search */}
+            <MobileHeader
+                title="Customers"
+                showAddButton={true}
+                onAddClick={() => setIsCreateOpen(true)}
+                showSearch={true}
+                searchValue={searchQuery}
+                onSearchChange={handleSearchChange}
+                searchPlaceholder="Search customers..."
+            />
 
-                    <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">Active Customers</CardTitle>
-                            <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                                <Users className="h-4 w-4 text-primary" />
-                            </div>
-                        </CardHeader>
-                    </Card>
+            <div className="min-h-screen bg-background pt-14 lg:pt-0">
+                <div className="px-0 lg:px-6 lg:py-6">
+                    {/* Stats Cards - Mobile Compact / Desktop Cards */}
+                    <div className="grid grid-cols-4 gap-0 border-b lg:border-0 lg:grid-cols-4 lg:gap-6 mb-0 lg:mb-8">
+                        {/* Mobile: Compact Stats */}
+                        <div className="lg:hidden p-3 border-r">
+                            <div className="text-xs text-muted-foreground mb-1">Total</div>
+                            <div className="text-xl font-bold">{customers.length}</div>
+                        </div>
+                        <div className="lg:hidden p-3 border-r">
+                            <div className="text-xs text-muted-foreground mb-1">Active</div>
+                            <div className="text-xl font-bold">{activeCustomers}</div>
+                        </div>
+                        <div className="lg:hidden p-3 border-r">
+                            <div className="text-xs text-muted-foreground mb-1">Orders</div>
+                            <div className="text-xl font-bold">{totalOrders}</div>
+                        </div>
+                        <div className="lg:hidden p-3">
+                            <div className="text-xs text-muted-foreground mb-1">Revenue</div>
+                            <div className="text-xl font-bold">$0</div>
+                        </div>
 
-                    <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">Total Orders</CardTitle>
-                            <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                                <Building2 className="h-4 w-4 text-accent" />
-                            </div>
-                        </CardHeader>
-                    </Card>
-
-                    <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
-                            <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                                <Users className="h-4 w-4 text-primary" />
-                            </div>
-                        </CardHeader>
-                    </Card>
-                </div>
-
-                {/* Customers Table */}
-                <Card className="border-border/50">
-                    <CardHeader>
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                            <div>
-                                <CardTitle className="text-2xl">Customers</CardTitle>
-                                <CardDescription>Manage your customer relationships and contact information</CardDescription>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <Select
-                                    value={statusFilter}
-                                    onValueChange={(value: "ALL" | "ACTIVE" | "INACTIVE") => setStatusFilter(value)}
-                                >
-                                    <SelectTrigger className="w-[140px]">
-                                        <SelectValue placeholder="Filter by status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ALL">All Status</SelectItem>
-                                        <SelectItem value="ACTIVE">Active</SelectItem>
-                                        <SelectItem value="INACTIVE">Inactive</SelectItem>
-                                    </SelectContent>
-                                </Select>
-
-                                <div className="relative flex-1 md:w-80">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Search customers..."
-                                        value={searchQuery}
-                                        onChange={(e) => handleSearchChange(e.target.value)}
-                                        className="pl-9"
-                                    />
+                        {/* Desktop: Full Cards */}
+                        <Card className="hidden lg:block border-border/50 bg-gradient-to-br from-card to-card/50">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">Total Customers</CardTitle>
+                                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                                    <Users className="h-4 w-4 text-accent" />
                                 </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold text-card-foreground">{customers.length}</div>
+                                <p className="text-xs text-muted-foreground mt-1">Registered customers</p>
+                            </CardContent>
+                        </Card>
 
-                                {/* Create Customer Dialog */}
-                                <Dialog open={isCreateOpen} onOpenChange={(open) => {
-                                    setIsCreateOpen(open)
-                                    if (!open) resetForm()
-                                }}>
-                                    <DialogTrigger asChild>
-                                        <Button className="shadow-lg shadow-accent/20 text-white">
-                                            <Plus className="h-4 w-4" />
-                                            Add Customer
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="max-w-2xl">
-                                        <DialogHeader>
-                                            <DialogTitle>Create New Customer</DialogTitle>
-                                            <DialogDescription>Add a new customer to your inventory management system.</DialogDescription>
-                                        </DialogHeader>
-                                        <div className="space-y-4 py-4">
-                                            <div className="grid md:grid-cols-2 gap-4">
+                        <Card className="hidden lg:block border-border/50 bg-gradient-to-br from-card to-card/50">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">Active Customers</CardTitle>
+                                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                    <Users className="h-4 w-4 text-primary" />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold text-card-foreground">{activeCustomers}</div>
+                                <p className="text-xs text-muted-foreground mt-1">Currently active</p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="hidden lg:block border-border/50 bg-gradient-to-br from-card to-card/50">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">Total Orders</CardTitle>
+                                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                                    <Building2 className="h-4 w-4 text-accent" />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold text-card-foreground">{totalOrders}</div>
+                                <p className="text-xs text-muted-foreground mt-1">Total customer orders</p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="hidden lg:block border-border/50 bg-gradient-to-br from-card to-card/50">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue</CardTitle>
+                                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                    <Users className="h-4 w-4 text-primary" />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold text-card-foreground">$0.00</div>
+                                <p className="text-xs text-muted-foreground mt-1">Total revenue</p>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* Main Customers Card */}
+                    <div className="border-b lg:border lg:rounded-lg bg-card mb-0">
+                        <div className="p-0 lg:p-4">
+                            {/* Header Section - Desktop Only */}
+                            <div className="hidden lg:flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                                <div>
+                                    <h1 className="text-2xl font-bold">Customers</h1>
+                                    <p className="text-sm text-muted-foreground">Manage your customer relationships and contact information</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Select
+                                        value={statusFilter}
+                                        onValueChange={(value: "ALL" | "ACTIVE" | "INACTIVE") => setStatusFilter(value)}
+                                    >
+                                        <SelectTrigger className="w-[140px]">
+                                            <SelectValue placeholder="Filter by status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ALL">All Status</SelectItem>
+                                            <SelectItem value="ACTIVE">Active</SelectItem>
+                                            <SelectItem value="INACTIVE">Inactive</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+
+                                    <div className="relative flex-1 md:w-80">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search customers..."
+                                            value={searchQuery}
+                                            onChange={(e) => handleSearchChange(e.target.value)}
+                                            className="pl-9"
+                                        />
+                                    </div>
+
+                                    <Dialog open={isCreateOpen} onOpenChange={(open) => {
+                                        setIsCreateOpen(open)
+                                        if (!open) resetForm()
+                                    }}>
+                                        <DialogTrigger asChild>
+                                            <Button className="shadow-lg shadow-accent/20 text-white">
+                                                <Plus className="h-4 w-4 mr-2" />
+                                                Add Customer
+                                            </Button>
+                                        </DialogTrigger>
+                                        <DialogContent className="max-w-2xl">
+                                            <DialogHeader>
+                                                <DialogTitle>Create New Customer</DialogTitle>
+                                                <DialogDescription>Add a new customer to your inventory management system.</DialogDescription>
+                                            </DialogHeader>
+                                            <div className="space-y-4 py-4">
+                                                <div className="grid md:grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="name">
+                                                            Customer Name <span className="text-destructive">*</span>
+                                                        </Label>
+                                                        <Input
+                                                            id="name"
+                                                            placeholder="e.g., Acme Corporation"
+                                                            value={formData.name}
+                                                            onChange={(e) => handleInputChange('name', e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="contactPerson">Contact Person</Label>
+                                                        <Input
+                                                            id="contactPerson"
+                                                            placeholder="e.g., John Smith"
+                                                            value={formData.contactPerson}
+                                                            onChange={(e) => handleInputChange('contactPerson', e.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid md:grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="email">Email</Label>
+                                                        <Input
+                                                            id="email"
+                                                            type="email"
+                                                            placeholder="contact@customer.com"
+                                                            value={formData.email}
+                                                            onChange={(e) => handleInputChange('email', e.target.value)}
+                                                            className={emailError ? "border-destructive" : ""}
+                                                        />
+                                                        {emailError && (
+                                                            <div className="flex items-center gap-1 text-xs text-destructive">
+                                                                <AlertCircle className="h-3 w-3" />
+                                                                <span>{emailError}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="phone">Phone</Label>
+                                                        <Input
+                                                            id="phone"
+                                                            placeholder="+1 (555) 123-4567"
+                                                            value={formData.phone}
+                                                            onChange={(e) => handleInputChange('phone', e.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="name">
-                                                        Customer Name <span className="text-destructive">*</span>
-                                                    </Label>
+                                                    <Label htmlFor="address">Address</Label>
                                                     <Input
-                                                        id="name"
-                                                        placeholder="e.g., Acme Corporation"
-                                                        value={formData.name}
-                                                        onChange={(e) => handleInputChange('name', e.target.value)}
+                                                        id="address"
+                                                        placeholder="Full address including street, city, state, and zip code"
+                                                        value={formData.address}
+                                                        onChange={(e) => handleInputChange('address', e.target.value)}
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="contactPerson">Contact Person</Label>
-                                                    <Input
-                                                        id="contactPerson"
-                                                        placeholder="e.g., John Smith"
-                                                        value={formData.contactPerson}
-                                                        onChange={(e) => handleInputChange('contactPerson', e.target.value)}
-                                                    />
+                                                    <Label htmlFor="status">Status</Label>
+                                                    <Select
+                                                        value={formData.status}
+                                                        onValueChange={handleStatusChange}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select status" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="ACTIVE">Active</SelectItem>
+                                                            <SelectItem value="INACTIVE">Inactive</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                 </div>
                                             </div>
+                                            <DialogFooter>
+                                                <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>
+                                                    Cancel
+                                                </Button>
+                                                <Button onClick={handleCreate} disabled={isSubmitting}>
+                                                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                    Create Customer
+                                                </Button>
+                                            </DialogFooter>
+                                        </DialogContent>
+                                    </Dialog>
+                                </div>
+                            </div>
 
-                                            <div className="grid md:grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="email">Email</Label>
-                                                    <Input
-                                                        id="email"
-                                                        type="email"
-                                                        placeholder="contact@customer.com"
-                                                        value={formData.email}
-                                                        onChange={(e) => handleInputChange('email', e.target.value)}
-                                                        className={emailError ? "border-destructive" : ""}
-                                                    />
-                                                    {emailError && (
-                                                        <div className="flex items-center gap-1 text-xs text-destructive">
-                                                            <AlertCircle className="h-3 w-3" />
-                                                            <span>{emailError}</span>
+                            {/* Mobile View */}
+                            <div className="lg:hidden">
+                                {isLoading ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                                    </div>
+                                ) : (
+                                    <CustomerMobileView
+                                        customers={filteredCustomers}
+                                        onEditClick={openEditDialog}
+                                        onDeleteClick={handleDelete}
+                                        onToggleStatus={toggleStatus}
+                                    />
+                                )}
+                            </div>
+
+                            {/* Desktop Table View */}
+                            <div className="hidden lg:block">
+                                {isLoading ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                                    </div>
+                                ) : (
+                                    <>
+                                        {customersTable}
+
+                                        {/* Pagination Controls */}
+                                        {filteredCustomers.length > 0 && (
+                                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t">
+                                                <div className="text-sm text-muted-foreground">
+                                                    Showing <span className="font-medium text-foreground">{startIndex + 1}</span> to{" "}
+                                                    <span className="font-medium text-foreground">{Math.min(endIndex, filteredCustomers.length)}</span> of{" "}
+                                                    <span className="font-medium text-foreground">{filteredCustomers.length}</span> customers
+                                                </div>
+
+                                                <div className="flex items-center gap-6">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page:</span>
+                                                        <Select
+                                                            value={itemsPerPage.toString()}
+                                                            onValueChange={(value) => {
+                                                                setItemsPerPage(Number(value))
+                                                                setCurrentPage(1)
+                                                            }}
+                                                        >
+                                                            <SelectTrigger className="h-9 w-[70px]">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="5">5</SelectItem>
+                                                                <SelectItem value="10">10</SelectItem>
+                                                                <SelectItem value="25">25</SelectItem>
+                                                                <SelectItem value="50">50</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-1">
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                                                            disabled={currentPage === 1}
+                                                            className="h-9 w-9 p-0"
+                                                        >
+                                                            <ChevronLeft className="h-4 w-4" />
+                                                        </Button>
+
+                                                        <div className="flex items-center gap-1">
+                                                            {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                                                .filter((page) => {
+                                                                    return (
+                                                                        page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)
+                                                                    )
+                                                                })
+                                                                .map((page, index, array) => (
+                                                                    <div key={page} className="flex items-center">
+                                                                        {index > 0 && array[index - 1] !== page - 1 && (
+                                                                            <span className="px-2 text-muted-foreground">...</span>
+                                                                        )}
+                                                                        <Button
+                                                                            variant={currentPage === page ? "default" : "outline"}
+                                                                            size="sm"
+                                                                            onClick={() => setCurrentPage(page)}
+                                                                            className="h-9 w-9 p-0"
+                                                                        >
+                                                                            {page}
+                                                                        </Button>
+                                                                    </div>
+                                                                ))}
                                                         </div>
-                                                    )}
+
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                                                            disabled={currentPage === totalPages}
+                                                            className="h-9 w-9 p-0"
+                                                        >
+                                                            <ChevronRight className="h-4 w-4" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="phone">Phone</Label>
-                                                    <Input
-                                                        id="phone"
-                                                        placeholder="+1 (555) 123-4567"
-                                                        value={formData.phone}
-                                                        onChange={(e) => handleInputChange('phone', e.target.value)}
-                                                    />
-                                                </div>
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="address">Address</Label>
-                                                <Input
-                                                    id="address"
-                                                    placeholder="Full address including street, city, state, and zip code"
-                                                    value={formData.address}
-                                                    onChange={(e) => handleInputChange('address', e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <Label htmlFor="status">Status</Label>
-                                                <Select
-                                                    value={formData.status}
-                                                    onValueChange={handleStatusChange}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select status" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="ACTIVE">Active</SelectItem>
-                                                        <SelectItem value="INACTIVE">Inactive</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        </div>
-                                        <DialogFooter>
-                                            <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>
-                                                Cancel
-                                            </Button>
-                                            <Button onClick={handleCreate} disabled={isSubmitting}>
-                                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                                Create Customer
-                                            </Button>
-                                        </DialogFooter>
-                                    </DialogContent>
-                                </Dialog>
+                                        )}
+                                    </>
+                                )}
                             </div>
                         </div>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoading ? (
-                            <div className="flex items-center justify-center py-12">
-                                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                            </div>
-                        ) : (
-                            <>
-                                {customersTable}
+                    </div>
+                </div>
+            </div>
 
-                                {/* Pagination Controls */}
-                                {filteredCustomers.length > 0 && (
-                                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t">
-                                        <div className="text-sm text-muted-foreground">
-                                            Showing <span className="font-medium text-foreground">{startIndex + 1}</span> to{" "}
-                                            <span className="font-medium text-foreground">{Math.min(endIndex, filteredCustomers.length)}</span> of{" "}
-                                            <span className="font-medium text-foreground">{filteredCustomers.length}</span> customers
-                                        </div>
-
-                                        <div className="flex items-center gap-6">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page:</span>
-                                                <Select
-                                                    value={itemsPerPage.toString()}
-                                                    onValueChange={(value) => {
-                                                        setItemsPerPage(Number(value))
-                                                        setCurrentPage(1)
-                                                    }}
-                                                >
-                                                    <SelectTrigger className="h-9 w-[70px]">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="5">5</SelectItem>
-                                                        <SelectItem value="10">10</SelectItem>
-                                                        <SelectItem value="25">25</SelectItem>
-                                                        <SelectItem value="50">50</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="flex items-center gap-1">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                                                    disabled={currentPage === 1}
-                                                    className="h-9 w-9 p-0"
-                                                >
-                                                    <ChevronLeft className="h-4 w-4" />
-                                                </Button>
-
-                                                <div className="flex items-center gap-1">
-                                                    {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                                        .filter((page) => {
-                                                            // Show first page, last page, current page, and pages around current
-                                                            return (
-                                                                page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)
-                                                            )
-                                                        })
-                                                        .map((page, index, array) => (
-                                                            <div key={page} className="flex items-center">
-                                                                {index > 0 && array[index - 1] !== page - 1 && (
-                                                                    <span className="px-2 text-muted-foreground">...</span>
-                                                                )}
-                                                                <Button
-                                                                    variant={currentPage === page ? "default" : "outline"}
-                                                                    size="sm"
-                                                                    onClick={() => setCurrentPage(page)}
-                                                                    className="h-9 w-9 p-0"
-                                                                >
-                                                                    {page}
-                                                                </Button>
-                                                            </div>
-                                                        ))}
-                                                </div>
-
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                                                    disabled={currentPage === totalPages}
-                                                    className="h-9 w-9 p-0"
-                                                >
-                                                    <ChevronRight className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Edit Customer Dialog */}
-                <Dialog open={isEditOpen} onOpenChange={(open) => {
-                    setIsEditOpen(open)
-                    if (!open) {
-                        resetForm()
-                        setEditingCustomer(null)
-                    }
-                }}>
-                    <DialogContent className="max-w-2xl">
-                        <DialogHeader>
-                            <DialogTitle>Edit Customer</DialogTitle>
-                            <DialogDescription>Update customer information and contact details.</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <div className="grid md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="edit-name">
-                                        Customer Name <span className="text-destructive">*</span>
-                                    </Label>
-                                    <Input
-                                        id="edit-name"
-                                        placeholder="e.g., Acme Corporation"
-                                        value={formData.name}
-                                        onChange={(e) => handleInputChange('name', e.target.value)}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="edit-contactPerson">Contact Person</Label>
-                                    <Input
-                                        id="edit-contactPerson"
-                                        placeholder="e.g., John Smith"
-                                        value={formData.contactPerson}
-                                        onChange={(e) => handleInputChange('contactPerson', e.target.value)}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="edit-email">Email</Label>
-                                    <Input
-                                        id="edit-email"
-                                        type="email"
-                                        placeholder="contact@customer.com"
-                                        value={formData.email}
-                                        onChange={(e) => handleInputChange('email', e.target.value)}
-                                        className={emailError ? "border-destructive" : ""}
-                                    />
-                                    {emailError && (
-                                        <div className="flex items-center gap-1 text-xs text-destructive">
-                                            <AlertCircle className="h-3 w-3" />
-                                            <span>{emailError}</span>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="edit-phone">Phone</Label>
-                                    <Input
-                                        id="edit-phone"
-                                        placeholder="+1 (555) 123-4567"
-                                        value={formData.phone}
-                                        onChange={(e) => handleInputChange('phone', e.target.value)}
-                                    />
-                                </div>
-                            </div>
+            {/* Edit Customer Dialog */}
+            <Dialog open={isEditOpen} onOpenChange={(open) => {
+                setIsEditOpen(open)
+                if (!open) {
+                    resetForm()
+                    setEditingCustomer(null)
+                }
+            }}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Edit Customer</DialogTitle>
+                        <DialogDescription>Update customer information and contact details.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="grid md:grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label htmlFor="edit-address">Address</Label>
+                                <Label htmlFor="edit-name">
+                                    Customer Name <span className="text-destructive">*</span>
+                                </Label>
                                 <Input
-                                    id="edit-address"
-                                    placeholder="Full address including street, city, state, and zip code"
-                                    value={formData.address}
-                                    onChange={(e) => handleInputChange('address', e.target.value)}
+                                    id="edit-name"
+                                    placeholder="e.g., Acme Corporation"
+                                    value={formData.name}
+                                    onChange={(e) => handleInputChange('name', e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="edit-status">Status</Label>
-                                <Select
-                                    value={formData.status}
-                                    onValueChange={handleStatusChange}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ACTIVE">Active</SelectItem>
-                                        <SelectItem value="INACTIVE">Inactive</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <Label htmlFor="edit-contactPerson">Contact Person</Label>
+                                <Input
+                                    id="edit-contactPerson"
+                                    placeholder="e.g., John Smith"
+                                    value={formData.contactPerson}
+                                    onChange={(e) => handleInputChange('contactPerson', e.target.value)}
+                                />
                             </div>
                         </div>
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={isSubmitting}>
-                                Cancel
-                            </Button>
-                            <Button onClick={handleEdit} disabled={isSubmitting}>
-                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Save Changes
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
 
-                {/* Delete Confirmation Dialog */}
-                <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will permanently delete <span className="font-semibold">{customerToDelete?.name}</span>.
-                                This action cannot be undone.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                                onClick={confirmDelete}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="edit-email">Email</Label>
+                                <Input
+                                    id="edit-email"
+                                    type="email"
+                                    placeholder="contact@customer.com"
+                                    value={formData.email}
+                                    onChange={(e) => handleInputChange('email', e.target.value)}
+                                    className={emailError ? "border-destructive" : ""}
+                                />
+                                {emailError && (
+                                    <div className="flex items-center gap-1 text-xs text-destructive">
+                                        <AlertCircle className="h-3 w-3" />
+                                        <span>{emailError}</span>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="edit-phone">Phone</Label>
+                                <Input
+                                    id="edit-phone"
+                                    placeholder="+1 (555) 123-4567"
+                                    value={formData.phone}
+                                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="edit-address">Address</Label>
+                            <Input
+                                id="edit-address"
+                                placeholder="Full address including street, city, state, and zip code"
+                                value={formData.address}
+                                onChange={(e) => handleInputChange('address', e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="edit-status">Status</Label>
+                            <Select
+                                value={formData.status}
+                                onValueChange={handleStatusChange}
                             >
-                                Delete Customer
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            </div>
-        </div>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="ACTIVE">Active</SelectItem>
+                                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={isSubmitting}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleEdit} disabled={isSubmitting}>
+                            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Save Changes
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently delete <span className="font-semibold">{customerToDelete?.name}</span>.
+                            This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDelete}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete Customer
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
     )
 }
