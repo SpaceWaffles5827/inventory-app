@@ -325,41 +325,52 @@ export default function ItemDetailPage() {
   const totalQuantity = itemLocationsWithDetails.reduce((sum, loc) => sum + (loc.quantity || 0), 0)
 
   return (
-    <div className="min-h-screen bg-background pb-6">
+    <div className="min-h-screen bg-muted/30 sm:bg-background pb-6">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex items-center justify-between px-3 sm:px-6 py-3">
-          <Button variant="ghost" size="sm" onClick={() => router.back()} className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">Back</span>
-          </Button>
+      <div className="sticky top-0 z-10 bg-background">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex items-center justify-center h-9 w-9 -ml-1 rounded-full active:bg-muted sm:w-auto sm:px-3 sm:gap-2 sm:rounded-md sm:hover:bg-muted"
+          >
+            <ArrowLeft className="h-5 w-5 sm:h-4 sm:w-4" />
+            <span className="hidden sm:inline text-sm font-medium">Back</span>
+          </button>
 
-          <div className="flex items-center gap-2">
-            {!isEditing ? (
+          <h1 className="text-sm font-semibold truncate max-w-[180px] sm:hidden">{item.name}</h1>
+
+          <div className="flex items-center gap-1 sm:gap-2">
+            {isEditing ? (
               <>
-                <ItemLabelGenerator item={item} />
-                <Button onClick={() => setIsEditing(true)} className="shadow-sm gap-2">
-                  <Edit2 className="h-4 w-4" />
-                  <span className="hidden sm:inline">Edit</span>
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
+                <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-sm">
                   Cancel
                 </Button>
-                <Button onClick={handleSave} className="shadow-sm gap-2" disabled={isSaving}>
+                <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-9 px-4 gap-1.5">
                   {isSaving ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
+                      <span className="hidden sm:inline">Saving...</span>
                     </>
                   ) : (
                     <>
                       <Save className="h-4 w-4" />
-                      Save
+                      <span className="hidden sm:inline">Save</span>
                     </>
                   )}
+                </Button>
+              </>
+            ) : (
+              <>
+                <ItemLabelGenerator item={item} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsEditing(true)}
+                  className="h-9 w-9 p-0 sm:w-auto sm:px-3 sm:gap-2"
+                >
+                  <Edit2 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Edit</span>
                 </Button>
               </>
             )}
@@ -367,7 +378,7 @@ export default function ItemDetailPage() {
         </div>
       </div>
 
-      <div className="px-3 sm:px-6 pt-4 sm:pt-6">
+      <div className="sm:px-4 sm:pt-3">
         {/* Hero Section */}
         <ItemHeroSection
           item={item}
@@ -376,38 +387,39 @@ export default function ItemDetailPage() {
           lotTracking={lotTracking}
           images={images}
           totalQuantity={totalQuantity}
+          itemLocationsCount={itemLocationsWithDetails.length}
           onFormDataChange={(updatedData) => setFormData({ ...formData, ...updatedData })}
           onImageClick={(imageUrl) => setSelectedImageUrl(imageUrl)}
           onManageImagesOpen={() => setIsManageImagesOpen(true)}
         />
 
         {/* Tabs Section */}
-        <Tabs defaultValue="details" className="mt-4 sm:mt-6 gap-0">
-          <div className="bg-card border rounded-t-lg">
-            <TabsList className={`w-full grid ${lotTracking ? 'grid-cols-4' : 'grid-cols-3'} h-auto p-0 bg-transparent border-0px rounded-none`}>
+        <Tabs defaultValue="details" className="mt-2 sm:mt-4 gap-0">
+          <div className="bg-card sm:border sm:rounded-t-lg">
+            <TabsList className={`w-full grid ${lotTracking ? 'grid-cols-4' : 'grid-cols-3'} h-12 p-0 bg-transparent rounded-none`}>
               <TabsTrigger
                 value="details"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
               >
                 Details
               </TabsTrigger>
               <TabsTrigger
                 value="locations"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
               >
                 Locations
               </TabsTrigger>
               {lotTracking && (
                 <TabsTrigger
                   value="lots"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
                 >
                   Lots ({lots.filter(l => l.status === 'ACTIVE').length})
                 </TabsTrigger>
               )}
               <TabsTrigger
                 value="history"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
               >
                 History
               </TabsTrigger>

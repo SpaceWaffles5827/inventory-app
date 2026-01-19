@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import {
-    Building2, ImageIcon, Upload, Star, Package, Scan, PackageCheck
+    Building2, ImageIcon, Upload, Star, Package, Scan, PackageCheck, Plus
 } from "lucide-react"
 import type { ItemWithDetails } from "@/lib/api/items.api"
 import type { CategoryWithCount } from "@/lib/api/categories.api"
@@ -60,17 +60,18 @@ export function ItemDetailsTab({
     onOpenManageCustomers,
 }: ItemDetailsTabProps) {
     return (
-        <div className="bg-card p-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-card sm:border sm:border-t-0 sm:rounded-b-lg">
+            <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:p-4">
                 {/* Main Content */}
-                <div className="lg:col-span-2 space-y-4">
-                    {/* Item Details Card */}
-                    <div className="bg-card border rounded-lg p-4">
-                        <h3 className="text-base font-semibold mb-4">Item Information</h3>
+                <div className="sm:col-span-2 space-y-0 sm:space-y-3">
+                    {/* Item Info Section */}
+                    <div className="p-4 border-b sm:border sm:rounded-lg sm:border-b">
+                        {/* <h3 className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Item Information</h3> */}
+                        {/* Lot Tracking Toggle */}
                         {isEditing && (
-                            <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+                            <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg mb-4">
                                 <div className="flex items-center gap-2">
-                                    <PackageCheck className="h-4 w-4 text-blue-600" />
+                                    <PackageCheck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                                     <div>
                                         <Label htmlFor="lotTracking" className="text-sm font-medium">Enable Lot Tracking</Label>
                                         <p className="text-xs text-muted-foreground">Track batches with expiration dates</p>
@@ -83,31 +84,31 @@ export function ItemDetailsTab({
                                 />
                             </div>
                         )}
+
                         <div className="space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="itemNumber" className="text-xs text-muted-foreground">Item Number</Label>
+                            {/* Item Number & Barcode Row */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <span className="text-xs text-muted-foreground">Item Number</span>
                                     {isEditing ? (
                                         <Input
-                                            id="itemNumber"
                                             value={formData.itemNumber}
                                             onChange={(e) => onFormDataChange({ ...formData, itemNumber: e.target.value })}
-                                            className="font-mono h-9"
+                                            className="mt-1.5 h-9 text-sm font-mono"
                                             placeholder="Enter item number"
                                         />
                                     ) : (
-                                        <div className="text-sm font-medium font-mono">{item.itemNumber}</div>
+                                        <p className="text-sm mt-1 font-mono font-medium">{item.itemNumber}</p>
                                     )}
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="barcode" className="text-xs text-muted-foreground">Barcode</Label>
+                                <div>
+                                    <span className="text-xs text-muted-foreground">Barcode</span>
                                     {isEditing ? (
-                                        <div className="flex gap-2">
+                                        <div className="flex gap-2 mt-1.5">
                                             <Input
-                                                id="barcode"
                                                 value={formData.barcode}
                                                 onChange={(e) => onFormDataChange({ ...formData, barcode: e.target.value })}
-                                                className="font-mono h-9 flex-1"
+                                                className="h-9 text-sm flex-1 font-mono"
                                                 placeholder="Enter barcode"
                                             />
                                             <Button
@@ -121,17 +122,33 @@ export function ItemDetailsTab({
                                             </Button>
                                         </div>
                                     ) : (
-                                        <div className="text-sm font-medium font-mono">{item.barcode || "—"}</div>
+                                        <p className="text-sm mt-1 font-mono font-medium">{item.barcode || "—"}</p>
                                     )}
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="category" className="text-xs text-muted-foreground">Category</Label>
+                            {/* Description */}
+                            <div>
+                                <span className="text-xs text-muted-foreground">Description</span>
+                                {isEditing ? (
+                                    <Textarea
+                                        value={formData.description}
+                                        onChange={(e) => onFormDataChange({ ...formData, description: e.target.value })}
+                                        className="mt-1.5 h-20 text-sm resize-none"
+                                        placeholder="Enter description"
+                                    />
+                                ) : (
+                                    <p className="text-sm mt-1 leading-relaxed">{item.description || "—"}</p>
+                                )}
+                            </div>
+
+                            {/* Category & Unit Row */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <span className="text-xs text-muted-foreground">Category</span>
                                     {isEditing ? (
                                         <Select value={formData.categoryId} onValueChange={(value) => onFormDataChange({ ...formData, categoryId: value })}>
-                                            <SelectTrigger id="category" className="h-9">
+                                            <SelectTrigger className="mt-1.5 h-9 text-sm">
                                                 <SelectValue placeholder="Select category" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -143,14 +160,31 @@ export function ItemDetailsTab({
                                             </SelectContent>
                                         </Select>
                                     ) : (
-                                        <div className="text-sm font-medium">{item.category?.name || "Uncategorized"}</div>
+                                        <p className="text-sm mt-1 font-medium">{item.category?.name || "Uncategorized"}</p>
                                     )}
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="supplier" className="text-xs text-muted-foreground">Supplier</Label>
+                                <div>
+                                    <span className="text-xs text-muted-foreground">Unit</span>
+                                    {isEditing ? (
+                                        <Input
+                                            value={formData.unit}
+                                            onChange={(e) => onFormDataChange({ ...formData, unit: e.target.value })}
+                                            className="mt-1.5 h-9 text-sm"
+                                            placeholder="e.g., EA, BOX"
+                                        />
+                                    ) : (
+                                        <p className="text-sm mt-1 font-medium">{item.unit || "—"}</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Supplier & Cost Row */}
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <span className="text-xs text-muted-foreground">Supplier</span>
                                     {isEditing ? (
                                         <Select value={formData.supplierId} onValueChange={(value) => onFormDataChange({ ...formData, supplierId: value })}>
-                                            <SelectTrigger id="supplier" className="h-9">
+                                            <SelectTrigger className="mt-1.5 h-9 text-sm">
                                                 <SelectValue placeholder="Select supplier" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -162,79 +196,46 @@ export function ItemDetailsTab({
                                             </SelectContent>
                                         </Select>
                                     ) : (
-                                        <div className="text-sm font-medium flex items-center gap-1.5">
+                                        <p className="text-sm mt-1 flex items-center gap-1.5 font-medium">
                                             <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                                             {item.supplier?.name || "Unknown"}
-                                        </div>
+                                        </p>
                                     )}
                                 </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="cost" className="text-xs text-muted-foreground">Unit Cost</Label>
+                                <div>
+                                    <span className="text-xs text-muted-foreground">Unit Cost</span>
                                     {isEditing ? (
                                         <Input
-                                            id="cost"
                                             type="number"
                                             step="0.01"
                                             min="0"
                                             value={formData.cost}
                                             onChange={(e) => onFormDataChange({ ...formData, cost: e.target.value })}
-                                            className="h-9"
-                                            placeholder="Enter unit cost"
+                                            className="mt-1.5 h-9 text-sm"
+                                            placeholder="0.00"
                                         />
                                     ) : (
-                                        <div className="text-sm font-medium">${item.cost.toFixed(2)}</div>
+                                        <p className="text-sm mt-1 font-medium">${item.cost.toFixed(2)}</p>
                                     )}
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="unit" className="text-xs text-muted-foreground">Unit</Label>
-                                    {isEditing ? (
-                                        <Input
-                                            id="unit"
-                                            value={formData.unit}
-                                            onChange={(e) => onFormDataChange({ ...formData, unit: e.target.value })}
-                                            className="h-9"
-                                            placeholder="e.g., EA, BOX, KG"
-                                        />
-                                    ) : (
-                                        <div className="text-sm font-medium">{item.unit || "—"}</div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="description" className="text-xs text-muted-foreground">Description</Label>
-                                {isEditing ? (
-                                    <Textarea
-                                        id="description"
-                                        value={formData.description}
-                                        onChange={(e) => onFormDataChange({ ...formData, description: e.target.value })}
-                                        rows={3}
-                                        placeholder="Enter description"
-                                    />
-                                ) : (
-                                    <div className="text-sm">{item.description || "—"}</div>
-                                )}
                             </div>
                         </div>
                     </div>
 
-                    {/* Product Images Card */}
-                    <div className="bg-card border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-base font-semibold">Product Images</h3>
-                            <Button variant="outline" size="sm" onClick={onOpenManageImages} className="gap-2">
-                                <Upload className="h-4 w-4" />
-                                <span className="hidden sm:inline">Manage</span>
+                    {/* Images Section */}
+                    <div className="p-4 border-b sm:border sm:rounded-lg sm:border-b">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-xs uppercase tracking-wide text-muted-foreground">Product Images</h3>
+                            <Button variant="ghost" size="sm" onClick={onOpenManageImages} className="h-7 text-xs gap-1.5 -mr-2">
+                                <Upload className="h-3.5 w-3.5" />
+                                Manage
                             </Button>
                         </div>
-                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap sm:overflow-visible scrollbar-hide">
                             {images.map((image) => (
                                 <div
                                     key={image.id}
-                                    className="relative aspect-square rounded-lg overflow-hidden bg-muted group cursor-pointer"
+                                    className="relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-muted cursor-pointer active:scale-95 transition-transform"
                                     onClick={() => onImageClick(`/api/items/images/image/${image.id}`)}
                                 >
                                     <img
@@ -243,33 +244,33 @@ export function ItemDetailsTab({
                                         className="w-full h-full object-cover"
                                     />
                                     {image.isPrimary && (
-                                        <div className="absolute top-2 right-2">
-                                            <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white shadow-lg border-0 text-xs">
-                                                <Star className="h-2 w-2 mr-0.5 fill-current" />
-                                                Primary
-                                            </Badge>
-                                        </div>
+                                        <div className="absolute inset-0 ring-2 ring-primary ring-inset rounded-lg" />
                                     )}
                                 </div>
                             ))}
-                            {images.length === 0 && (
-                                <div className="aspect-square rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center col-span-3">
-                                    <div className="text-center p-4">
-                                        <ImageIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                                        <p className="text-xs text-muted-foreground">No images yet</p>
-                                    </div>
+                            {images.length === 0 ? (
+                                <div className="flex-shrink-0 w-16 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center">
+                                    <ImageIcon className="h-5 w-5 text-muted-foreground/50" />
                                 </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="flex-shrink-0 w-16 h-16 rounded-lg border-2 border-dashed border-muted-foreground/30 flex items-center justify-center active:bg-muted/50"
+                                    onClick={onOpenManageImages}
+                                >
+                                    <Plus className="h-5 w-5 text-muted-foreground" />
+                                </button>
                             )}
                         </div>
                     </div>
                 </div>
 
                 {/* Sidebar */}
-                <div className="space-y-4">
-                    {/* Quick Stats */}
-                    <div className="bg-card border rounded-lg p-4">
-                        <h3 className="text-base font-semibold mb-4">Quick Stats</h3>
-                        <div className="space-y-3">
+                <div className="space-y-0 sm:space-y-3">
+                    {/* Quick Stats - Desktop only (mobile in hero) */}
+                    <div className="hidden sm:block p-4 border rounded-lg">
+                        <h3 className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Quick Stats</h3>
+                        <div className="space-y-2">
                             <div className="flex justify-between items-center">
                                 <span className="text-sm text-muted-foreground">Total Value</span>
                                 <span className="text-sm font-semibold">${(totalQuantity * item.cost).toFixed(2)}</span>
@@ -290,13 +291,13 @@ export function ItemDetailsTab({
                     </div>
 
                     {/* Customers */}
-                    <div className="bg-card border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-base font-semibold">Customers</h3>
+                    <div className="p-4 border-b sm:border sm:rounded-lg sm:border-b">
+                        <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xs uppercase tracking-wide text-muted-foreground">Customers</h3>
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 text-xs"
+                                className="h-6 text-xs -mr-2"
                                 onClick={onOpenManageCustomers}
                                 disabled={isEditing}
                             >
@@ -304,9 +305,9 @@ export function ItemDetailsTab({
                             </Button>
                         </div>
                         {item.customers && item.customers.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-1.5">
                                 {item.customers.map((customerLink) => (
-                                    <Badge key={customerLink.id} variant="secondary" className="text-xs">
+                                    <Badge key={customerLink.id} variant="outline" className="text-xs">
                                         {customerLink.customer.name}
                                     </Badge>
                                 ))}
