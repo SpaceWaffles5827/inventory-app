@@ -3,7 +3,9 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { AddCustomerDialog } from "@/components/addCustomerDialog"
+import { EditCustomerDialog } from "@/components/editCustomerDialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -33,17 +35,14 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Plus, Pencil, Trash2, Users, Search, Mail, Phone, Building2, Loader2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react"
+import { Pencil, Trash2, Users, Search, Mail, Phone, Building2, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
 import {
     getCustomersApi,
-    createCustomerApi,
     updateCustomerApi,
     deleteCustomerApi,
     type CustomerWithCount,
     type GetCustomersParams,
-    type CreateCustomerRequest,
-    type UpdateCustomerRequest,
 } from "@/lib/api/customers.api"
 import { useRouter } from "next/navigation"
 import { MobileHeader } from "@/components/mobileHeader"
@@ -58,41 +57,15 @@ export default function CustomersPage() {
     const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL")
     const [isCreateOpen, setIsCreateOpen] = useState(false)
     const [isEditOpen, setIsEditOpen] = useState(false)
-    const [isSubmitting, setIsSubmitting] = useState(false)
     const [editingCustomer, setEditingCustomer] = useState<CustomerWithCount | null>(null)
-    const [emailError, setEmailError] = useState("")
     const [currentPage, setCurrentPage] = useState(1)
     const [itemsPerPage, setItemsPerPage] = useState(10)
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
     const [customerToDelete, setCustomerToDelete] = useState<CustomerWithCount | null>(null)
-    const [formData, setFormData] = useState({
-        name: "",
-        contactPerson: "",
-        email: "",
-        phone: "",
-        address: "",
-        status: "ACTIVE" as "ACTIVE" | "INACTIVE",
-    })
 
     const handleCustomerClick = useCallback((customerId: string) => {
         router.push(`/dashboard/customers/${customerId}`)
     }, [router])
-
-    // Email validation function
-    const validateEmail = (email: string): boolean => {
-        if (!email.trim()) return true // Empty email is allowed
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-        return emailRegex.test(email.trim())
-    }
-
-    // Memoized input handlers
-    const handleInputChange = useCallback((field: keyof typeof formData, value: string) => {
-        setFormData(prev => ({ ...prev, [field]: value }))
-    }, [])
-
-    const handleStatusChange = useCallback((value: "ACTIVE" | "INACTIVE") => {
-        setFormData(prev => ({ ...prev, status: value }))
-    }, [])
 
     const loadCustomers = useCallback(async (workspaceId: string) => {
         try {
@@ -151,123 +124,6 @@ export default function CustomersPage() {
         setCurrentPage(1)
     }
 
-    const handleCreate = async () => {
-        // Reset email error
-        setEmailError("")
-
-        // Validation
-        if (!formData.name.trim()) {
-            toast.error("Validation Error", {
-                description: "Customer name is required"
-            })
-            return
-        }
-
-        if (formData.email.trim() && !validateEmail(formData.email)) {
-            setEmailError("Please enter a valid email address")
-            toast.error("Validation Error", {
-                description: "Please enter a valid email address"
-            })
-            return
-        }
-
-        try {
-            setIsSubmitting(true)
-            const createData: CreateCustomerRequest = {
-                name: formData.name.trim(),
-                contactPerson: formData.contactPerson.trim() || undefined,
-                email: formData.email.trim() || undefined,
-                phone: formData.phone.trim() || undefined,
-                address: formData.address.trim() || undefined,
-                status: formData.status,
-                workspaceId: workspaceId,
-            }
-
-            const response = await createCustomerApi(createData)
-
-            if (response.status === "success") {
-                toast.success("Customer created successfully")
-                setFormData({
-                    name: "",
-                    contactPerson: "",
-                    email: "",
-                    phone: "",
-                    address: "",
-                    status: "ACTIVE",
-                })
-                setEmailError("")
-                setIsCreateOpen(false)
-                loadCustomers(workspaceId)
-            }
-        } catch (error) {
-            toast.error("Failed to create customer", {
-                description: error instanceof Error ? error.message : "An unexpected error occurred"
-            })
-        } finally {
-            setIsSubmitting(false)
-        }
-    }
-
-    const handleEdit = async () => {
-        // Reset email error
-        setEmailError("")
-
-        // Validation
-        if (!formData.name.trim()) {
-            toast.error("Validation Error", {
-                description: "Customer name is required"
-            })
-            return
-        }
-
-        if (formData.email.trim() && !validateEmail(formData.email)) {
-            setEmailError("Please enter a valid email address")
-            toast.error("Validation Error", {
-                description: "Please enter a valid email address"
-            })
-            return
-        }
-
-        if (!editingCustomer) return
-
-        try {
-            setIsSubmitting(true)
-            const updateData: UpdateCustomerRequest = {
-                name: formData.name.trim(),
-                contactPerson: formData.contactPerson.trim() || undefined,
-                email: formData.email.trim() || undefined,
-                phone: formData.phone.trim() || undefined,
-                address: formData.address.trim() || undefined,
-                status: formData.status,
-                workspaceId,
-            }
-
-            const response = await updateCustomerApi(editingCustomer.id, updateData)
-
-            if (response.status === "success") {
-                toast.success("Customer updated successfully")
-                setFormData({
-                    name: "",
-                    contactPerson: "",
-                    email: "",
-                    phone: "",
-                    address: "",
-                    status: "ACTIVE",
-                })
-                setEmailError("")
-                setEditingCustomer(null)
-                setIsEditOpen(false)
-                loadCustomers(workspaceId)
-            }
-        } catch (error) {
-            toast.error("Failed to update customer", {
-                description: error instanceof Error ? error.message : "An unexpected error occurred"
-            })
-        } finally {
-            setIsSubmitting(false)
-        }
-    }
-
     const handleDelete = async (customer: CustomerWithCount) => {
         if (customer._count.items > 0) {
             toast.error("Cannot Delete", {
@@ -321,28 +177,7 @@ export default function CustomersPage() {
 
     const openEditDialog = (customer: CustomerWithCount) => {
         setEditingCustomer(customer)
-        setFormData({
-            name: customer.name,
-            contactPerson: customer.contactPerson || "",
-            email: customer.email || "",
-            phone: customer.phone || "",
-            address: customer.address || "",
-            status: customer.status,
-        })
-        setEmailError("")
         setIsEditOpen(true)
-    }
-
-    const resetForm = () => {
-        setFormData({
-            name: "",
-            contactPerson: "",
-            email: "",
-            phone: "",
-            address: "",
-            status: "ACTIVE",
-        })
-        setEmailError("")
     }
 
     const activeCustomers = customers.filter(c => c.status === "ACTIVE").length
@@ -571,109 +406,12 @@ export default function CustomersPage() {
                                         />
                                     </div>
 
-                                    <Dialog open={isCreateOpen} onOpenChange={(open) => {
-                                        setIsCreateOpen(open)
-                                        if (!open) resetForm()
-                                    }}>
-                                        <DialogTrigger asChild>
-                                            <Button className="shadow-lg shadow-accent/20 text-white">
-                                                <Plus className="h-4 w-4 mr-2" />
-                                                Add Customer
-                                            </Button>
-                                        </DialogTrigger>
-                                        <DialogContent className="max-w-2xl">
-                                            <DialogHeader>
-                                                <DialogTitle>Create New Customer</DialogTitle>
-                                                <DialogDescription>Add a new customer to your inventory management system.</DialogDescription>
-                                            </DialogHeader>
-                                            <div className="space-y-4 py-4">
-                                                <div className="grid md:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="name">
-                                                            Customer Name <span className="text-destructive">*</span>
-                                                        </Label>
-                                                        <Input
-                                                            id="name"
-                                                            placeholder="e.g., Acme Corporation"
-                                                            value={formData.name}
-                                                            onChange={(e) => handleInputChange('name', e.target.value)}
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="contactPerson">Contact Person</Label>
-                                                        <Input
-                                                            id="contactPerson"
-                                                            placeholder="e.g., John Smith"
-                                                            value={formData.contactPerson}
-                                                            onChange={(e) => handleInputChange('contactPerson', e.target.value)}
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                <div className="grid md:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="email">Email</Label>
-                                                        <Input
-                                                            id="email"
-                                                            type="email"
-                                                            placeholder="contact@customer.com"
-                                                            value={formData.email}
-                                                            onChange={(e) => handleInputChange('email', e.target.value)}
-                                                            className={emailError ? "border-destructive" : ""}
-                                                        />
-                                                        {emailError && (
-                                                            <div className="flex items-center gap-1 text-xs text-destructive">
-                                                                <AlertCircle className="h-3 w-3" />
-                                                                <span>{emailError}</span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="phone">Phone</Label>
-                                                        <Input
-                                                            id="phone"
-                                                            placeholder="+1 (555) 123-4567"
-                                                            value={formData.phone}
-                                                            onChange={(e) => handleInputChange('phone', e.target.value)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="address">Address</Label>
-                                                    <Input
-                                                        id="address"
-                                                        placeholder="Full address including street, city, state, and zip code"
-                                                        value={formData.address}
-                                                        onChange={(e) => handleInputChange('address', e.target.value)}
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="status">Status</Label>
-                                                    <Select
-                                                        value={formData.status}
-                                                        onValueChange={handleStatusChange}
-                                                    >
-                                                        <SelectTrigger>
-                                                            <SelectValue placeholder="Select status" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="ACTIVE">Active</SelectItem>
-                                                            <SelectItem value="INACTIVE">Inactive</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            </div>
-                                            <DialogFooter>
-                                                <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>
-                                                    Cancel
-                                                </Button>
-                                                <Button onClick={handleCreate} disabled={isSubmitting}>
-                                                    {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                                    Create Customer
-                                                </Button>
-                                            </DialogFooter>
-                                        </DialogContent>
-                                    </Dialog>
+                                    <AddCustomerDialog
+                                        open={isCreateOpen}
+                                        onOpenChange={setIsCreateOpen}
+                                        workspaceId={workspaceId}
+                                        onSuccess={() => loadCustomers(workspaceId)}
+                                    />
                                 </div>
                             </div>
 
@@ -791,106 +529,20 @@ export default function CustomersPage() {
             </div>
 
             {/* Edit Customer Dialog */}
-            <Dialog open={isEditOpen} onOpenChange={(open) => {
-                setIsEditOpen(open)
-                if (!open) {
-                    resetForm()
+            <EditCustomerDialog
+                open={isEditOpen}
+                onOpenChange={(open) => {
+                    setIsEditOpen(open)
+                    if (!open) setEditingCustomer(null)
+                }}
+                customer={editingCustomer}
+                workspaceId={workspaceId}
+                onSuccess={() => {
                     setEditingCustomer(null)
-                }
-            }}>
-                <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>Edit Customer</DialogTitle>
-                        <DialogDescription>Update customer information and contact details.</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="grid md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="edit-name">
-                                    Customer Name <span className="text-destructive">*</span>
-                                </Label>
-                                <Input
-                                    id="edit-name"
-                                    placeholder="e.g., Acme Corporation"
-                                    value={formData.name}
-                                    onChange={(e) => handleInputChange('name', e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="edit-contactPerson">Contact Person</Label>
-                                <Input
-                                    id="edit-contactPerson"
-                                    placeholder="e.g., John Smith"
-                                    value={formData.contactPerson}
-                                    onChange={(e) => handleInputChange('contactPerson', e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="grid md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="edit-email">Email</Label>
-                                <Input
-                                    id="edit-email"
-                                    type="email"
-                                    placeholder="contact@customer.com"
-                                    value={formData.email}
-                                    onChange={(e) => handleInputChange('email', e.target.value)}
-                                    className={emailError ? "border-destructive" : ""}
-                                />
-                                {emailError && (
-                                    <div className="flex items-center gap-1 text-xs text-destructive">
-                                        <AlertCircle className="h-3 w-3" />
-                                        <span>{emailError}</span>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="edit-phone">Phone</Label>
-                                <Input
-                                    id="edit-phone"
-                                    placeholder="+1 (555) 123-4567"
-                                    value={formData.phone}
-                                    onChange={(e) => handleInputChange('phone', e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="edit-address">Address</Label>
-                            <Input
-                                id="edit-address"
-                                placeholder="Full address including street, city, state, and zip code"
-                                value={formData.address}
-                                onChange={(e) => handleInputChange('address', e.target.value)}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="edit-status">Status</Label>
-                            <Select
-                                value={formData.status}
-                                onValueChange={handleStatusChange}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="ACTIVE">Active</SelectItem>
-                                    <SelectItem value="INACTIVE">Inactive</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsEditOpen(false)} disabled={isSubmitting}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleEdit} disabled={isSubmitting}>
-                            {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Save Changes
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                    setIsEditOpen(false)
+                    loadCustomers(workspaceId)
+                }}
+            />
 
             {/* Delete Confirmation Dialog */}
             <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>

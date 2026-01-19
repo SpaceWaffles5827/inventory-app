@@ -56,6 +56,8 @@ export function AddLocationDialog({
         description: "",
     })
 
+    const [isCreating, setIsCreating] = useState(false)
+
     // Update location levels when dialog opens or default structure changes
     useEffect(() => {
         if (open) {
@@ -140,6 +142,8 @@ export function AddLocationDialog({
         const code = generateLocationCode()
         if (!code) return
 
+        setIsCreating(true)
+
         try {
             const structure: LocationStructure = locationLevels
                 .filter((level) => level.value.trim())
@@ -169,6 +173,8 @@ export function AddLocationDialog({
         } catch (error) {
             console.error("Failed to create location:", error)
             alert(error instanceof Error ? error.message : "Failed to create location")
+        } finally {
+            setIsCreating(false)
         }
     }
 
@@ -176,20 +182,50 @@ export function AddLocationDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0">
-                <DialogHeader className="flex-shrink-0 px-6 pt-5 pb-3 border-b border-border/50">
-                    <DialogTitle className="flex items-center gap-2 text-lg">
-                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <Settings2 className="h-4 w-4 text-primary" />
-                        </div>
-                        Create Location
-                    </DialogTitle>
-                    <DialogDescription className="text-sm mt-1">
-                        Build a custom location structure for your warehouse
-                    </DialogDescription>
+            <DialogContent
+                enableKeyboardAvoidance={true}
+                hideClose={true}
+                className="max-w-5xl max-h-[85vh] flex flex-col p-0 sm:p-6"
+            >
+                {/* Header */}
+                <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-3 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-b">
+                    {/* Mobile Header with Actions */}
+                    <div className="flex items-center justify-between gap-2 sm:hidden">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onOpenChange(false)}
+                            disabled={isCreating}
+                            className="h-9"
+                        >
+                            Cancel
+                        </Button>
+                        <DialogTitle className="text-base font-semibold">Create Location</DialogTitle>
+                        <Button
+                            size="sm"
+                            onClick={handleCreate}
+                            disabled={!isFormValid || isCreating}
+                            className="h-9"
+                        >
+                            {isCreating ? "Creating..." : "Create"}
+                        </Button>
+                    </div>
+
+                    {/* Desktop Header */}
+                    <div className="hidden sm:block">
+                        <DialogTitle className="flex items-center gap-2 text-lg">
+                            <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <Settings2 className="h-4 w-4 text-primary" />
+                            </div>
+                            Create Location
+                        </DialogTitle>
+                        <DialogDescription className="text-sm mt-1">
+                            Build a custom location structure for your warehouse
+                        </DialogDescription>
+                    </div>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+                <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 min-h-0">
                     <div className="grid lg:grid-cols-2 gap-6 h-full">
                         <div className="space-y-3 flex flex-col">
                             <div className="flex items-center justify-between pb-2 border-b border-border/30">
@@ -234,6 +270,10 @@ export function AddLocationDialog({
                                                     value={level.label}
                                                     onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
                                                     className="h-8 text-sm bg-background border-border/50 focus:border-primary/50 transition-colors"
+                                                    autoComplete="off"
+                                                    autoCorrect="off"
+                                                    autoCapitalize="off"
+                                                    spellCheck="false"
                                                 />
                                             </div>
                                             <div className="w-24">
@@ -243,6 +283,10 @@ export function AddLocationDialog({
                                                     onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
                                                     maxLength={10}
                                                     className="h-8 text-sm font-mono bg-background border-border/50 focus:border-primary/50 transition-colors"
+                                                    autoComplete="off"
+                                                    autoCorrect="off"
+                                                    autoCapitalize="off"
+                                                    spellCheck="false"
                                                 />
                                             </div>
                                         </div>
@@ -289,10 +333,14 @@ export function AddLocationDialog({
                                 </Label>
                                 <Textarea
                                     id="description"
-                                    placeholder="Add any relevant information about this location, such as storage conditions, access restrictions, or special handling requirements..."
+                                    placeholder="Storage conditions, access restrictions, handling notes..."
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                     className="flex-1 resize-none bg-background border-border/50 focus:border-primary/50 transition-colors text-sm min-h-0"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
+                                    spellCheck="false"
                                 />
                                 <p className="text-xs text-muted-foreground flex-shrink-0">
                                     This information will be visible to all team members with access to this location
@@ -302,20 +350,22 @@ export function AddLocationDialog({
                     </div>
                 </div>
 
-                <DialogFooter className="flex-shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
+                {/* Footer - Desktop Only */}
+                <DialogFooter className="hidden sm:flex flex-shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
                     <Button
                         variant="outline"
                         onClick={() => onOpenChange(false)}
+                        disabled={isCreating}
                         className="h-9 px-5 hover:bg-accent/10 transition-all"
                     >
                         Cancel
                     </Button>
                     <Button
                         onClick={handleCreate}
-                        disabled={!isFormValid}
+                        disabled={!isFormValid || isCreating}
                         className="h-9 px-5 shadow-md hover:shadow-lg transition-all"
                     >
-                        Create Location
+                        {isCreating ? "Creating..." : "Create Location"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

@@ -101,26 +101,40 @@ export default function CategoriesPage() {
         searchPlaceholder="Search categories..."
       />
 
-      <div className="min-h-screen bg-background pt-14 lg:pt-0">
-        <div className="px-0 lg:px-6 lg:py-6">
-          {/* Stats Cards - Mobile Compact / Desktop Cards */}
-          <div className="grid grid-cols-3 gap-0 border-b lg:border-0 lg:grid-cols-3 lg:gap-6 mb-0 lg:mb-8">
-            {/* Mobile: Compact Stats */}
-            <div className="lg:hidden p-4 border-r">
-              <div className="text-xs text-muted-foreground mb-1">Categories</div>
-              <div className="text-xl font-bold">{categories.length}</div>
-            </div>
-            <div className="lg:hidden p-4 border-r">
-              <div className="text-xs text-muted-foreground mb-1">Items</div>
-              <div className="text-xl font-bold">{totalItems}</div>
-            </div>
-            <div className="lg:hidden p-4">
-              <div className="text-xs text-muted-foreground mb-1">Avg/Cat</div>
-              <div className="text-xl font-bold">{avgItems}</div>
-            </div>
+      {/* Mobile: Fixed height container with proper scrolling */}
+      <div className="lg:hidden fixed inset-0 top-14 flex flex-col overflow-hidden">
+        {/* Stats Bar - Fixed at top */}
+        <div className="grid grid-cols-3 gap-0 border-b flex-shrink-0">
+          <div className="p-4 border-r">
+            <div className="text-xs text-muted-foreground mb-1">Categories</div>
+            <div className="text-xl font-bold">{categories.length}</div>
+          </div>
+          <div className="p-4 border-r">
+            <div className="text-xs text-muted-foreground mb-1">Items</div>
+            <div className="text-xl font-bold">{totalItems}</div>
+          </div>
+          <div className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Avg/Cat</div>
+            <div className="text-xl font-bold">{avgItems}</div>
+          </div>
+        </div>
 
-            {/* Desktop: Full Cards */}
-            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <CategoryMobileView
+            categories={filteredCategories}
+            onEditClick={openEditDialog}
+            onDeleteClick={handleDelete}
+          />
+        </div>
+      </div>
+
+      {/* Desktop View */}
+      <div className="hidden lg:block min-h-screen bg-background">
+        <div className="px-6 py-6">
+          {/* Stats Cards - Desktop */}
+          <div className="grid grid-cols-3 gap-6 mb-8">
+            <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Total Categories</CardTitle>
                 <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -133,7 +147,7 @@ export default function CategoriesPage() {
               </CardContent>
             </Card>
 
-            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
+            <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
                 <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -146,7 +160,7 @@ export default function CategoriesPage() {
               </CardContent>
             </Card>
 
-            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
+            <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Avg Items per Category</CardTitle>
                 <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -161,10 +175,10 @@ export default function CategoriesPage() {
           </div>
 
           {/* Main Categories Card */}
-          <div className="border-b lg:border lg:rounded-lg bg-card mb-0">
-            <div className="p-0 lg:p-4">
-              {/* Header Section - Desktop Only */}
-              <div className="hidden lg:flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+          <div className="border rounded-lg bg-card">
+            <div className="p-4">
+              {/* Header Section */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
                 <div>
                   <h1 className="text-2xl font-bold">Categories</h1>
                   <p className="text-sm text-muted-foreground">Organize your inventory with custom categories</p>
@@ -190,17 +204,8 @@ export default function CategoriesPage() {
                 </div>
               </div>
 
-              {/* Mobile View */}
-              <div className="lg:hidden">
-                <CategoryMobileView
-                  categories={filteredCategories}
-                  onEditClick={openEditDialog}
-                  onDeleteClick={handleDelete}
-                />
-              </div>
-
               {/* Desktop Table View */}
-              <div className="hidden lg:block rounded-lg border border-border/50 overflow-hidden">
+              <div className="rounded-lg border border-border/50 overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">

@@ -4,7 +4,6 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import {
     Dialog,
     DialogContent,
@@ -13,62 +12,121 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { createSupplierApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { AlertCircle } from "lucide-react"
 
-interface AddSupplierDialogProps {
+interface AddCustomerDialogProps {
     open: boolean
     onOpenChange: (open: boolean) => void
     workspaceId: string
-    onSuccess: (supplier: SupplierWithCount) => void
+    onSuccess: () => void
 }
 
-export function AddSupplierDialog({
+export function AddCustomerDialog({
     open,
     onOpenChange,
     workspaceId,
     onSuccess,
-}: AddSupplierDialogProps) {
+}: AddCustomerDialogProps) {
     const [formData, setFormData] = useState({
         name: "",
         contactPerson: "",
         email: "",
         phone: "",
         address: "",
+        status: "ACTIVE" as "ACTIVE" | "INACTIVE",
     })
-    const [isCreating, setIsCreating] = useState(false)
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [emailError, setEmailError] = useState("")
 
-    const handleCreate = async () => {
-        if (!formData.name.trim()) return
+    const validateEmail = (email: string): boolean => {
+        if (!email.trim()) return true
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        return emailRegex.test(email.trim())
+    }
 
-        setIsCreating(true)
+    const handleInputChange = (field: keyof typeof formData, value: string) => {
+        setFormData(prev => ({ ...prev, [field]: value }))
+        if (field === "email") {
+            setEmailError("")
+        }
+    }
+
+    const handleStatusChange = (value: "ACTIVE" | "INACTIVE") => {
+        setFormData(prev => ({ ...prev, status: value }))
+    }
+
+    const handleSubmit = async () => {
+        setEmailError("")
+
+        if (!formData.name.trim()) {
+            return
+        }
+
+        if (formData.email.trim() && !validateEmail(formData.email)) {
+            setEmailError("Please enter a valid email address")
+            return
+        }
+
+        setIsSubmitting(true)
 
         try {
-            const response = await createSupplierApi({
-                name: formData.name,
-                contactPerson: formData.contactPerson || undefined,
-                email: formData.email || undefined,
-                phone: formData.phone || undefined,
-                address: formData.address || undefined,
+            const { createCustomerApi } = await import("@/lib/api/customers.api")
+            const response = await createCustomerApi({
+                name: formData.name.trim(),
+                contactPerson: formData.contactPerson.trim() || undefined,
+                email: formData.email.trim() || undefined,
+                phone: formData.phone.trim() || undefined,
+                address: formData.address.trim() || undefined,
+                status: formData.status,
                 workspaceId: workspaceId,
             })
 
-            if (response.data?.supplier) {
-                onSuccess(response.data.supplier)
-                setFormData({ name: "", contactPerson: "", email: "", phone: "", address: "" })
-                onOpenChange(false)
+            if (response.status === "success") {
+                const { toast } = await import("sonner")
+                toast.success("Customer created successfully")
+                resetForm()
+                onSuccess()
             }
         } catch (error) {
-            console.error("Failed to create supplier:", error)
-            alert(error instanceof Error ? error.message : "Failed to create supplier")
+            const { toast } = await import("sonner")
+            toast.error("Failed to create customer", {
+                description: error instanceof Error ? error.message : "An unexpected error occurred"
+            })
         } finally {
-            setIsCreating(false)
+            setIsSubmitting(false)
         }
+    }
+
+    const resetForm = () => {
+        setFormData({
+            name: "",
+            contactPerson: "",
+            email: "",
+            phone: "",
+            address: "",
+            status: "ACTIVE",
+        })
+        setEmailError("")
+    }
+
+    const handleOpenChange = (newOpen: boolean) => {
+        if (!newOpen) {
+            resetForm()
+        }
+        onOpenChange(newOpen)
     }
 
     const isFormValid = formData.name.trim()
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent
                 enableKeyboardAvoidance={true}
                 hideClose={true}
@@ -81,28 +139,28 @@ export function AddSupplierDialog({
                         <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => onOpenChange(false)}
-                            disabled={isCreating}
+                            onClick={() => handleOpenChange(false)}
+                            disabled={isSubmitting}
                             className="h-9"
                         >
                             Cancel
                         </Button>
-                        <DialogTitle className="text-base font-semibold absolute left-1/2 -translate-x-1/2">Create Supplier</DialogTitle>
+                        <DialogTitle className="text-base font-semibold absolute left-1/2 -translate-x-1/2">Add Customer</DialogTitle>
                         <Button
                             size="sm"
-                            onClick={handleCreate}
-                            disabled={!isFormValid || isCreating}
+                            onClick={handleSubmit}
+                            disabled={!isFormValid || isSubmitting}
                             className="h-9"
                         >
-                            {isCreating ? "Creating..." : "Create"}
+                            {isSubmitting ? "Adding..." : "Add"}
                         </Button>
                     </div>
 
                     {/* Desktop Header */}
                     <div className="hidden sm:block">
-                        <DialogTitle>Create New Supplier</DialogTitle>
+                        <DialogTitle>Create New Customer</DialogTitle>
                         <DialogDescription className="mt-1.5">
-                            Add a new supplier to your inventory management system.
+                            Add a new customer to your inventory management system.
                         </DialogDescription>
                     </div>
                 </DialogHeader>
@@ -118,13 +176,13 @@ export function AddSupplierDialog({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="name">
-                                    Supplier Name <span className="text-destructive">*</span>
+                                    Customer Name <span className="text-destructive">*</span>
                                 </Label>
                                 <Input
                                     id="name"
-                                    placeholder="e.g., TechSupply Co."
+                                    placeholder="e.g., Acme Corporation"
                                     value={formData.name}
-                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                    onChange={(e) => handleInputChange('name', e.target.value)}
                                     autoComplete="off"
                                     autoCorrect="off"
                                     autoCapitalize="off"
@@ -137,7 +195,7 @@ export function AddSupplierDialog({
                                     id="contactPerson"
                                     placeholder="e.g., John Smith"
                                     value={formData.contactPerson}
-                                    onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
+                                    onChange={(e) => handleInputChange('contactPerson', e.target.value)}
                                     autoComplete="off"
                                     autoCorrect="off"
                                     autoCapitalize="off"
@@ -145,21 +203,29 @@ export function AddSupplierDialog({
                                 />
                             </div>
                         </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="email">Email</Label>
                                 <Input
                                     id="email"
                                     type="email"
-                                    placeholder="contact@supplier.com"
+                                    placeholder="contact@customer.com"
                                     value={formData.email}
-                                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                    onChange={(e) => handleInputChange('email', e.target.value)}
+                                    className={emailError ? "border-destructive" : ""}
                                     autoComplete="off"
                                     autoCorrect="off"
                                     autoCapitalize="off"
                                     spellCheck="false"
                                     inputMode="email"
                                 />
+                                {emailError && (
+                                    <div className="flex items-center gap-1 text-xs text-destructive">
+                                        <AlertCircle className="h-3 w-3" />
+                                        <span>{emailError}</span>
+                                    </div>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="phone">Phone</Label>
@@ -167,7 +233,7 @@ export function AddSupplierDialog({
                                     id="phone"
                                     placeholder="+1 (555) 123-4567"
                                     value={formData.phone}
-                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    onChange={(e) => handleInputChange('phone', e.target.value)}
                                     autoComplete="off"
                                     autoCorrect="off"
                                     autoCapitalize="off"
@@ -176,19 +242,35 @@ export function AddSupplierDialog({
                                 />
                             </div>
                         </div>
+
                         <div className="space-y-2">
                             <Label htmlFor="address">Address</Label>
-                            <Textarea
+                            <Input
                                 id="address"
                                 placeholder="Full address including street, city, state, and zip code"
                                 value={formData.address}
-                                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                rows={2}
+                                onChange={(e) => handleInputChange('address', e.target.value)}
                                 autoComplete="off"
                                 autoCorrect="off"
                                 autoCapitalize="off"
                                 spellCheck="false"
                             />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="status">Status</Label>
+                            <Select
+                                value={formData.status}
+                                onValueChange={handleStatusChange}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="ACTIVE">Active</SelectItem>
+                                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
                 </div>
@@ -197,16 +279,16 @@ export function AddSupplierDialog({
                 <DialogFooter className="hidden sm:flex px-4 pb-4 sm:px-0 sm:pb-0 flex-shrink-0 border-t sm:border-0 pt-4 sm:pt-0 bg-background">
                     <Button
                         variant="outline"
-                        onClick={() => onOpenChange(false)}
-                        disabled={isCreating}
+                        onClick={() => handleOpenChange(false)}
+                        disabled={isSubmitting}
                     >
                         Cancel
                     </Button>
                     <Button
-                        onClick={handleCreate}
-                        disabled={!isFormValid || isCreating}
+                        onClick={handleSubmit}
+                        disabled={!isFormValid || isSubmitting}
                     >
-                        {isCreating ? "Creating..." : "Create Supplier"}
+                        {isSubmitting ? "Creating..." : "Create Customer"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
