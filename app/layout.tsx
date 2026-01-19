@@ -12,6 +12,12 @@ export const metadata: Metadata = {
   title: "StockFlow - Inventory Management",
   description: "Professional inventory management for warehouses",
   generator: "v0.app",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  },
 }
 
 export default function RootLayout({

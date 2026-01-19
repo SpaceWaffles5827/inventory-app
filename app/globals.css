@@ -3,6 +3,27 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Prevent iOS zoom and rubber-band scrolling */
+html {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  height: 100%;
+}
+
+body {
+  overscroll-behavior: none;
+  height: 100%;
+  /* Remove the fixed positioning that's breaking scroll */
+}
+
+/* Reset for main content areas to allow scrolling */
+main,
+[role="main"],
+.overflow-auto,
+[data-radix-scroll-area-viewport] {
+  touch-action: pan-y !important;
+}
+
 :root {
   /* Enhanced light mode with better contrast and visual separation */
   --background: oklch(0.97 0.002 240);
@@ -83,8 +104,8 @@
 @theme inline {
   /* Updated to use Inter and JetBrains Mono for modern typography */
   --font-sans: "Inter", "Inter Fallback", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "JetBrains Mono Fallback", "Courier New",
-    monospace;
+  --font-mono:
+    "JetBrains Mono", "JetBrains Mono Fallback", "Courier New", monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -144,7 +165,8 @@
   :root:not(.dark) {
     .card,
     [data-slot="card"] {
-      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08),
+      box-shadow:
+        0 1px 3px 0 rgb(0 0 0 / 0.08),
         0 1px 2px -1px rgb(0 0 0 / 0.08);
     }
 
@@ -182,7 +204,8 @@
   .dark {
     .card,
     [data-slot="card"] {
-      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3),
+      box-shadow:
+        0 4px 6px -1px rgb(0 0 0 / 0.3),
         0 2px 4px -2px rgb(0 0 0 / 0.3);
       border: 1px solid oklch(0.26 0.015 240);
     }
@@ -237,7 +260,8 @@
     /* Better popover/dialog contrast */
     [role="dialog"],
     [role="menu"] {
-      box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.4),
+      box-shadow:
+        0 10px 15px -3px rgb(0 0 0 / 0.4),
         0 4px 6px -4px rgb(0 0 0 / 0.4);
       border: 1px solid oklch(0.26 0.015 240);
     }
