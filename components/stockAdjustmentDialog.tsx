@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { AlertCircle, Plus, Minus, AlertTriangle, Clock, Calendar } from "lucide-react"
+import { AlertCircle, Plus, Minus } from "lucide-react"
 import type { LotWithRelations } from "@/lib/api/lots.api"
 
 interface StockAdjustmentDialogProps {

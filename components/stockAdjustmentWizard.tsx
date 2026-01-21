@@ -25,6 +25,7 @@ interface StockAdjustmentWizardProps {
     open: boolean
     onClose: () => void
     onSuccess?: () => void
+    defaultLocationId?: string
 }
 
 export function StockAdjustmentWizard({
@@ -32,9 +33,12 @@ export function StockAdjustmentWizard({
     open,
     onClose,
     onSuccess,
+    defaultLocationId,
 }: StockAdjustmentWizardProps) {
-    // State for wizard steps
-    const [currentStep, setCurrentStep] = useState<"location" | "lot" | "quantity">("location")
+    // State for wizard steps - start at different step if location is pre-selected
+    const [currentStep, setCurrentStep] = useState<"location" | "lot" | "quantity">(
+        defaultLocationId ? "lot" : "location"
+    )
     const [selectedLocationId, setSelectedLocationId] = useState<string>("")
     const [selectedLotId, setSelectedLotId] = useState<string>("")
     const [itemLots, setItemLots] = useState<any[]>([])
@@ -47,7 +51,7 @@ export function StockAdjustmentWizard({
     // Reset state when dialog opens/closes or item changes
     useEffect(() => {
         if (!open || !item) {
-            setCurrentStep("location")
+            setCurrentStep(defaultLocationId ? "lot" : "location")
             setSelectedLocationId("")
             setSelectedLotId("")
             setItemLots([])
@@ -70,7 +74,32 @@ export function StockAdjustmentWizard({
         }
 
         loadLots()
-    }, [open, item])
+    }, [open, item, defaultLocationId])
+
+    // Auto-select location and determine next step when defaultLocationId is provided
+    useEffect(() => {
+        if (defaultLocationId && open && item && itemLots.length >= 0) {
+            setSelectedLocationId(defaultLocationId)
+
+            // Check if we should go straight to quantity or show lot selection
+            const lotsAtLocation = itemLots.filter(lot =>
+                lot.locations?.some((lotLoc: any) =>
+                    lotLoc.locationId === defaultLocationId && lotLoc.quantity > 0
+                )
+            )
+
+            if (lotsAtLocation.length > 0) {
+                setCurrentStep("lot")
+            } else {
+                const itemLocation = item.locations?.find(
+                    loc => loc.locationId === defaultLocationId
+                )
+                const locationStock = itemLocation?.quantity || 0
+                setNewStockAmount(String(locationStock))
+                setCurrentStep("quantity")
+            }
+        }
+    }, [defaultLocationId, open, item, itemLots])
 
     // Get current stock for selected location (and lot if selected)
     const getCurrentLocationStock = () => {
@@ -239,105 +268,112 @@ export function StockAdjustmentWizard({
     if (!item) return null
 
     const hasLots = itemLots.length > 0
-    const totalSteps = hasLots ? 3 : 2
+    const isLocationPreSelected = !!defaultLocationId
+    const totalSteps = isLocationPreSelected
+        ? (hasLots ? 2 : 1)  // Skip location step
+        : (hasLots ? 3 : 2)  // Include location step
 
     return (
         <>
-            {/* Step 1: Select Location */}
-            <Dialog open={open && currentStep === "location"} onOpenChange={(isOpen) => !isOpen && onClose()}>
-                <DialogContent className="sm:max-w-[480px]">
-                    <DialogHeader>
-                        <DialogTitle className="text-base">
-                            Select Location (Step 1 of {totalSteps})
-                        </DialogTitle>
-                        <DialogDescription className="text-xs">
-                            Choose which location to adjust stock for.
-                        </DialogDescription>
-                    </DialogHeader>
+            {/* Step 1: Select Location (only shown if no defaultLocationId) */}
+            {!defaultLocationId && (
+                <Dialog open={open && currentStep === "location"} onOpenChange={(isOpen) => !isOpen && onClose()}>
+                    <DialogContent className="sm:max-w-[480px]">
+                        <DialogHeader>
+                            <DialogTitle className="text-base">
+                                Select Location (Step 1 of {totalSteps})
+                            </DialogTitle>
+                            <DialogDescription className="text-xs">
+                                Choose which location to adjust stock for.
+                            </DialogDescription>
+                        </DialogHeader>
 
-                    <div className="space-y-4 py-3">
-                        {/* Item Info */}
-                        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
-                            <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
-                                <Package className="h-6 w-6 text-muted-foreground" />
+                        <div className="space-y-4 py-3">
+                            {/* Item Info */}
+                            <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border">
+                                <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
+                                    <Package className="h-6 w-6 text-muted-foreground" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <h3 className="font-semibold text-sm truncate">{item.name}</h3>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                        Total: {item.onHand} units | ${(item.cost * item.onHand).toFixed(2)}
+                                    </p>
+                                </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                                <h3 className="font-semibold text-sm truncate">{item.name}</h3>
-                                <p className="text-xs text-muted-foreground truncate">
-                                    Total: {item.onHand} units | ${(item.cost * item.onHand).toFixed(2)}
-                                </p>
-                            </div>
-                        </div>
 
-                        {/* Location Selection */}
-                        <div className="space-y-2">
-                            <Label className="text-xs flex items-center gap-1.5">
-                                <MapPin className="h-3.5 w-3.5" />
-                                Select Location
-                            </Label>
-                            <RadioGroup value={selectedLocationId} onValueChange={setSelectedLocationId}>
-                                <div className="space-y-1.5">
-                                    {item.locations && item.locations.length > 0 ? (
-                                        item.locations.map((itemLocation) => (
-                                            <div
-                                                key={itemLocation.id}
-                                                className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLocationId === itemLocation.locationId
+                            {/* Location Selection */}
+                            <div className="space-y-2">
+                                <Label className="text-xs flex items-center gap-1.5">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    Select Location
+                                </Label>
+                                <RadioGroup value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                                    <div className="space-y-1.5">
+                                        {item.locations && item.locations.length > 0 ? (
+                                            item.locations.map((itemLocation) => (
+                                                <div
+                                                    key={itemLocation.id}
+                                                    className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLocationId === itemLocation.locationId
                                                         ? "border-primary bg-primary/5"
                                                         : "border-border hover:border-primary/50"
-                                                    }`}
-                                                onClick={() => setSelectedLocationId(itemLocation.locationId)}
-                                            >
-                                                <RadioGroupItem
-                                                    value={itemLocation.locationId}
-                                                    id={`location-${itemLocation.locationId}`}
-                                                    className="flex-shrink-0"
-                                                />
-                                                <Label
-                                                    htmlFor={`location-${itemLocation.locationId}`}
-                                                    className="flex-1 cursor-pointer min-w-0"
+                                                        }`}
+                                                    onClick={() => setSelectedLocationId(itemLocation.locationId)}
                                                 >
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="font-mono font-semibold text-xs truncate">
-                                                                {itemLocation.location.code}
+                                                    <RadioGroupItem
+                                                        value={itemLocation.locationId}
+                                                        id={`location-${itemLocation.locationId}`}
+                                                        className="flex-shrink-0"
+                                                    />
+                                                    <Label
+                                                        htmlFor={`location-${itemLocation.locationId}`}
+                                                        className="flex-1 cursor-pointer min-w-0"
+                                                    >
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="font-mono font-semibold text-xs truncate">
+                                                                    {itemLocation.location.code}
+                                                                </p>
+                                                            </div>
+                                                            <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">
+                                                                {itemLocation.quantity} units
                                                             </p>
                                                         </div>
-                                                        <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">
-                                                            {itemLocation.quantity} units
-                                                        </p>
-                                                    </div>
-                                                </Label>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <Alert className="py-2">
-                                            <AlertCircle className="h-3.5 w-3.5" />
-                                            <AlertDescription className="text-xs">
-                                                No locations assigned to this item.
-                                            </AlertDescription>
-                                        </Alert>
-                                    )}
-                                </div>
-                            </RadioGroup>
+                                                    </Label>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <Alert className="py-2">
+                                                <AlertCircle className="h-3.5 w-3.5" />
+                                                <AlertDescription className="text-xs">
+                                                    No locations assigned to this item.
+                                                </AlertDescription>
+                                            </Alert>
+                                        )}
+                                    </div>
+                                </RadioGroup>
+                            </div>
                         </div>
-                    </div>
 
-                    <DialogFooter>
-                        <Button variant="outline" onClick={onClose} size="sm">
-                            Cancel
-                        </Button>
-                        <Button onClick={handleLocationSelected} disabled={!selectedLocationId} size="sm">
-                            Next: {hasLots ? 'Select Lot' : 'Adjust Quantity'} →
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={onClose} size="sm">
+                                Cancel
+                            </Button>
+                            <Button onClick={handleLocationSelected} disabled={!selectedLocationId} size="sm">
+                                Next: {hasLots ? 'Select Lot' : 'Adjust Quantity'} →
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
 
             {/* Step 2: Select Lot (only for lot-tracked items) */}
             <Dialog open={open && currentStep === "lot"} onOpenChange={(isOpen) => !isOpen && onClose()}>
                 <DialogContent className="sm:max-w-[480px]">
                     <DialogHeader>
-                        <DialogTitle className="text-base">Select Lot (Step 2 of 3)</DialogTitle>
+                        <DialogTitle className="text-base">
+                            Select Lot (Step {isLocationPreSelected ? '1 of 2' : '2 of 3'})
+                        </DialogTitle>
                         <DialogDescription className="text-xs">
                             Choose which lot to adjust at the selected location.
                         </DialogDescription>
@@ -396,8 +432,8 @@ export function StockAdjustmentWizard({
                                                 <div
                                                     key={lot.id}
                                                     className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLotId === lot.id
-                                                            ? "border-primary bg-primary/5"
-                                                            : "border-border hover:border-primary/50"
+                                                        ? "border-primary bg-primary/5"
+                                                        : "border-border hover:border-primary/50"
                                                         }`}
                                                     onClick={() => setSelectedLotId(lot.id)}
                                                 >
@@ -415,10 +451,10 @@ export function StockAdjustmentWizard({
                                                                 <p className="font-mono font-semibold text-xs truncate">{lot.lotNumber}</p>
                                                                 {lot.expirationDate && (
                                                                     <span className={`text-[10px] ${daysUntilExpiration !== null && daysUntilExpiration < 0
-                                                                            ? "text-red-600"
-                                                                            : daysUntilExpiration !== null && daysUntilExpiration <= 7
-                                                                                ? "text-orange-600"
-                                                                                : "text-muted-foreground"
+                                                                        ? "text-red-600"
+                                                                        : daysUntilExpiration !== null && daysUntilExpiration <= 7
+                                                                            ? "text-orange-600"
+                                                                            : "text-muted-foreground"
                                                                         }`}>
                                                                         Exp: {new Date(lot.expirationDate).toLocaleDateString()}
                                                                         {daysUntilExpiration !== null && daysUntilExpiration < 0 && " (Expired)"}
@@ -441,9 +477,11 @@ export function StockAdjustmentWizard({
                     </div>
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={goBackToLocation} size="sm">
-                            ← Back
-                        </Button>
+                        {!isLocationPreSelected && (
+                            <Button variant="outline" onClick={goBackToLocation} size="sm">
+                                ← Back
+                            </Button>
+                        )}
                         <Button
                             variant="ghost"
                             onClick={() => {
@@ -469,7 +507,7 @@ export function StockAdjustmentWizard({
                 <DialogContent className="sm:max-w-[480px]">
                     <DialogHeader>
                         <DialogTitle className="text-base">
-                            Adjust Quantity (Step {hasLots ? '3 of 3' : '2 of 2'})
+                            Adjust Quantity (Step {isLocationPreSelected ? (hasLots ? '2 of 2' : '1 of 1') : (hasLots ? '3 of 3' : '2 of 2')})
                         </DialogTitle>
                         <DialogDescription className="text-xs">
                             Update the stock quantity at the selected location{selectedLotId ? ' for the selected lot' : ''}.
@@ -600,8 +638,10 @@ export function StockAdjustmentWizard({
                             onClick={() => {
                                 if (hasLots && selectedLotId) {
                                     goBackToLot()
-                                } else {
+                                } else if (!isLocationPreSelected) {
                                     goBackToLocation()
+                                } else {
+                                    onClose()
                                 }
                             }}
                             size="sm"
