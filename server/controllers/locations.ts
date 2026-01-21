@@ -125,11 +125,35 @@ const locationsController = {
   },
 
   // Helper function to generate location barcode
-  generateLocationBarcode: (code: string, workspaceId: string): string => {
-    // Format: LOC-{first 8 chars of workspace}-{location code}
-    // Example: LOC-ABC12345-A-01-01-A
-    const workspacePrefix = workspaceId.substring(0, 8).toUpperCase();
-    return `LOC-${workspacePrefix}-${code}`;
+  generateLocationBarcode: async (
+    code: string,
+    workspaceId: string,
+  ): Promise<string> => {
+    // Start with simple format: LOC-{location code}
+    let baseBarcode = `LOC-${code}`;
+    let finalBarcode = baseBarcode;
+    let increment = 1;
+
+    // Check if this barcode already exists in the workspace
+    while (true) {
+      const existing = await prisma.location.findFirst({
+        where: {
+          workspaceId: workspaceId,
+          barcode: finalBarcode,
+        },
+      });
+
+      if (!existing) {
+        // Barcode is unique, we can use it
+        break;
+      }
+
+      // Barcode exists, try with incrementing suffix using #N format
+      finalBarcode = `${baseBarcode}#${increment}`;
+      increment++;
+    }
+
+    return finalBarcode;
   },
 
   // Create a new location
@@ -200,7 +224,7 @@ const locationsController = {
       // Generate barcode if not provided
       const finalBarcode =
         barcode ||
-        locationsController.generateLocationBarcode(code, workspaceId);
+        (await locationsController.generateLocationBarcode(code, workspaceId));
 
       // Check if barcode already exists in this workspace
       if (finalBarcode) {
@@ -508,10 +532,11 @@ const locationsController = {
         updateData.code = code;
         // If code is updated but barcode is not provided, regenerate barcode
         if (barcode === undefined) {
-          updateData.barcode = locationsController.generateLocationBarcode(
-            code,
-            workspaceId
-          );
+          updateData.barcode =
+            await locationsController.generateLocationBarcode(
+              code,
+              workspaceId,
+            );
         }
       }
 
