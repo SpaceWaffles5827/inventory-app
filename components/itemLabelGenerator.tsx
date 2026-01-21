@@ -99,14 +99,59 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
             // ========== HEADER SECTION ==========
             if (hasHeader) {
                 if (showName) {
-                    const nameFontSize = Math.max(6, Math.min(14, width * 2.5))
-                    doc.setFontSize(nameFontSize)
+                    // Calculate optimal font size based on available width and content length
+                    const availableWidth = contentWidth
+                    const estimatedChars = item.name.length
+
+                    // Start with a base size relative to label dimensions - 3x larger
+                    const baseSize = Math.min(width, height) * 8.4 // Base scaling factor (2.8 * 3)
+
+                    // Adjust for content length (longer names = smaller font)
+                    // More aggressive reduction for very long names
+                    const lengthAdjustment = Math.max(0.3, Math.min(1.3, 40 / Math.sqrt(estimatedChars)))
+
+                    // Calculate initial size with reasonable bounds - 3x larger
+                    let nameFontSize = Math.max(8, Math.min(96, baseSize * lengthAdjustment))
+
+                    // Iteratively reduce font size if text would overflow
                     doc.setFont('helvetica', 'bold')
+                    let nameLines = []
+                    let attempts = 0
+                    // Allow more lines for longer text
+                    const maxNameLines = estimatedChars > 100 ? 4 : (height < 2 ? 1 : 3)
 
-                    const nameLines = doc.splitTextToSize(item.name, contentWidth)
-                    const maxNameLines = height < 2 ? 1 : 2
+                    while (attempts < 20) {
+                        doc.setFontSize(nameFontSize)
+                        nameLines = doc.splitTextToSize(item.name, contentWidth)
+
+                        // Check if text fits within allowed lines
+                        if (nameLines.length <= maxNameLines) {
+                            // Additional check: ensure individual lines aren't too wide
+                            let maxLineWidth = 0
+                            nameLines.forEach(line => {
+                                const lineWidth = doc.getTextWidth(line)
+                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
+                            })
+
+                            if (maxLineWidth <= contentWidth * 1.05) { // Allow 5% overflow tolerance
+                                break // Text fits!
+                            }
+                        }
+
+                        // Reduce font size by 8% and try again (more aggressive)
+                        nameFontSize *= 0.92
+                        attempts++
+
+                        // Safety minimum - lower for super long names
+                        if (nameFontSize < 6) {
+                            nameFontSize = 6
+                            doc.setFontSize(nameFontSize)
+                            nameLines = doc.splitTextToSize(item.name, contentWidth)
+                            break
+                        }
+                    }
+
                     const truncatedName = nameLines.slice(0, maxNameLines)
-
                     const lineHeight = nameFontSize * 0.012
                     truncatedName.forEach((line, index) => {
                         doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
@@ -115,14 +160,55 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                 }
 
                 if (showDescription && item.description) {
-                    const descFontSize = Math.max(5, Math.min(9, width * 1.8))
-                    doc.setFontSize(descFontSize)
+                    // Description should be moderately sized - increased from previous
+                    const availableWidth = contentWidth
+                    const estimatedChars = item.description.length
+
+                    const baseSize = Math.min(width, height) * 2.4 // Increased from 1.6
+                    // More aggressive reduction for very long descriptions
+                    const lengthAdjustment = Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(estimatedChars)))
+
+                    let descFontSize = Math.max(6, Math.min(28, baseSize * lengthAdjustment))
+
+                    // Iteratively reduce font size if text would overflow
                     doc.setFont('helvetica', 'normal')
+                    let descLines = []
+                    let attempts = 0
+                    // Allow more lines for longer descriptions
+                    const maxDescLines = estimatedChars > 80 ? 3 : (height < 2 ? 1 : 2)
 
-                    const descLines = doc.splitTextToSize(item.description, contentWidth)
-                    const maxDescLines = height < 2 ? 1 : 1
+                    while (attempts < 20) {
+                        doc.setFontSize(descFontSize)
+                        descLines = doc.splitTextToSize(item.description, contentWidth)
+
+                        // Check if text fits within allowed lines
+                        if (descLines.length <= maxDescLines) {
+                            // Additional check: ensure individual lines aren't too wide
+                            let maxLineWidth = 0
+                            descLines.forEach(line => {
+                                const lineWidth = doc.getTextWidth(line)
+                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
+                            })
+
+                            if (maxLineWidth <= contentWidth * 1.05) { // Allow 5% overflow tolerance
+                                break // Text fits!
+                            }
+                        }
+
+                        // Reduce font size by 8% and try again
+                        descFontSize *= 0.92
+                        attempts++
+
+                        // Safety minimum
+                        if (descFontSize < 5) {
+                            descFontSize = 5
+                            doc.setFontSize(descFontSize)
+                            descLines = doc.splitTextToSize(item.description, contentWidth)
+                            break
+                        }
+                    }
+
                     const truncatedDesc = descLines.slice(0, maxDescLines)
-
                     const lineHeight = descFontSize * 0.012
                     truncatedDesc.forEach((line, index) => {
                         doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
@@ -151,11 +237,11 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                     // BOTH QR AND BARCODE - Stacked vertically
                     const verticalSpacing = 0.08 * scaleFactor
 
-                    // Calculate sizes for stacked layout
+                    // Calculate sizes for stacked layout - QR uses maximum width
                     const qrSize = Math.min(
-                        contentWidth * 0.65,
-                        (availableCodeHeight - verticalSpacing) * 0.5,
-                        width * 0.5
+                        contentWidth * 0.85,  // Increased from 0.55 to use more width
+                        (availableCodeHeight - verticalSpacing) * 0.45,
+                        width * 0.75  // Increased from 0.45
                     )
 
                     const barcodeHeight = Math.min(
@@ -191,7 +277,7 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                         })
 
                         const barcodeDataUrl = canvas.toDataURL('image/png')
-                        const barcodeDisplayWidth = contentWidth * 0.8
+                        const barcodeDisplayWidth = contentWidth * 0.95  // Increased from 0.8 to use nearly full width
                         const barcodeX = (width - barcodeDisplayWidth) / 2
                         const barcodeY = qrY + qrSize + verticalSpacing
 
@@ -201,11 +287,11 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                     }
 
                 } else if (needsQR) {
-                    // QR CODE ONLY - Centered, properly sized
+                    // QR CODE ONLY - Centered, using maximum width
                     const maxQRSize = Math.min(
-                        contentWidth * 0.65,
-                        availableCodeHeight * 0.85,
-                        Math.max(width, height) * 0.5
+                        contentWidth * 0.85,  // Increased from 0.55 to use more width
+                        availableCodeHeight * 0.75,
+                        Math.max(width, height) * 0.7  // Increased from 0.45
                     )
 
                     // Generate compact QR Code
@@ -237,8 +323,8 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                         })
 
                         const barcodeDataUrl = canvas.toDataURL('image/png')
-                        const barcodeDisplayWidth = contentWidth * 0.85
-                        const barcodeDisplayHeight = Math.min(availableCodeHeight * 0.7, height * 0.35)
+                        const barcodeDisplayWidth = contentWidth * 0.95  // Increased from 0.75 to use nearly full width
+                        const barcodeDisplayHeight = Math.min(availableCodeHeight * 0.6, height * 0.3)
                         const barcodeX = (width - barcodeDisplayWidth) / 2
                         const barcodeY = codeStartY + ((availableCodeHeight - barcodeDisplayHeight) / 2)
 
@@ -261,7 +347,7 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                     currentY += 0.03 * scaleFactor
                 }
 
-                const fontSize = Math.max(5, Math.min(9, width * 1.8))
+                const fontSize = Math.max(8, Math.min(14, width * 2.4))  // Increased from 5-9 and 1.8
                 doc.setFontSize(fontSize)
                 const lineHeight = fontSize * 0.012
 

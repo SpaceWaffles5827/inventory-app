@@ -70,7 +70,8 @@ export function LocationLabelGenerator({
                 format: [width, height]
             })
 
-            const margin = 0.15
+            const scaleFactor = Math.min(width, height) / 4
+            const margin = 0.1 * scaleFactor
             const contentWidth = width - (margin * 2)
             const contentHeight = height - (margin * 2)
             let currentY = margin
@@ -81,65 +82,199 @@ export function LocationLabelGenerator({
 
             const barcodeValue = location.barcode || location.code || `LOC-${location.id}`
 
+            // ========== HEADER SECTION ==========
             if (hasHeader) {
                 if (showLocationCode) {
-                    const codeFontSize = Math.max(12, Math.min(20, width * 3.5))
-                    doc.setFontSize(codeFontSize)
+                    // Calculate optimal font size based on available width and content length
+                    // WAREHOUSE VISIBILITY - Large enough to read from distance but balanced
+                    const availableWidth = contentWidth
+                    const estimatedChars = location.code.length
+
+                    // Calculate available space for header text
+                    const totalHeaderSpace = height * 0.35 // Allow header to use ~35% of label height
+
+                    // Start with a base size that's proportional to available space
+                    // Target: location code should be prominent but not overwhelming
+                    const baseSize = Math.min(width, height) * 14.0  // Reduced from 24.0
+
+                    // Adjust for content length (longer codes = smaller font)
+                    const lengthAdjustment = Math.max(0.3, Math.min(1.3, 35 / Math.sqrt(estimatedChars)))
+
+                    // Calculate initial size with reasonable bounds
+                    let codeFontSize = Math.max(14, Math.min(140, baseSize * lengthAdjustment))  // 14-140pt range
+
+                    // Iteratively reduce font size if text would overflow
                     doc.setFont('helvetica', 'bold')
-                    doc.text(location.code, width / 2, currentY + (codeFontSize * 0.012), { align: 'center' })
-                    currentY += (codeFontSize * 0.012) + 0.05
+                    let codeLines = []
+                    let attempts = 0
+                    const maxCodeLines = estimatedChars > 50 ? 3 : (height < 2 ? 1 : 2)
+
+                    while (attempts < 20) {
+                        doc.setFontSize(codeFontSize)
+                        codeLines = doc.splitTextToSize(location.code, contentWidth)
+
+                        // Check if text fits within allowed lines
+                        if (codeLines.length <= maxCodeLines) {
+                            // Additional check: ensure individual lines aren't too wide
+                            let maxLineWidth = 0
+                            codeLines.forEach(line => {
+                                const lineWidth = doc.getTextWidth(line)
+                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
+                            })
+
+                            // Also check that total text height doesn't exceed allocated space
+                            const totalTextHeight = (codeLines.length * codeFontSize * 0.012)
+
+                            if (maxLineWidth <= contentWidth * 1.05 && totalTextHeight <= totalHeaderSpace) {
+                                break // Text fits!
+                            }
+                        }
+
+                        // Reduce font size by 8% and try again
+                        codeFontSize *= 0.92
+                        attempts++
+
+                        // Safety minimum
+                        if (codeFontSize < 12) {
+                            codeFontSize = 12
+                            doc.setFontSize(codeFontSize)
+                            codeLines = doc.splitTextToSize(location.code, contentWidth)
+                            break
+                        }
+                    }
+
+                    const truncatedCode = codeLines.slice(0, maxCodeLines)
+                    const lineHeight = codeFontSize * 0.012
+                    truncatedCode.forEach((line, index) => {
+                        doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
+                    })
+                    currentY += lineHeight * truncatedCode.length + (0.02 * scaleFactor)
                 }
 
                 if (showStructure && structure.length > 0) {
-                    const structFontSize = Math.max(8, Math.min(11, width * 2.2))
-                    doc.setFontSize(structFontSize)
-                    doc.setFont('helvetica', 'normal')
-
+                    // Structure text - moderately sized
+                    const availableWidth = contentWidth
                     const structureText = structure.map((s: any) => `${s.label}: ${s.value}`).join(' • ')
-                    const structLines = doc.splitTextToSize(structureText, contentWidth)
-                    const maxStructLines = 1
-                    const truncatedStruct = structLines.slice(0, maxStructLines)
+                    const estimatedChars = structureText.length
 
+                    const baseSize = Math.min(width, height) * 2.4
+                    const lengthAdjustment = Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(estimatedChars)))
+
+                    let structFontSize = Math.max(6, Math.min(28, baseSize * lengthAdjustment))
+
+                    // Iteratively reduce font size if text would overflow
+                    doc.setFont('helvetica', 'normal')
+                    let structLines = []
+                    let attempts = 0
+                    const maxStructLines = estimatedChars > 80 ? 2 : 1
+
+                    while (attempts < 20) {
+                        doc.setFontSize(structFontSize)
+                        structLines = doc.splitTextToSize(structureText, contentWidth)
+
+                        if (structLines.length <= maxStructLines) {
+                            let maxLineWidth = 0
+                            structLines.forEach(line => {
+                                const lineWidth = doc.getTextWidth(line)
+                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
+                            })
+
+                            if (maxLineWidth <= contentWidth * 1.05) {
+                                break
+                            }
+                        }
+
+                        structFontSize *= 0.92
+                        attempts++
+
+                        if (structFontSize < 5) {
+                            structFontSize = 5
+                            doc.setFontSize(structFontSize)
+                            structLines = doc.splitTextToSize(structureText, contentWidth)
+                            break
+                        }
+                    }
+
+                    const truncatedStruct = structLines.slice(0, maxStructLines)
                     const lineHeight = structFontSize * 0.012
-                    truncatedStruct.forEach((line: string, index: number) => {
+                    truncatedStruct.forEach((line, index) => {
                         doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
                     })
-                    currentY += lineHeight * truncatedStruct.length + 0.04
+                    currentY += lineHeight * truncatedStruct.length + (0.015 * scaleFactor)
                 }
 
                 if (showDescription && location.description) {
-                    const descFontSize = Math.max(7, Math.min(9, width * 1.8))
-                    doc.setFontSize(descFontSize)
+                    // Description - moderately sized
+                    const availableWidth = contentWidth
+                    const estimatedChars = location.description.length
+
+                    const baseSize = Math.min(width, height) * 2.4
+                    const lengthAdjustment = Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(estimatedChars)))
+
+                    let descFontSize = Math.max(6, Math.min(28, baseSize * lengthAdjustment))
+
+                    // Iteratively reduce font size if text would overflow
                     doc.setFont('helvetica', 'italic')
+                    let descLines = []
+                    let attempts = 0
+                    const maxDescLines = estimatedChars > 80 ? 2 : 1
 
-                    const descLines = doc.splitTextToSize(location.description, contentWidth)
-                    const maxDescLines = 1
+                    while (attempts < 20) {
+                        doc.setFontSize(descFontSize)
+                        descLines = doc.splitTextToSize(location.description, contentWidth)
+
+                        if (descLines.length <= maxDescLines) {
+                            let maxLineWidth = 0
+                            descLines.forEach(line => {
+                                const lineWidth = doc.getTextWidth(line)
+                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
+                            })
+
+                            if (maxLineWidth <= contentWidth * 1.05) {
+                                break
+                            }
+                        }
+
+                        descFontSize *= 0.92
+                        attempts++
+
+                        if (descFontSize < 5) {
+                            descFontSize = 5
+                            doc.setFontSize(descFontSize)
+                            descLines = doc.splitTextToSize(location.description, contentWidth)
+                            break
+                        }
+                    }
+
                     const truncatedDesc = descLines.slice(0, maxDescLines)
-
                     const lineHeight = descFontSize * 0.012
-                    truncatedDesc.forEach((line: string, index: number) => {
+                    truncatedDesc.forEach((line, index) => {
                         doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
                     })
-                    currentY += lineHeight * truncatedDesc.length + 0.04
+                    currentY += lineHeight * truncatedDesc.length + (0.015 * scaleFactor)
                 }
 
+                // Add separator line after header
                 if (hasHeader && (needsQR || needsBarcode)) {
-                    doc.setDrawColor(100, 100, 100)
-                    doc.setLineWidth(0.01)
+                    doc.setDrawColor(200, 200, 200)
+                    doc.setLineWidth(0.003)
                     doc.line(margin, currentY, width - margin, currentY)
-                    currentY += 0.08
+                    currentY += 0.03 * scaleFactor
                 }
             }
 
+            // ========== CODE SECTION ==========
             const availableCodeHeight = height - currentY - margin
 
             if (needsQR || needsBarcode) {
                 const codeStartY = currentY
 
                 if (needsQR) {
+                    // QR CODE - use maximum width
                     const maxQRSize = Math.min(
-                        contentWidth * 0.9,
-                        availableCodeHeight * 0.95
+                        contentWidth * 0.85,
+                        availableCodeHeight * 0.75,
+                        Math.max(width, height) * 0.7
                     )
 
                     const qrCodeDataUrl = await QRCode.toDataURL(barcodeValue, {
@@ -153,6 +288,7 @@ export function LocationLabelGenerator({
                     doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, maxQRSize, maxQRSize)
 
                 } else if (needsBarcode) {
+                    // BARCODE - use maximum width
                     const canvas = document.createElement('canvas')
                     try {
                         JsBarcode(canvas, barcodeValue, {
@@ -179,9 +315,10 @@ export function LocationLabelGenerator({
                 }
             }
 
-            doc.setDrawColor(100, 100, 100)
-            doc.setLineWidth(0.01)
-            doc.rect(0.05, 0.05, width - 0.1, height - 0.1)
+            // Add border
+            doc.setDrawColor(180, 180, 180)
+            doc.setLineWidth(0.005)
+            doc.rect(0.02, 0.02, width - 0.04, height - 0.04)
 
             const locationIdentifier = location.code.replace(/[^a-zA-Z0-9-]/g, '_')
             const timestamp = new Date().toISOString().slice(0, 10)

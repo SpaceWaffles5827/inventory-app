@@ -53,6 +53,37 @@ export function useBarcodeScanner({
         setScanSuccess(false)
     }, [])
 
+    const playBeepSound = useCallback(() => {
+        try {
+            // Create audio context
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+
+            // Create oscillator (beep generator)
+            const oscillator = audioContext.createOscillator()
+            const gainNode = audioContext.createGain()
+
+            // Configure beep sound (classic scanner beep)
+            oscillator.frequency.value = 2800 // Hz - high pitched beep
+            oscillator.type = 'square' // Square wave for that classic scanner sound
+
+            // Configure volume envelope (quick fade out)
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime)
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1)
+
+            // Connect nodes
+            oscillator.connect(gainNode)
+            gainNode.connect(audioContext.destination)
+
+            // Play beep for 100ms
+            oscillator.start(audioContext.currentTime)
+            oscillator.stop(audioContext.currentTime + 0.1)
+
+            console.log("[SCANNER] 🔊 Beep sound played")
+        } catch (err) {
+            console.warn("[SCANNER] Could not play beep sound:", err)
+        }
+    }, [])
+
     const startScanner = useCallback(async () => {
         console.log("[SCANNER] Starting (attempt", initAttemptRef.current + 1, ")...")
 
@@ -170,6 +201,9 @@ export function useBarcodeScanner({
                         setScanSuccess(true)
                         setScanningActive(false)
 
+                        // Play beep sound
+                        playBeepSound()
+
                         // Haptic feedback on mobile
                         if ('vibrate' in navigator) {
                             navigator.vibrate(50)
@@ -209,7 +243,7 @@ export function useBarcodeScanner({
             setCameraError(errorMsg)
             setScanningActive(false)
         }
-    }, [onScanSuccess, scanCooldownMs])
+    }, [onScanSuccess, scanCooldownMs, playBeepSound])
 
     const retryScanner = useCallback(() => {
         setCameraError("")
@@ -259,7 +293,7 @@ export function useBarcodeScanner({
         } else {
             stopScanner()
         }
-    }, [enabled]) // Remove startScanner and stopScanner from deps
+    }, [enabled])
 
     return {
         videoRef,
