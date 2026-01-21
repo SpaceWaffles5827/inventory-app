@@ -42,9 +42,20 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
     const [isOpen, setIsOpen] = useState(false)
     const [isGenerating, setIsGenerating] = useState(false)
 
-    // Label configuration state
-    const [labelWidth, setLabelWidth] = useState("4")
-    const [labelHeight, setLabelHeight] = useState("6")
+    // Initialize from session storage or use defaults
+    const [labelWidth, setLabelWidth] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return sessionStorage.getItem('itemLabelWidth') || "4"
+        }
+        return "4"
+    })
+    const [labelHeight, setLabelHeight] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return sessionStorage.getItem('itemLabelHeight') || "6"
+        }
+        return "6"
+    })
+
     const [codeType, setCodeType] = useState<"qr" | "barcode" | "both">("qr")
 
     // Field visibility state
@@ -54,6 +65,21 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
     const [showUnit, setShowUnit] = useState(true)
     const [showBarcode, setShowBarcode] = useState(true)
     const [showPrice, setShowPrice] = useState(false)
+
+    // Save to session storage whenever width or height changes
+    const handleWidthChange = (value: string) => {
+        setLabelWidth(value)
+        if (typeof window !== 'undefined') {
+            sessionStorage.setItem('itemLabelWidth', value)
+        }
+    }
+
+    const handleHeightChange = (value: string) => {
+        setLabelHeight(value)
+        if (typeof window !== 'undefined') {
+            sessionStorage.setItem('itemLabelHeight', value)
+        }
+    }
 
     const generateItemLabel = async () => {
         setIsGenerating(true)
@@ -642,7 +668,7 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                                             min="0.5"
                                             max="12"
                                             value={labelWidth}
-                                            onChange={(e) => setLabelWidth(e.target.value)}
+                                            onChange={(e) => handleWidthChange(e.target.value)}
                                             className="h-7 text-xs"
                                             placeholder="4"
                                         />
@@ -658,7 +684,7 @@ export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
                                             min="0.5"
                                             max="12"
                                             value={labelHeight}
-                                            onChange={(e) => setLabelHeight(e.target.value)}
+                                            onChange={(e) => handleHeightChange(e.target.value)}
                                             className="h-7 text-xs"
                                             placeholder="6"
                                         />

@@ -38,8 +38,21 @@ export function LocationLabelGenerator({
     location,
 }: LocationLabelGeneratorProps) {
     const [isGeneratingLabel, setIsGeneratingLabel] = useState(false)
-    const [labelWidth, setLabelWidth] = useState("4")
-    const [labelHeight, setLabelHeight] = useState("6")
+
+    // Initialize from session storage or use defaults
+    const [labelWidth, setLabelWidth] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return sessionStorage.getItem('locationLabelWidth') || "4"
+        }
+        return "4"
+    })
+    const [labelHeight, setLabelHeight] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return sessionStorage.getItem('locationLabelHeight') || "6"
+        }
+        return "6"
+    })
+
     const [codeType, setCodeType] = useState<"qr" | "barcode">("qr")
     const [showLocationCode, setShowLocationCode] = useState(true)
     const [showStructure, setShowStructure] = useState(true)
@@ -47,6 +60,21 @@ export function LocationLabelGenerator({
     const [showDescription, setShowDescription] = useState(false)
 
     const structure = Array.isArray(location.structure) ? location.structure : []
+
+    // Save to session storage whenever width or height changes
+    const handleWidthChange = (value: string) => {
+        setLabelWidth(value)
+        if (typeof window !== 'undefined') {
+            sessionStorage.setItem('locationLabelWidth', value)
+        }
+    }
+
+    const handleHeightChange = (value: string) => {
+        setLabelHeight(value)
+        if (typeof window !== 'undefined') {
+            sessionStorage.setItem('locationLabelHeight', value)
+        }
+    }
 
     const generateLocationLabel = async () => {
         setIsGeneratingLabel(true)
@@ -419,7 +447,7 @@ export function LocationLabelGenerator({
                                         min="0.5"
                                         max="12"
                                         value={labelWidth}
-                                        onChange={(e) => setLabelWidth(e.target.value)}
+                                        onChange={(e) => handleWidthChange(e.target.value)}
                                         className="h-7 text-xs"
                                         placeholder="4"
                                     />
@@ -435,7 +463,7 @@ export function LocationLabelGenerator({
                                         min="0.5"
                                         max="12"
                                         value={labelHeight}
-                                        onChange={(e) => setLabelHeight(e.target.value)}
+                                        onChange={(e) => handleHeightChange(e.target.value)}
                                         className="h-7 text-xs"
                                         placeholder="6"
                                     />
