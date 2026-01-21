@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,14 +20,11 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
-    DialogDescription,
 } from "@/components/ui/dialog"
+import { useBarcodeScanner } from "@/components/usebarcodescanner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { BrowserMultiFormatReader } from "@zxing/browser"
-import { DecodeHintType, BarcodeFormat } from "@zxing/library"
 import {
     Select,
     SelectTrigger,
@@ -87,10 +84,8 @@ const scanModes = [
 
 export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: ScanModalProps) {
     const router = useRouter()
-    const [cameraError, setCameraError] = useState("")
-    const [scanSuccess, setScanSuccess] = useState(false)
-    const [scanningActive, setScanningActive] = useState(false)
     const [error, setError] = useState("")
+    const [notFoundError, setNotFoundError] = useState("")
 
     // Workflow states
     const [scanMode, setScanMode] = useState<string | null>(null)
@@ -102,13 +97,22 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
     const [adjustmentReason, setAdjustmentReason] = useState("")
     const [adjustmentNote, setAdjustmentNote] = useState("")
 
-    const videoRef = useRef<HTMLVideoElement>(null)
-    const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null)
-    const lastScanTimeRef = useRef<number>(0)
-    const scanCooldownMs = 300
-    const initAttemptRef = useRef(0)
-    const isProcessingRef = useRef(false)
-    const handleVerifiedScanRef = useRef<((code: string, step: ScanStep, mode: string | null) => void) | null>(null)
+    const {
+        videoRef,
+        cameraError,
+        scanSuccess,
+        scanningActive,
+        retryScanner,
+        resetScanSuccess,
+        pauseScanning,
+        resumeScanning,
+    } = useBarcodeScanner({
+        onScanSuccess: (scannedCode) => {
+            handleVerifiedScan(scannedCode, scanStep, scanMode)
+        },
+        enabled: open && (scanStep === "scanItem" || scanStep === "scanLocation"),
+        scanCooldownMs: 300,
+    })
 
     // Prevent body scroll when dialog is open on mobile
     useEffect(() => {
@@ -129,27 +133,6 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
         }
     }, [open])
 
-    const stopScanner = useCallback(() => {
-        console.log("[SCANNER] Stopping scanner...")
-
-        if (codeReaderRef.current) {
-            try {
-                codeReaderRef.current.reset()
-                console.log("[SCANNER] Scanner stopped")
-            } catch (err) {
-                console.error("[SCANNER] Error stopping:", err)
-            }
-            codeReaderRef.current = null
-        }
-
-        // Completely reset all state
-        lastScanTimeRef.current = 0
-        initAttemptRef.current = 0
-        isProcessingRef.current = false
-        setScanningActive(false)
-        setScanSuccess(false)
-    }, [])
-
     // Define handleVerifiedScan without useCallback to avoid circular dependency
     const handleVerifiedScan = async (scannedCode: string, currentScanStep: ScanStep, currentScanMode: string | null) => {
         console.log("[SCANNER] Processing verified scan:", scannedCode)
@@ -163,18 +146,11 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
 
             if (!item) {
                 console.log("[SCANNER] ❌ Item not found")
-                setCameraError(`Item not found: ${scannedCode}`)
-
-                // Reset processing flag and success state
-                isProcessingRef.current = false
-                setScanSuccess(false)
-
+                pauseScanning()
+                setNotFoundError(`Item not found: ${scannedCode}`)
                 setTimeout(() => {
-                    setCameraError("")
-                    // Resume scanning
-                    if (codeReaderRef.current && videoRef.current) {
-                        setScanningActive(true)
-                    }
+                    setNotFoundError("")
+                    resumeScanning()
                 }, 2000)
                 return
             }
@@ -187,7 +163,6 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
                 console.log("[SCANNER] Navigating to item detail page")
                 // Small delay for visual feedback before closing
                 setTimeout(() => {
-                    stopScanner()
                     onOpenChange(false)
                     router.push(`/dashboard/items/${item.id}`)
                 }, 400)
@@ -195,7 +170,6 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
             } else if (currentScanMode === "edit") {
                 console.log("[SCANNER] Navigating to edit item page")
                 setTimeout(() => {
-                    stopScanner()
                     onOpenChange(false)
                     router.push(`/dashboard/items/${item.id}`)
                 }, 400)
@@ -203,7 +177,6 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
             } else if (currentScanMode === "adjust" || currentScanMode === "move" || currentScanMode === "inventory-adjustment") {
                 console.log("[SCANNER] Moving to location scan step")
                 setTimeout(() => {
-                    stopScanner()
                     setScanStep("scanLocation")
                 }, 400)
                 return
@@ -216,18 +189,11 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
 
             if (!location) {
                 console.log("[SCANNER] ❌ Location not found")
-                setCameraError(`Location not found: ${scannedCode}`)
-
-                // Reset processing flag and success state
-                isProcessingRef.current = false
-                setScanSuccess(false)
-
+                pauseScanning()
+                setNotFoundError(`Location not found: ${scannedCode}`)
                 setTimeout(() => {
-                    setCameraError("")
-                    // Resume scanning
-                    if (codeReaderRef.current && videoRef.current) {
-                        setScanningActive(true)
-                    }
+                    setNotFoundError("")
+                    resumeScanning()
                 }, 2000)
                 return
             }
@@ -239,7 +205,6 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
             if (currentScanMode === "location") {
                 console.log("[SCANNER] Navigating to location detail page")
                 setTimeout(() => {
-                    stopScanner()
                     onOpenChange(false)
                     router.push(`/dashboard/locations/${location.id}`)
                 }, 400)
@@ -247,198 +212,12 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
             } else if (currentScanMode === "adjust" || currentScanMode === "move" || currentScanMode === "inventory-adjustment") {
                 console.log("[SCANNER] Moving to adjustment details")
                 setTimeout(() => {
-                    stopScanner()
                     setScanStep("adjustmentDetails")
                 }, 400)
                 return
             }
         }
     }
-
-    // Update the ref whenever the function changes
-    useEffect(() => {
-        handleVerifiedScanRef.current = handleVerifiedScan
-    })
-
-    const startScanner = useCallback(async () => {
-        console.log("[SCANNER] Starting (attempt", initAttemptRef.current + 1, ")...")
-
-        try {
-            if (!videoRef.current) {
-                console.log("[SCANNER] Video element not ready, retrying...")
-                initAttemptRef.current++
-
-                if (initAttemptRef.current < 10) {
-                    setTimeout(startScanner, 150)
-                } else {
-                    setCameraError("Scanner initialization failed. Please try again.")
-                    initAttemptRef.current = 0
-                }
-                return
-            }
-
-            initAttemptRef.current = 0
-
-            // Optimized hints for faster scanning
-            const hints = new Map()
-
-            // Prioritize common formats for faster detection
-            const formats = [
-                BarcodeFormat.EAN_13,
-                BarcodeFormat.EAN_8,
-                BarcodeFormat.UPC_A,
-                BarcodeFormat.UPC_E,
-                BarcodeFormat.CODE_128,
-                BarcodeFormat.CODE_39,
-                BarcodeFormat.QR_CODE,
-                BarcodeFormat.DATA_MATRIX,
-                BarcodeFormat.CODE_93,
-                BarcodeFormat.ITF,
-                BarcodeFormat.CODABAR,
-                BarcodeFormat.AZTEC,
-                BarcodeFormat.PDF_417,
-            ]
-
-            hints.set(DecodeHintType.POSSIBLE_FORMATS, formats)
-            hints.set(DecodeHintType.TRY_HARDER, true)
-            hints.set(DecodeHintType.CHARACTER_SET, "UTF-8")
-
-            console.log("[SCANNER] Getting video devices...")
-            const videoInputDevices = await BrowserMultiFormatReader.listVideoInputDevices()
-
-            console.log("[SCANNER] Creating reader...")
-            codeReaderRef.current = new BrowserMultiFormatReader(hints)
-
-            console.log("[SCANNER] Available cameras:", videoInputDevices.length)
-
-            if (videoInputDevices.length === 0) {
-                setCameraError("No cameras found. Please check your device permissions.")
-                return
-            }
-
-            // Smart camera selection
-            let selectedDeviceId = videoInputDevices[0].deviceId
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-
-            if (isMobile || videoInputDevices.length > 1) {
-                const backCamera = videoInputDevices.find(device =>
-                    device.label.toLowerCase().includes('back') ||
-                    device.label.toLowerCase().includes('rear') ||
-                    device.label.toLowerCase().includes('environment') ||
-                    device.label.toLowerCase().includes('traseira')
-                )
-
-                if (backCamera) {
-                    selectedDeviceId = backCamera.deviceId
-                    console.log("[SCANNER] Using back camera:", backCamera.label)
-                } else {
-                    console.log("[SCANNER] Using camera:", videoInputDevices[0].label)
-                }
-            }
-
-            console.log("[SCANNER] Starting decode...")
-
-            // Start continuous decode with optimized callback
-            await codeReaderRef.current.decodeFromVideoDevice(
-                selectedDeviceId,
-                videoRef.current,
-                (result, error) => {
-                    if (result) {
-                        // Prevent concurrent processing
-                        if (isProcessingRef.current) {
-                            return
-                        }
-
-                        const now = Date.now()
-                        const decodedText = result.getText()
-
-                        console.log(`[SCANNER] 📷 Detected: "${decodedText}"`)
-                        console.log(`[SCANNER] Format: ${result.getBarcodeFormat()}`)
-
-                        // Cooldown check
-                        if (now - lastScanTimeRef.current < scanCooldownMs) {
-                            return
-                        }
-
-                        // Validation
-                        const trimmedText = decodedText.trim()
-                        if (trimmedText.length < 1 || trimmedText.length > 200) {
-                            console.log("[SCANNER] ⚠️ Invalid length:", trimmedText.length)
-                            return
-                        }
-
-                        // Mark as processing
-                        isProcessingRef.current = true
-                        lastScanTimeRef.current = now
-
-                        console.log("[SCANNER] ✅ Scan successful")
-
-                        // Show success feedback
-                        setScanSuccess(true)
-                        setScanningActive(false)
-
-                        // Haptic feedback on mobile
-                        if ('vibrate' in navigator) {
-                            navigator.vibrate(50)
-                        }
-
-                        // Process the scan - use ref to avoid circular dependency
-                        handleVerifiedScanRef.current?.(trimmedText, scanStep, scanMode)
-                    }
-
-                    // Silently ignore scanning errors (normal when no barcode in view)
-                }
-            )
-
-            setScanningActive(true)
-            console.log("[SCANNER] ✅ Scanner started")
-
-        } catch (err: any) {
-            console.error("[SCANNER] Failed to start:", err)
-
-            let errorMsg = "Failed to start camera. "
-
-            if (err.name === "NotAllowedError" || err.message?.includes("Permission")) {
-                errorMsg = "Camera access denied. Please allow camera permissions in your browser settings."
-            } else if (err.name === "NotFoundError") {
-                errorMsg = "No camera found on this device."
-            } else if (err.name === "NotReadableError") {
-                errorMsg = "Camera is being used by another app. Please close other apps and try again."
-            } else if (err.name === "OverconstrainedError") {
-                errorMsg = "Camera constraints not supported. Trying alternative configuration..."
-                setCameraError("")
-                setTimeout(startScanner, 500)
-                return
-            } else {
-                errorMsg += err.message || "Unknown error."
-            }
-
-            setCameraError(errorMsg)
-            setScanningActive(false)
-        }
-    }, [scanStep, scanMode, stopScanner])
-
-    // Scanner control useEffect - must be after function definitions
-    useEffect(() => {
-        if (open && (scanStep === "scanItem" || scanStep === "scanLocation")) {
-            // Fully reset all state when dialog opens
-            setScanSuccess(false)
-            setCameraError("")
-            setScanningActive(false)
-            initAttemptRef.current = 0
-            isProcessingRef.current = false
-            lastScanTimeRef.current = 0
-
-            // Small delay to ensure clean state
-            setTimeout(() => {
-                startScanner()
-            }, 100)
-        } else {
-            stopScanner()
-        }
-
-        return () => stopScanner()
-    }, [open, scanStep])
 
     const findItemByBarcode = (scannedCode: string, items: ItemWithRelations[]): ItemWithRelations | null => {
         const scanned = scannedCode.trim()
@@ -553,13 +332,8 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
 
     const handleCloseModal = () => {
         console.log("[SCANNER] Closing modal and cleaning up...")
-        stopScanner()
 
-        // Reset all state
-        setCameraError("")
-        setScanSuccess(false)
-        setScanningActive(false)
-
+        setNotFoundError("")
         onOpenChange(false)
 
         setTimeout(() => {
@@ -571,7 +345,6 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
             setQuantity(1)
             setAdjustmentReason("")
             setAdjustmentNote("")
-            lastScanTimeRef.current = 0
         }, 200)
     }
 
@@ -668,7 +441,7 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
             </div>
 
             {/* Instruction text */}
-            {!cameraError && scanningActive && (
+            {!cameraError && !notFoundError && scanningActive && (
                 <div className="absolute bottom-6 left-0 right-0 flex justify-center px-4">
                     <div className="bg-black/80 text-white text-xs sm:text-sm px-4 py-2.5 rounded-full backdrop-blur-sm shadow-lg border border-white/10">
                         <span className="inline-flex items-center gap-2">
@@ -820,11 +593,7 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
                                         <AlertDescription className="text-sm">{cameraError}</AlertDescription>
                                     </Alert>
                                     <Button
-                                        onClick={() => {
-                                            setCameraError("")
-                                            initAttemptRef.current = 0
-                                            setTimeout(startScanner, 300)
-                                        }}
+                                        onClick={retryScanner}
                                         className="w-full"
                                     >
                                         Try Again
@@ -845,6 +614,25 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
                                         }}
                                     />
                                     <ScanningGuide />
+
+                                    {/* Not Found Error Overlay */}
+                                    {notFoundError && (
+                                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                                            <div className="bg-destructive/90 text-destructive-foreground rounded-lg p-4 max-w-sm w-full shadow-2xl border-2 border-destructive animate-in fade-in zoom-in duration-200">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="flex-shrink-0">
+                                                        <div className="h-10 w-10 rounded-full bg-destructive-foreground/20 flex items-center justify-center">
+                                                            <AlertCircle className="h-6 w-6" />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <h3 className="font-semibold text-sm mb-1">Not Found</h3>
+                                                        <p className="text-sm opacity-90">{notFoundError}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
