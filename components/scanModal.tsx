@@ -133,6 +133,24 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
         }
     }, [open])
 
+    // Reset all states when modal closes
+    useEffect(() => {
+        if (!open) {
+            // Reset all workflow states
+            setScanMode(null)
+            setScanStep("select")
+            setScannedItem(null)
+            setScannedLocation(null)
+            setSelectedLocationId(null)
+            setQuantity(1)
+            setAdjustmentReason("")
+            setAdjustmentNote("")
+            setError("")
+            setNotFoundError("")
+            resetScanSuccess()
+        }
+    }, [open, resetScanSuccess])
+
     // Define handleVerifiedScan without useCallback to avoid circular dependency
     const handleVerifiedScan = async (scannedCode: string, currentScanStep: ScanStep, currentScanMode: string | null) => {
         console.log("[SCANNER] Processing verified scan:", scannedCode)
@@ -177,6 +195,7 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
             } else if (currentScanMode === "adjust" || currentScanMode === "move" || currentScanMode === "inventory-adjustment") {
                 console.log("[SCANNER] Moving to location scan step")
                 setTimeout(() => {
+                    resetScanSuccess() // Reset for next scan
                     setScanStep("scanLocation")
                 }, 400)
                 return
@@ -332,23 +351,14 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
 
     const handleCloseModal = () => {
         console.log("[SCANNER] Closing modal and cleaning up...")
-
-        setNotFoundError("")
         onOpenChange(false)
-
-        setTimeout(() => {
-            setScanMode(null)
-            setScanStep("select")
-            setScannedItem(null)
-            setScannedLocation(null)
-            setSelectedLocationId(null)
-            setQuantity(1)
-            setAdjustmentReason("")
-            setAdjustmentNote("")
-        }, 200)
     }
 
     const handleModeSelect = (modeId: string) => {
+        // Reset scanner state when starting a new scan
+        resetScanSuccess()
+        setNotFoundError("")
+
         setScanMode(modeId)
         if (modeId === "location") {
             setScanStep("scanLocation")
@@ -358,6 +368,10 @@ export function ScanModal({ open, onOpenChange, allItems, currentWorkspaceId }: 
     }
 
     const handleBack = () => {
+        // Reset scanner state when navigating back
+        resetScanSuccess()
+        setNotFoundError("")
+
         if (scanStep === "confirm") {
             if (scanMode === "adjust" || scanMode === "move" || scanMode === "inventory-adjustment") {
                 setScanStep("adjustmentDetails")

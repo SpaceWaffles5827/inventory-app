@@ -9,7 +9,7 @@ const EXISTING_STOCK_LOT_NUMBER = "EXISTING-STOCK";
 const getOrCreateSystemLot = async (
   itemId: string,
   workspaceId: string,
-  userId: string
+  userId: string,
 ) => {
   let systemLot = await prisma.lot.findUnique({
     where: {
@@ -47,7 +47,7 @@ const recalculateLotQuantity = async (lotId: string) => {
 
   const totalQuantity = lotLocations.reduce(
     (sum, loc) => sum + loc.quantity,
-    0
+    0,
   );
 
   await prisma.lot.update({
@@ -61,7 +61,7 @@ const recalculateLotQuantity = async (lotId: string) => {
 // Helper function to recalculate and update ItemLocation.quantity from LotLocation
 const recalculateItemLocationQuantity = async (
   itemId: string,
-  locationId: string
+  locationId: string,
 ) => {
   // Get all lots for this item
   const lots = await prisma.lot.findMany({
@@ -122,7 +122,7 @@ const calculateOnHandFromLots = async (itemId: string): Promise<number> => {
 
 // Helper function to determine item status based on total quantity
 const determineStatus = (
-  onHand: number
+  onHand: number,
 ): "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" => {
   if (onHand === 0) return "OUT_OF_STOCK";
   if (onHand < 10) return "LOW_STOCK";
@@ -233,8 +233,8 @@ const itemsController = {
         locationIds && locationIds.length > 0
           ? locationIds
           : locationId
-          ? [locationId]
-          : [];
+            ? [locationId]
+            : [];
 
       // Verify all locations belong to the workspace
       if (locationsToCreate.length > 0) {
@@ -300,7 +300,7 @@ const itemsController = {
       const systemLot = await getOrCreateSystemLot(
         item.id,
         workspaceId,
-        userId
+        userId,
       );
 
       // If initial quantity > 0 and locations specified, add to LotLocation
@@ -430,7 +430,7 @@ const itemsController = {
 
       // Add calculated onHand to each item
       const itemsWithOnHand = await Promise.all(
-        items.map((item) => addOnHandToItem(item))
+        items.map((item) => addOnHandToItem(item)),
       );
 
       return res.status(200).json({
@@ -640,8 +640,8 @@ const itemsController = {
         locationIds !== undefined && locationIds.length > 0
           ? locationIds
           : locationId !== undefined
-          ? [locationId]
-          : undefined;
+            ? [locationId]
+            : undefined;
 
       // Verify all locations belong to the workspace
       if (locationsToUpdate !== undefined && locationsToUpdate.length > 0) {
@@ -705,7 +705,7 @@ const itemsController = {
 
             const totalQty = itemLocations.reduce(
               (sum, loc) => sum + loc.quantity,
-              0
+              0,
             );
 
             // Rename SYSTEM to EXISTING-STOCK and make it user-visible
@@ -727,7 +727,7 @@ const itemsController = {
             // No SYSTEM lot exists - create EXISTING-STOCK lot
             const totalQty = itemLocations.reduce(
               (sum, loc) => sum + loc.quantity,
-              0
+              0,
             );
 
             await prisma.lot.create({
@@ -833,7 +833,7 @@ const itemsController = {
             // Update lot quantity
             const totalQty = Array.from(locationTotals.values()).reduce(
               (a, b) => a + b,
-              0
+              0,
             );
             await prisma.lot.update({
               where: { id: existingStockLot.id },
@@ -858,7 +858,7 @@ const itemsController = {
 
             const totalQty = Array.from(locationTotals.values()).reduce(
               (a, b) => a + b,
-              0
+              0,
             );
 
             const newSystemLot = await prisma.lot.create({
@@ -944,7 +944,7 @@ const itemsController = {
             const current = locationQuantities.get(lotLoc.locationId) || 0;
             locationQuantities.set(
               lotLoc.locationId,
-              current + lotLoc.quantity
+              current + lotLoc.quantity,
             );
           });
         });
@@ -1138,7 +1138,7 @@ const itemsController = {
       const systemLot = await getOrCreateSystemLot(
         id,
         item.workspaceId,
-        userId
+        userId,
       );
 
       // Calculate previous total stock from LotLocation (SOURCE OF TRUTH)
@@ -1345,7 +1345,7 @@ const itemsController = {
         const systemLot = await getOrCreateSystemLot(
           id,
           item.workspaceId,
-          userId
+          userId,
         );
         targetLotId = systemLot.id;
       }

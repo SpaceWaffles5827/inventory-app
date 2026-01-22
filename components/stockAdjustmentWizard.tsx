@@ -14,11 +14,35 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command"
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { Check, ChevronsUpDown, Plus } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Package, MapPin, AlertCircle } from "lucide-react"
 import { getLotsByItemApi } from "@/lib/api/lots.api"
 import { adjustStockApi, type ItemWithRelations } from "@/lib/api/items.api"
+import { getLocationsApi, getWorkspaceStructureApi, type LocationWithCount, type LocationTemplate } from "@/lib/api/locations.api"
+import { AddLocationDialog } from "@/components/addLocationDialog"
 
 interface StockAdjustmentWizardProps {
     item: ItemWithRelations | null
@@ -42,6 +66,10 @@ export function StockAdjustmentWizard({
     const [selectedLocationId, setSelectedLocationId] = useState<string>("")
     const [selectedLotId, setSelectedLotId] = useState<string>("")
     const [itemLots, setItemLots] = useState<any[]>([])
+    const [allLocations, setAllLocations] = useState<LocationWithCount[]>([])
+    const [locationOpen, setLocationOpen] = useState(false)
+    const [isAddLocationOpen, setIsAddLocationOpen] = useState(false)
+    const [defaultLocationStructure, setDefaultLocationStructure] = useState<LocationTemplate | null>(null)
 
     // State for quantity adjustment
     const [adjustmentQuantity, setAdjustmentQuantity] = useState("")
@@ -51,6 +79,9 @@ export function StockAdjustmentWizard({
     // Refs for keyboard handling
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const focusedInputRef = useRef<HTMLElement | null>(null)
+
+    // Get workspace ID
+    const workspaceId = typeof window !== 'undefined' ? localStorage.getItem("currentWorkspaceId") || "" : ""
 
     // Handle focused input tracking and scrolling
     useEffect(() => {
@@ -102,6 +133,36 @@ export function StockAdjustmentWizard({
         }
     }, [open])
 
+    // Load all locations when dialog opens
+    useEffect(() => {
+        if (!open || !workspaceId) return
+
+        const loadLocations = async () => {
+            try {
+                const response = await getLocationsApi(workspaceId)
+                if (response.data?.locations) {
+                    setAllLocations(response.data.locations)
+                }
+            } catch (err) {
+                console.error("Failed to load locations:", err)
+            }
+        }
+
+        const loadLocationStructure = async () => {
+            try {
+                const response = await getWorkspaceStructureApi(workspaceId)
+                if (response.data?.structure) {
+                    setDefaultLocationStructure(response.data.structure)
+                }
+            } catch (err) {
+                console.error("Failed to load location structure:", err)
+            }
+        }
+
+        loadLocations()
+        loadLocationStructure()
+    }, [open, workspaceId])
+
     // Reset state when dialog opens/closes or item changes
     useEffect(() => {
         if (!open || !item) {
@@ -135,9 +196,9 @@ export function StockAdjustmentWizard({
         if (!open || !item || itemLots === null) return
 
         // If there's only one location and no defaultLocationId, auto-select it
-        if (!defaultLocationId && item.locations && item.locations.length === 1) {
-            const singleLocation = item.locations[0]
-            handleLocationSelected(singleLocation.locationId)
+        if (!defaultLocationId && allLocations.length === 1) {
+            const singleLocation = allLocations[0]
+            handleLocationSelected(singleLocation.id)
             return
         }
 
@@ -146,7 +207,7 @@ export function StockAdjustmentWizard({
             setSelectedLocationId(defaultLocationId)
             handleLocationSelected(defaultLocationId)
         }
-    }, [open, item, itemLots, defaultLocationId])
+    }, [open, item, itemLots, defaultLocationId, allLocations])
 
     // Get current stock for selected location (and lot if selected)
     const getCurrentLocationStock = () => {
@@ -186,33 +247,21 @@ export function StockAdjustmentWizard({
             setSelectedLocationId(locationId)
         }
 
-        // Check if there are lots available at the selected location
-        const lotsAtLocation = itemLots.filter(lot =>
-            lot.locations?.some((lotLoc: any) =>
-                lotLoc.locationId === locId && lotLoc.quantity > 0
-            )
-        )
+        // Check if there are ANY lots for this item (lot-tracked item)
+        const hasAnyLots = itemLots.length > 0
 
-        // If there's only one lot at this location, auto-select it and skip to quantity
-        if (lotsAtLocation.length === 1) {
-            const singleLot = lotsAtLocation[0]
-            setSelectedLotId(singleLot.id)
-
-            // Get the lot location quantity
-            const lotLocation = singleLot.locations?.find((l: any) => l.locationId === locId)
-            const lotStock = lotLocation?.quantity || 0
-            setNewStockAmount(String(lotStock))
-            setCurrentStep("quantity")
-        } else if (lotsAtLocation.length > 1) {
-            // Multiple lots, show lot selection
+        // If item has lots (is lot-tracked), always show lot selection step
+        // regardless of whether there are lots at this specific location
+        if (hasAnyLots) {
             setCurrentStep("lot")
-        } else {
-            // No lots at this location, go straight to quantity adjustment
-            const itemLocation = item?.locations?.find(loc => loc.locationId === locId)
-            const locationStock = itemLocation?.quantity || 0
-            setNewStockAmount(String(locationStock))
-            setCurrentStep("quantity")
+            return
         }
+
+        // No lot tracking - go straight to quantity adjustment
+        const itemLocation = item?.locations?.find(loc => loc.locationId === locId)
+        const locationStock = itemLocation?.quantity || 0
+        setNewStockAmount(String(locationStock))
+        setCurrentStep("quantity")
     }
 
     // Handle lot selection
@@ -222,8 +271,15 @@ export function StockAdjustmentWizard({
             return
         }
 
-        const locationStock = getCurrentLocationStock()
-        setNewStockAmount(String(locationStock))
+        // Get the lot's quantity at this location (may be 0 if lot isn't at this location yet)
+        const selectedLot = itemLots.find(l => l.id === selectedLotId)
+        if (selectedLot) {
+            const lotLocation = selectedLot.locations?.find((l: any) => l.locationId === selectedLocationId)
+            const locationStock = lotLocation?.quantity || 0
+            setNewStockAmount(String(locationStock))
+            setAdjustmentQuantity("")
+        }
+
         setCurrentStep("quantity")
     }
 
@@ -269,8 +325,13 @@ export function StockAdjustmentWizard({
         const isInput = quantity > 0
 
         try {
-            // Use lot-specific endpoint if lot is selected
-            if (selectedLotId) {
+            // Always use lot-specific endpoint if lot is selected OR if item has lots
+            if (selectedLotId || itemLots.length > 0) {
+                if (!selectedLotId) {
+                    toast.error("Please select a lot for this lot-tracked item")
+                    return
+                }
+
                 const response = await fetch(`/api/lots/${selectedLotId}/adjust`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -287,6 +348,8 @@ export function StockAdjustmentWizard({
                     const errorData = await response.json()
                     throw new Error(errorData.error || 'Failed to adjust lot stock')
                 }
+
+                toast.success("Stock adjusted successfully")
             } else {
                 // Regular stock adjustment (non-lot-tracked items)
                 await adjustStockApi(item.id, {
@@ -295,9 +358,10 @@ export function StockAdjustmentWizard({
                     reason: adjustmentNote || "Stock adjustment",
                     locationId: selectedLocationId,
                 })
+
+                toast.success("Stock adjusted successfully")
             }
 
-            toast.success("Stock adjusted successfully")
             onSuccess?.()
             onClose()
         } catch (error) {
@@ -330,11 +394,37 @@ export function StockAdjustmentWizard({
         handleAdjustmentQuantityChange(String(current - 1))
     }
 
+    const handleLocationCreated = async (location: LocationWithCount) => {
+        // Reload locations to include the new one
+        try {
+            const response = await getLocationsApi(workspaceId)
+            if (response.data?.locations) {
+                setAllLocations(response.data.locations)
+            }
+        } catch (err) {
+            console.error("Failed to reload locations:", err)
+        }
+
+        // Auto-select the newly created location
+        setSelectedLocationId(location.id)
+        setLocationOpen(false)
+    }
+
+    const handleLocationStructureUpdate = (structure: LocationTemplate) => {
+        setDefaultLocationStructure(structure)
+    }
+
+    // Get location display name
+    const getLocationDisplayName = (locationId: string) => {
+        const location = allLocations.find(loc => loc.id === locationId)
+        return location ? location.code : 'Unknown Location'
+    }
+
     if (!item) return null
 
     const hasLots = itemLots.length > 0
     const isLocationPreSelected = !!defaultLocationId
-    const hasMultipleLocations = item.locations && item.locations.length > 1
+    const hasMultipleLocations = allLocations.length > 1
 
     // Calculate actual steps shown (accounting for auto-skipped steps)
     const totalSteps = (() => {
@@ -351,7 +441,9 @@ export function StockAdjustmentWizard({
         adjustmentQuantity !== "0" &&
         adjustmentQuantity !== "+" &&
         adjustmentQuantity !== "-" &&
-        Number.parseInt(newStockAmount) >= 0
+        Number.parseInt(newStockAmount) >= 0 &&
+        // If item has lots, require lot selection
+        (itemLots.length === 0 || selectedLotId)
 
     // Don't render location step if only one location and not pre-selected
     const shouldShowLocationStep = !defaultLocationId && hasMultipleLocations
@@ -428,50 +520,153 @@ export function StockAdjustmentWizard({
                                         <MapPin className="h-3.5 w-3.5" />
                                         Select Location
                                     </Label>
-                                    <RadioGroup value={selectedLocationId} onValueChange={setSelectedLocationId}>
-                                        <div className="space-y-1.5">
-                                            {item.locations && item.locations.length > 0 ? (
-                                                item.locations.map((itemLocation) => (
-                                                    <div
-                                                        key={itemLocation.id}
-                                                        className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLocationId === itemLocation.locationId
-                                                            ? "border-primary bg-primary/5"
-                                                            : "border-border hover:border-primary/50"
-                                                            }`}
-                                                        onClick={() => setSelectedLocationId(itemLocation.locationId)}
-                                                    >
-                                                        <RadioGroupItem
-                                                            value={itemLocation.locationId}
-                                                            id={`location-${itemLocation.locationId}`}
-                                                            className="flex-shrink-0"
-                                                        />
-                                                        <Label
-                                                            htmlFor={`location-${itemLocation.locationId}`}
-                                                            className="flex-1 cursor-pointer min-w-0"
-                                                        >
-                                                            <div className="flex items-center justify-between gap-2">
-                                                                <div className="min-w-0 flex-1">
-                                                                    <p className="font-mono font-semibold text-xs truncate">
-                                                                        {itemLocation.location.code}
-                                                                    </p>
-                                                                </div>
-                                                                <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">
-                                                                    {itemLocation.quantity} units
-                                                                </p>
+
+                                    <div className="space-y-3">
+                                        {/* Locations with stock - Radio buttons */}
+                                        {item.locations && item.locations.length > 0 && (
+                                            <div className="space-y-1.5">
+                                                <div className="text-xs font-medium text-muted-foreground px-2 py-1">
+                                                    Locations with Stock
+                                                </div>
+                                                <RadioGroup value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                                                    <div className="space-y-1.5">
+                                                        {item.locations.map((itemLocation) => (
+                                                            <div
+                                                                key={itemLocation.id}
+                                                                className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-colors cursor-pointer ${selectedLocationId === itemLocation.locationId
+                                                                    ? "border-primary bg-primary/5"
+                                                                    : "border-border hover:border-primary/50"
+                                                                    }`}
+                                                                onClick={() => setSelectedLocationId(itemLocation.locationId)}
+                                                            >
+                                                                <RadioGroupItem
+                                                                    value={itemLocation.locationId}
+                                                                    id={`location-${itemLocation.locationId}`}
+                                                                    className="flex-shrink-0"
+                                                                />
+                                                                <Label
+                                                                    htmlFor={`location-${itemLocation.locationId}`}
+                                                                    className="flex-1 cursor-pointer min-w-0"
+                                                                >
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <div className="min-w-0 flex-1">
+                                                                            <p className="font-mono font-semibold text-xs truncate">
+                                                                                {itemLocation.location.code}
+                                                                            </p>
+                                                                            {itemLocation.location.name && (
+                                                                                <p className="text-[10px] text-muted-foreground truncate">
+                                                                                    {itemLocation.location.name}
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                        <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">
+                                                                            {itemLocation.quantity} units
+                                                                        </p>
+                                                                    </div>
+                                                                </Label>
                                                             </div>
-                                                        </Label>
+                                                        ))}
                                                     </div>
-                                                ))
-                                            ) : (
-                                                <Alert className="py-2">
-                                                    <AlertCircle className="h-3.5 w-3.5" />
-                                                    <AlertDescription className="text-xs">
-                                                        No locations assigned to this item.
-                                                    </AlertDescription>
-                                                </Alert>
-                                            )}
-                                        </div>
-                                    </RadioGroup>
+                                                </RadioGroup>
+                                            </div>
+                                        )}
+
+                                        {/* Other locations - Searchable dropdown */}
+                                        {(() => {
+                                            const itemLocationIds = item.locations?.map(l => l.locationId) || []
+                                            const otherLocations = allLocations.filter(loc => !itemLocationIds.includes(loc.id))
+
+                                            if (otherLocations.length === 0 && (!item.locations || item.locations.length === 0)) {
+                                                return (
+                                                    <Alert className="py-2">
+                                                        <AlertCircle className="h-3.5 w-3.5" />
+                                                        <AlertDescription className="text-xs">
+                                                            No locations available. Create locations first.
+                                                        </AlertDescription>
+                                                    </Alert>
+                                                )
+                                            }
+
+                                            if (otherLocations.length === 0) return null
+
+                                            // Check if a location from "other locations" is selected
+                                            const selectedOtherLocation = otherLocations.find(loc => loc.id === selectedLocationId)
+
+                                            return (
+                                                <div className="space-y-1.5">
+                                                    {item.locations && item.locations.length > 0 && (
+                                                        <div className="text-xs font-medium text-muted-foreground px-2 py-1">
+                                                            Add to New Location
+                                                        </div>
+                                                    )}
+                                                    <Popover open={locationOpen} onOpenChange={setLocationOpen}>
+                                                        <PopoverTrigger asChild>
+                                                            <Button
+                                                                variant="outline"
+                                                                role="combobox"
+                                                                aria-expanded={locationOpen}
+                                                                className="w-full justify-between h-9 font-normal bg-transparent"
+                                                            >
+                                                                {selectedOtherLocation
+                                                                    ? `${selectedOtherLocation.code} (0 units)`
+                                                                    : "Search other locations..."}
+                                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                                            <Command shouldFilter={true}>
+                                                                <CommandInput placeholder="Search location..." className="h-9" />
+                                                                <CommandList>
+                                                                    <CommandEmpty>No location found.</CommandEmpty>
+                                                                    <CommandGroup>
+                                                                        <CommandItem
+                                                                            onSelect={() => {
+                                                                                setLocationOpen(false)
+                                                                                setIsAddLocationOpen(true)
+                                                                            }}
+                                                                            className="bg-primary/5 border-b"
+                                                                            keywords={["create", "new", "add"]}
+                                                                        >
+                                                                            <Plus className="mr-2 h-4 w-4 text-primary" />
+                                                                            <span className="font-medium text-primary">Create new location</span>
+                                                                        </CommandItem>
+
+                                                                        {otherLocations.map((location) => (
+                                                                            <CommandItem
+                                                                                key={location.id}
+                                                                                value={`${location.code} ${location.name || ''}`}
+                                                                                keywords={[location.code, location.name || '']}
+                                                                                onSelect={() => {
+                                                                                    setSelectedLocationId(location.id)
+                                                                                    setLocationOpen(false)
+                                                                                }}
+                                                                            >
+                                                                                <Check
+                                                                                    className={cn(
+                                                                                        "mr-2 h-4 w-4",
+                                                                                        selectedLocationId === location.id ? "opacity-100" : "opacity-0"
+                                                                                    )}
+                                                                                />
+                                                                                <div className="flex items-center justify-between w-full">
+                                                                                    <div className="flex flex-col">
+                                                                                        <span className="font-mono text-xs">{location.code}</span>
+                                                                                        {location.name && (
+                                                                                            <span className="text-[10px] text-muted-foreground">{location.name}</span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <span className="text-xs text-muted-foreground ml-2">0 units</span>
+                                                                                </div>
+                                                                            </CommandItem>
+                                                                        ))}
+                                                                    </CommandGroup>
+                                                                </CommandList>
+                                                            </Command>
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                </div>
+                                            )
+                                        })()}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -545,7 +740,7 @@ export function StockAdjustmentWizard({
                                 <div className="flex-1 min-w-0">
                                     <p className="font-semibold text-xs truncate">{item.name}</p>
                                     <p className="text-[10px] text-muted-foreground">
-                                        Location: {item.locations?.find(l => l.locationId === selectedLocationId)?.location.code}
+                                        Location: {getLocationDisplayName(selectedLocationId)}
                                     </p>
                                 </div>
                             </div>
@@ -556,33 +751,28 @@ export function StockAdjustmentWizard({
                                 <RadioGroup value={selectedLotId} onValueChange={setSelectedLotId}>
                                     <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
                                         {(() => {
-                                            const lotsAtLocation = itemLots
-                                                .filter(lot => {
-                                                    const lotLocation = lot.locations?.find((lotLoc: any) =>
-                                                        lotLoc.locationId === selectedLocationId
-                                                    )
-                                                    return lotLocation && lotLocation.quantity > 0
-                                                })
-                                                .sort((a, b) => {
-                                                    // FIFO: sort by expiration date (earliest first)
-                                                    if (!a.expirationDate) return 1
-                                                    if (!b.expirationDate) return -1
-                                                    return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
-                                                })
-
-                                            if (lotsAtLocation.length === 0) {
+                                            if (itemLots.length === 0) {
                                                 return (
                                                     <Alert className="py-2">
                                                         <AlertCircle className="h-3.5 w-3.5" />
                                                         <AlertDescription className="text-xs">
-                                                            No lots available at this location.
+                                                            No lots available for this item. Create a lot first.
                                                         </AlertDescription>
                                                     </Alert>
                                                 )
                                             }
 
-                                            return lotsAtLocation.map((lot) => {
+                                            // Show all lots for this item, sorted by expiration (FIFO)
+                                            const sortedLots = [...itemLots].sort((a, b) => {
+                                                if (!a.expirationDate) return 1
+                                                if (!b.expirationDate) return -1
+                                                return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime()
+                                            })
+
+                                            return sortedLots.map((lot) => {
+                                                // Get quantity at the selected location (may be 0 or undefined)
                                                 const lotLocation = lot.locations?.find((l: any) => l.locationId === selectedLocationId)
+                                                const quantityAtLocation = lotLocation?.quantity || 0
                                                 const daysUntilExpiration = lot.expirationDate
                                                     ? Math.ceil((new Date(lot.expirationDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
                                                     : null
@@ -608,21 +798,28 @@ export function StockAdjustmentWizard({
                                                             <div className="flex items-center justify-between gap-2">
                                                                 <div className="min-w-0 flex-1">
                                                                     <p className="font-mono font-semibold text-xs truncate">{lot.lotNumber}</p>
-                                                                    {lot.expirationDate && (
-                                                                        <span className={`text-[10px] ${daysUntilExpiration !== null && daysUntilExpiration < 0
-                                                                            ? "text-red-600"
-                                                                            : daysUntilExpiration !== null && daysUntilExpiration <= 7
-                                                                                ? "text-orange-600"
-                                                                                : "text-muted-foreground"
-                                                                            }`}>
-                                                                            Exp: {new Date(lot.expirationDate).toLocaleDateString()}
-                                                                            {daysUntilExpiration !== null && daysUntilExpiration < 0 && " (Expired)"}
-                                                                            {daysUntilExpiration !== null && daysUntilExpiration >= 0 && daysUntilExpiration <= 7 && ` (${daysUntilExpiration}d)`}
-                                                                        </span>
-                                                                    )}
+                                                                    <div className="flex items-center gap-2">
+                                                                        {lot.expirationDate && (
+                                                                            <span className={`text-[10px] ${daysUntilExpiration !== null && daysUntilExpiration < 0
+                                                                                ? "text-red-600"
+                                                                                : daysUntilExpiration !== null && daysUntilExpiration <= 7
+                                                                                    ? "text-orange-600"
+                                                                                    : "text-muted-foreground"
+                                                                                }`}>
+                                                                                Exp: {new Date(lot.expirationDate).toLocaleDateString()}
+                                                                                {daysUntilExpiration !== null && daysUntilExpiration < 0 && " (Expired)"}
+                                                                                {daysUntilExpiration !== null && daysUntilExpiration >= 0 && daysUntilExpiration <= 7 && ` (${daysUntilExpiration}d)`}
+                                                                            </span>
+                                                                        )}
+                                                                        {!lotLocation && (
+                                                                            <span className="text-[10px] text-muted-foreground italic">
+                                                                                Not at this location yet
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                                 <p className="font-semibold text-sm flex-shrink-0 whitespace-nowrap">
-                                                                    {lotLocation?.quantity || 0} units
+                                                                    {quantityAtLocation} units
                                                                 </p>
                                                             </div>
                                                         </Label>
@@ -632,6 +829,11 @@ export function StockAdjustmentWizard({
                                         })()}
                                     </div>
                                 </RadioGroup>
+                                {itemLots.length > 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Lots sorted by expiration (FIFO). Select the lot to add/adjust at this location.
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -643,19 +845,6 @@ export function StockAdjustmentWizard({
                                 ← Back
                             </Button>
                         )}
-                        <Button
-                            variant="ghost"
-                            onClick={() => {
-                                setSelectedLotId("")
-                                const locationStock = getCurrentLocationStock()
-                                setNewStockAmount(String(locationStock))
-                                setCurrentStep("quantity")
-                            }}
-                            size="sm"
-                            className="text-xs"
-                        >
-                            Skip (Adjust Non-Lotted)
-                        </Button>
                         <Button onClick={handleLotSelected} disabled={!selectedLotId} size="sm">
                             Next: Adjust Quantity →
                         </Button>
@@ -727,7 +916,7 @@ export function StockAdjustmentWizard({
                                 <div className="flex-1 min-w-0">
                                     <p className="font-semibold text-xs truncate">{item.name}</p>
                                     <p className="text-[10px] text-muted-foreground">
-                                        Location: {item.locations?.find(l => l.locationId === selectedLocationId)?.location.code}
+                                        Location: {getLocationDisplayName(selectedLocationId)}
                                         {selectedLotId && (
                                             <> | Lot: {itemLots.find(l => l.id === selectedLotId)?.lotNumber}</>
                                         )}
@@ -874,6 +1063,16 @@ export function StockAdjustmentWizard({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Add Location Dialog */}
+            <AddLocationDialog
+                open={isAddLocationOpen}
+                onOpenChange={setIsAddLocationOpen}
+                workspaceId={workspaceId}
+                defaultStructure={defaultLocationStructure}
+                onSuccess={handleLocationCreated}
+                onStructureUpdate={handleLocationStructureUpdate}
+            />
         </>
     )
 }

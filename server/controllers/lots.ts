@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
 
+interface LocationAssignment {
+  locationId: string;
+  quantity: number;
+}
+
 const lotsController = {
   // Get all lots for an item
   getLotsByItem: async (req: Request, res: Response) => {
@@ -106,7 +111,17 @@ const lotsController = {
         poNumber,
         notes,
         locationAssignments,
-      } = req.body;
+      } = req.body as {
+        lotNumber: string;
+        quantity: number;
+        receivedDate?: string;
+        manufactureDate?: string;
+        expirationDate?: string;
+        supplierId?: string;
+        poNumber?: string;
+        notes?: string;
+        locationAssignments?: LocationAssignment[];
+      };
 
       const userId = req.user?.id;
 
@@ -188,7 +203,8 @@ const lotsController = {
       }
 
       // If no location assignments provided, use the first item location as default
-      let finalLocationAssignments = locationAssignments;
+      let finalLocationAssignments: LocationAssignment[] =
+        locationAssignments || [];
 
       if (!locationAssignments || locationAssignments.length === 0) {
         if (item.locations.length > 0) {
@@ -209,8 +225,8 @@ const lotsController = {
 
       // Validate location assignments total matches quantity
       const totalAssigned = finalLocationAssignments.reduce(
-        (sum: number, loc: any) => sum + loc.quantity,
-        0
+        (sum, loc) => sum + loc.quantity,
+        0,
       );
       if (totalAssigned !== quantity) {
         return res.status(400).json({
@@ -222,10 +238,10 @@ const lotsController = {
       // Verify all locations are assigned to this item
       const assignedLocationIds = item.locations.map((loc) => loc.locationId);
       const requestedLocationIds = finalLocationAssignments.map(
-        (loc: any) => loc.locationId
+        (loc) => loc.locationId,
       );
       const invalidLocations = requestedLocationIds.filter(
-        (locId: string) => !assignedLocationIds.includes(locId)
+        (locId) => !assignedLocationIds.includes(locId),
       );
 
       if (invalidLocations.length > 0) {
@@ -254,7 +270,7 @@ const lotsController = {
           supplierId: supplierId || null,
           createdBy: userId,
           locations: {
-            create: finalLocationAssignments.map((loc: any) => ({
+            create: finalLocationAssignments.map((loc) => ({
               locationId: loc.locationId,
               quantity: loc.quantity,
             })),
@@ -294,38 +310,27 @@ const lotsController = {
 
       // Update ItemLocation quantities for each location in the lot
       for (const locAssignment of finalLocationAssignments) {
-        const itemLocation = await prisma.itemLocation.findUnique({
+        // Use upsert to create or update ItemLocation
+        await prisma.itemLocation.upsert({
           where: {
             itemId_locationId: {
               itemId: itemId,
               locationId: locAssignment.locationId,
             },
           },
+          update: {
+            quantity: {
+              increment: locAssignment.quantity,
+            },
+          },
+          create: {
+            itemId: itemId,
+            locationId: locAssignment.locationId,
+            quantity: locAssignment.quantity,
+            minStock: 0,
+            maxStock: 0,
+          },
         });
-
-        if (itemLocation) {
-          await prisma.itemLocation.update({
-            where: {
-              itemId_locationId: {
-                itemId: itemId,
-                locationId: locAssignment.locationId,
-              },
-            },
-            data: {
-              quantity: itemLocation.quantity + locAssignment.quantity,
-            },
-          });
-        } else {
-          await prisma.itemLocation.create({
-            data: {
-              itemId: itemId,
-              locationId: locAssignment.locationId,
-              quantity: locAssignment.quantity,
-              minStock: 0,
-              maxStock: 0,
-            },
-          });
-        }
       }
 
       // Update item status based on new total quantity
@@ -334,7 +339,7 @@ const lotsController = {
       });
       const totalQuantity = allItemLocations.reduce(
         (sum, loc) => sum + loc.quantity,
-        0
+        0,
       );
 
       let newStatus: "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" = "IN_STOCK";
@@ -598,7 +603,7 @@ const lotsController = {
 
       // Find or create the LotLocation record for this location
       let lotLocation = lot.locations.find(
-        (loc) => loc.locationId === locationId
+        (loc) => loc.locationId === locationId,
       );
 
       if (!lotLocation) {
@@ -636,7 +641,7 @@ const lotsController = {
       });
       const totalLotQuantity = allLotLocations.reduce(
         (sum, loc) => sum + loc.quantity,
-        0
+        0,
       );
 
       // Update Lot.quantity and status (cached value)
@@ -667,37 +672,41 @@ const lotsController = {
         },
       });
 
-      // Recalculate ItemLocation quantity
-      const itemLocationRecord = await prisma.itemLocation.findUnique({
+      // Recalculate ItemLocation quantity - FIXED TO USE UPSERT
+      // Get all lot quantities at this location for this item
+      const allLotsAtLocation = await prisma.lotLocation.findMany({
+        where: {
+          locationId: locationId,
+          lot: {
+            itemId: lot.itemId,
+          },
+        },
+      });
+
+      const totalAtLocation = allLotsAtLocation.reduce(
+        (sum, loc) => sum + loc.quantity,
+        0,
+      );
+
+      // Use upsert to create or update ItemLocation
+      await prisma.itemLocation.upsert({
         where: {
           itemId_locationId: {
             itemId: lot.itemId,
             locationId: locationId,
           },
         },
+        update: {
+          quantity: totalAtLocation,
+        },
+        create: {
+          itemId: lot.itemId,
+          locationId: locationId,
+          quantity: totalAtLocation,
+          minStock: 0,
+          maxStock: 0,
+        },
       });
-
-      if (itemLocationRecord) {
-        // Get all lot quantities at this location for this item
-        const allLotsAtLocation = await prisma.lotLocation.findMany({
-          where: {
-            locationId: locationId,
-            lot: {
-              itemId: lot.itemId,
-            },
-          },
-        });
-
-        const totalAtLocation = allLotsAtLocation.reduce(
-          (sum, loc) => sum + loc.quantity,
-          0
-        );
-
-        await prisma.itemLocation.update({
-          where: { id: itemLocationRecord.id },
-          data: { quantity: totalAtLocation },
-        });
-      }
 
       // Create stock transaction
       await prisma.stockTransaction.create({
@@ -720,7 +729,7 @@ const lotsController = {
       });
       const totalItemQuantity = allItemLocations.reduce(
         (sum, loc) => sum + loc.quantity,
-        0
+        0,
       );
 
       let newItemStatus: "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" = "IN_STOCK";
