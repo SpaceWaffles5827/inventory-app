@@ -30,12 +30,14 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AdjustLocationDialog } from "@/components/adjustlocationdialog"
+import { ImagePreviewDialog } from "@/components/imagePreviewDialog"
 import { toast } from "sonner"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { getLotByIdApi, updateLotApi, adjustLotQuantityApi, type LotWithDetails } from "@/lib/api/lots.api"
+import { getLotByIdApi, updateLotApi, type LotWithDetails } from "@/lib/api/lots.api"
 import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
 import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
+import { getItemImagesApi, type ItemImage as APIItemImage } from "@/lib/api/itemImages.api"
 
 type LotStatus = 'ACTIVE' | 'DEPLETED' | 'EXPIRED' | 'QUARANTINED' | 'RECALLED'
 
@@ -51,6 +53,8 @@ export default function LotDetailPage() {
     const [isSaving, setIsSaving] = useState(false)
     const [locations, setLocations] = useState<LocationWithCount[]>([])
     const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
+    const [images, setImages] = useState<APIItemImage[]>([])
+    const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
 
     const [formData, setFormData] = useState({
         lotNumber: "",
@@ -73,8 +77,6 @@ export default function LotDetailPage() {
         locationCode: string
         currentQuantity: number
     } | null>(null)
-    const [adjustmentQuantity, setAdjustmentQuantity] = useState("")
-    const [adjustmentNote, setAdjustmentNote] = useState("")
 
     useEffect(() => {
         const storedWorkspaceId = localStorage.getItem("currentWorkspaceId")
@@ -87,6 +89,23 @@ export default function LotDetailPage() {
     useEffect(() => {
         loadLot()
     }, [lotId])
+
+    useEffect(() => {
+        if (itemId) {
+            loadImages(itemId)
+        }
+    }, [itemId])
+
+    const loadImages = async (itemId: string) => {
+        try {
+            const response = await getItemImagesApi(itemId)
+            if (response.data?.images) {
+                setImages(response.data.images as APIItemImage[])
+            }
+        } catch (err) {
+            console.error("Failed to load images:", err)
+        }
+    }
 
     const loadLot = async () => {
         try {
@@ -186,8 +205,6 @@ export default function LotDetailPage() {
 
     const handleOpenAdjustLocation = (locationId: string, locationCode: string, currentQuantity: number) => {
         setAdjustingLocation({ locationId, locationCode, currentQuantity })
-        setAdjustmentQuantity("")
-        setAdjustmentNote("")
         setIsAdjustLocationOpen(true)
     }
 
@@ -263,66 +280,127 @@ export default function LotDetailPage() {
     )
     const isSystemLot = lot.isSystem || lot.lotNumber === "EXISTING-STOCK"
 
-    return (
-        <div className="min-h-screen bg-background pb-6">
-            {/* Sticky Header */}
-            <div className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                <div className="flex items-center justify-between px-3 sm:px-6 py-3">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => router.push(`/dashboard/items/${itemId}`)}
-                        className="gap-2"
-                    >
-                        <ArrowLeft className="h-4 w-4" />
-                        <span className="hidden sm:inline">Back to Item</span>
-                    </Button>
+    // Get primary image
+    const primaryImage = images.find((img) => img.isPrimary)
+    const primaryImageUrl = primaryImage ? `/api/items/images/image/${primaryImage.id}` : null
 
-                    <div className="flex items-center gap-2">
-                        {!isEditing ? (
-                            <Button onClick={() => setIsEditing(true)} className="shadow-sm gap-2">
-                                <Edit2 className="h-4 w-4" />
-                                <span className="hidden sm:inline">Edit</span>
-                            </Button>
-                        ) : (
+    return (
+        <div className="min-h-screen bg-muted/30 sm:bg-background pb-6">
+            {/* Sticky Header */}
+            <div className="sticky top-0 z-10 bg-background">
+                <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b">
+                    <button
+                        type="button"
+                        onClick={() => router.push(`/dashboard/items/${itemId}`)}
+                        className="flex items-center justify-center h-9 w-9 -ml-1 rounded-full active:bg-muted sm:w-auto sm:px-3 sm:gap-2 sm:rounded-md sm:hover:bg-muted"
+                    >
+                        <ArrowLeft className="h-5 w-5 sm:h-4 sm:w-4" />
+                        <span className="hidden sm:inline text-sm font-medium">Back to Item</span>
+                    </button>
+
+                    <h1 className="text-sm font-semibold font-mono truncate max-w-[180px] sm:hidden">{lot.lotNumber}</h1>
+
+                    <div className="flex items-center gap-1 sm:gap-2">
+                        {isEditing ? (
                             <>
-                                <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
+                                <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-sm">
                                     Cancel
                                 </Button>
-                                <Button onClick={handleSave} className="shadow-sm gap-2" disabled={isSaving}>
+                                <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-9 px-4 gap-1.5">
                                     {isSaving ? (
                                         <>
                                             <Loader2 className="h-4 w-4 animate-spin" />
-                                            Saving...
+                                            <span className="hidden sm:inline">Saving...</span>
                                         </>
                                     ) : (
                                         <>
                                             <Save className="h-4 w-4" />
-                                            Save
+                                            <span className="hidden sm:inline">Save</span>
                                         </>
                                     )}
                                 </Button>
                             </>
+                        ) : (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setIsEditing(true)}
+                                className="h-9 w-9 p-0 sm:w-auto sm:px-3 sm:gap-2"
+                            >
+                                <Edit2 className="h-4 w-4" />
+                                <span className="hidden sm:inline">Edit</span>
+                            </Button>
                         )}
                     </div>
                 </div>
             </div>
 
-            <div className="px-3 sm:px-6 pt-4 sm:pt-6">
+            <div className="sm:px-4 sm:pt-3">
                 {/* Hero Section */}
-                <div className="bg-card border rounded-lg overflow-hidden mb-6">
-                    <div className="p-4 sm:p-6">
+                <div className="bg-card sm:border sm:rounded-lg overflow-hidden">
+                    {/* Large Product Image - Mobile Only */}
+                    <div
+                        className="sm:hidden relative w-full aspect-[35/10] bg-muted cursor-pointer overflow-hidden"
+                        onClick={() => {
+                            if (primaryImageUrl) {
+                                setSelectedImageUrl(primaryImageUrl)
+                            }
+                        }}
+                    >
+                        {primaryImageUrl ? (
+                            <img
+                                src={primaryImageUrl}
+                                alt={lot.item?.name || "Item"}
+                                className="w-full h-full object-cover"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
+                                <Package className="h-16 w-16 text-muted-foreground/50" />
+                            </div>
+                        )}
+
+                        {/* Image count badge */}
+                        {images.length > 1 && (
+                            <div className="absolute bottom-3 right-3 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
+                                1/{images.length}
+                            </div>
+                        )}
+
+                        {/* Status badge overlay */}
+                        <div className="absolute top-3 left-3">
+                            {getLotStatusBadge(lot.status)}
+                        </div>
+                    </div>
+
+                    <div className="p-4 sm:p-6 pb-0">
                         <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
-                            {/* Lot Icon */}
-                            <div className="flex-shrink-0">
-                                <div className={`relative w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden flex items-center justify-center ${isSystemLot ? "bg-blue-50 border-2 border-blue-200" : "bg-primary/10"
-                                    }`}>
-                                    <PackageCheck className={`h-12 w-12 ${isSystemLot ? "text-blue-600" : "text-primary"}`} />
+                            {/* Product Image - Desktop Only */}
+                            <div className="hidden sm:block flex-shrink-0">
+                                <div
+                                    className={`relative w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden bg-muted flex items-center justify-center ${primaryImageUrl ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all" : ""
+                                        }`}
+                                    onClick={() => {
+                                        if (primaryImageUrl) {
+                                            setSelectedImageUrl(primaryImageUrl)
+                                        }
+                                    }}
+                                >
+                                    {primaryImageUrl ? (
+                                        <img
+                                            src={primaryImageUrl}
+                                            alt={lot.item?.name || "Item"}
+                                            className="w-full h-full object-cover"
+                                        />
+                                    ) : (
+                                        <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                                            <Package className="h-8 w-8" />
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Lot Info */}
-                            <div className="flex-1 min-w-0">
+                            {/* Lot Info - Desktop */}
+                            <div className="hidden sm:block flex-1 min-w-0">
                                 {isEditing && !isSystemLot ? (
                                     <Input
                                         value={formData.lotNumber}
@@ -371,13 +449,59 @@ export default function LotDetailPage() {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Lot Info - Mobile */}
+                            <div className="sm:hidden">
+                                {isEditing && !isSystemLot ? (
+                                    <Input
+                                        value={formData.lotNumber}
+                                        onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })}
+                                        className="text-lg font-bold h-10 mb-2 border-dashed font-mono"
+                                        placeholder="Lot number"
+                                    />
+                                ) : (
+                                    <h1 className="text-lg font-bold text-foreground leading-tight font-mono">{lot.lotNumber}</h1>
+                                )}
+
+                                <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                    {isSystemLot && (
+                                        <Badge variant="secondary" className="text-xs gap-0.5">
+                                            <Package className="h-2.5 w-2.5" />
+                                            Pre-existing
+                                        </Badge>
+                                    )}
+                                    {expirationWarning && (
+                                        <Badge variant="outline" className={`text-xs ${expirationWarning.color}`}>
+                                            {React.createElement(expirationWarning.icon, { className: "h-2.5 w-2.5" })}
+                                        </Badge>
+                                    )}
+                                </div>
+
+                                {/* Stats Row */}
+                                <div className="flex items-center justify-between mt-4 py-3 border-t border-b">
+                                    <div className="text-center flex-1">
+                                        <p className="text-2xl font-bold text-primary">{lot.quantity}</p>
+                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Current</p>
+                                    </div>
+                                    <div className="w-px h-10 bg-border" />
+                                    <div className="text-center flex-1">
+                                        <p className="text-lg font-semibold">{lot.initialQuantity}</p>
+                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Initial</p>
+                                    </div>
+                                    <div className="w-px h-10 bg-border" />
+                                    <div className="text-center flex-1">
+                                        <p className="text-lg font-semibold">{lot.locations.length}</p>
+                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Locations</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Expiration Warning Alert */}
                 {expirationWarning && (
-                    <Alert className={`mb-6 ${expirationWarning.color}`}>
+                    <Alert className={`mt-4 ${expirationWarning.color}`}>
                         {React.createElement(expirationWarning.icon, { className: "h-4 w-4" })}
                         <AlertDescription>
                             {expirationWarning.text}
@@ -387,7 +511,7 @@ export default function LotDetailPage() {
                 )}
 
                 {isSystemLot && (
-                    <Alert className="mb-6 bg-blue-50 border-blue-200">
+                    <Alert className="mt-4 bg-blue-50 border-blue-200">
                         <Package className="h-4 w-4 text-blue-600" />
                         <AlertDescription className="text-blue-900">
                             This lot represents inventory that existed before lot tracking was enabled. You can adjust it normally.
@@ -396,24 +520,24 @@ export default function LotDetailPage() {
                 )}
 
                 {/* Tabs Section */}
-                <Tabs defaultValue="details" className="gap-0">
-                    <div className="bg-card border rounded-t-lg">
-                        <TabsList className="w-full grid grid-cols-3 h-auto p-0 bg-transparent border-0 rounded-none">
+                <Tabs defaultValue="details" className="mt-2 sm:mt-4 gap-0">
+                    <div className="bg-card sm:border sm:rounded-t-lg">
+                        <TabsList className="w-full grid grid-cols-3 h-12 p-0 bg-transparent rounded-none">
                             <TabsTrigger
                                 value="details"
-                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
                             >
                                 Details
                             </TabsTrigger>
                             <TabsTrigger
                                 value="locations"
-                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
                             >
                                 Locations ({lot.locations.length})
                             </TabsTrigger>
                             <TabsTrigger
                                 value="history"
-                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none py-3"
+                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
                             >
                                 History
                             </TabsTrigger>
@@ -422,7 +546,7 @@ export default function LotDetailPage() {
 
                     {/* Details Tab */}
                     <TabsContent value="details" className="mt-0">
-                        <div className="bg-card p-4 border-x border-b rounded-b-lg">
+                        <div className="bg-card p-4 sm:border-x sm:border-b sm:rounded-b-lg">
                             <div className="space-y-4">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="space-y-2">
@@ -590,14 +714,14 @@ export default function LotDetailPage() {
 
                     {/* Locations Tab */}
                     <TabsContent value="locations" className="mt-0">
-                        <div className="bg-card p-4 border-x border-b rounded-b-lg">
+                        <div className="bg-card p-4 sm:border-x sm:border-b sm:rounded-b-lg">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-base font-semibold">Storage Locations</h3>
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => setIsAddLocationOpen(true)}
-                                    className="gap-2 h-7"
+                                    className="gap-2 h-8"
                                     disabled={availableLocations.length === 0}
                                 >
                                     <Plus className="h-4 w-4" />
@@ -659,7 +783,7 @@ export default function LotDetailPage() {
 
                     {/* History Tab */}
                     <TabsContent value="history" className="mt-0">
-                        <div className="bg-card overflow-hidden border-x border-b rounded-b-lg">
+                        <div className="bg-card overflow-hidden sm:border-x sm:border-b sm:rounded-b-lg">
                             <div className="p-4 border-b">
                                 <h3 className="text-base font-semibold">Transaction History</h3>
                             </div>
@@ -747,6 +871,12 @@ export default function LotDetailPage() {
                 lotId={lotId}
                 adjustingLocation={adjustingLocation}
                 onSuccess={loadLot}
+            />
+
+            {/* Image Preview Dialog */}
+            <ImagePreviewDialog
+                imageUrl={selectedImageUrl}
+                onClose={() => setSelectedImageUrl(null)}
             />
         </div>
     )

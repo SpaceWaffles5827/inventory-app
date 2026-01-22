@@ -493,6 +493,7 @@ export default function DashboardPage() {
                 <ItemMobileView
                   items={filteredInventory}
                   onAdjustmentClick={openAdjustmentDialog}
+                  onTransferClick={openTransferDialog}
                   onDeleteClick={openDeleteDialog}
                 />
               </div>

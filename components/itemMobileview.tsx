@@ -2,25 +2,28 @@
 
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { MoreVertical } from "lucide-react"
+import { MoreVertical, ArrowRightLeft, Diff, Trash2 } from "lucide-react"
 import { ItemImage } from "@/components/imageItem"
 import { ItemWithRelations } from "@/lib/api/items.api"
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
 interface ItemMobileViewProps {
     items: ItemWithRelations[]
     onAdjustmentClick: (item: ItemWithRelations) => void
+    onTransferClick: (item: ItemWithRelations) => void
     onDeleteClick: (item: ItemWithRelations) => void
 }
 
 export function ItemMobileView({
     items,
     onAdjustmentClick,
+    onTransferClick,
     onDeleteClick
 }: ItemMobileViewProps) {
     const router = useRouter()
@@ -97,8 +100,17 @@ export function ItemMobileView({
                                 e.stopPropagation()
                                 onAdjustmentClick(item)
                             }}>
+                                <Diff className="h-4 w-4 mr-2" />
                                 Adjust Stock
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => {
+                                e.stopPropagation()
+                                onTransferClick(item)
+                            }}>
+                                <ArrowRightLeft className="h-4 w-4 mr-2" />
+                                Transfer Stock
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 className="text-destructive"
                                 onClick={(e) => {
@@ -106,6 +118,7 @@ export function ItemMobileView({
                                     onDeleteClick(item)
                                 }}
                             >
+                                <Trash2 className="h-4 w-4 mr-2" />
                                 Delete Item
                             </DropdownMenuItem>
                         </DropdownMenuContent>
