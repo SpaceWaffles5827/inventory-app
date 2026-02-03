@@ -40,6 +40,7 @@ export function CategoryMobileView({
                     key={category.id}
                     className="flex items-center gap-3 p-4 active:bg-muted/50 transition-colors"
                     onClick={() => router.push(`/dashboard/categories/${category.id}`)}
+                    data-testid={`category-row-${category.id}`}
                 >
                     {/* Category Icon */}
                     <div className="w-12 h-12 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center flex-shrink-0">

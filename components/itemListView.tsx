@@ -36,6 +36,7 @@ export function ItemListView({
                     key={item.id}
                     className="cursor-pointer hover:shadow-md transition-all duration-200 hover:border-accent/50 overflow-hidden"
                     onClick={() => router.push(`/dashboard/items/${item.id}`)}
+                    data-testid={`item-card-${item.id}`}
                 >
                     <CardContent className="pt-0 pb-0">
                         <div className="flex items-center gap-4 min-w-0">
@@ -78,7 +79,9 @@ export function ItemListView({
                                 <div className="text-center">
                                     <p className="text-xs text-muted-foreground mb-1">Stock</p>
                                     <div className="flex items-baseline gap-1.5 justify-center">
-                                        <p className="text-2xl font-semibold tabular-nums text-right min-w-[3ch]">{item.onHand}</p>
+                                        <p className="text-2xl font-semibold tabular-nums text-right min-w-[3ch]" data-testid="item-stock-value">
+                                            {item.onHand}
+                                        </p>
                                         <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight w-[4ch] text-left">{item.unit || "EA"}</span>
                                     </div>
                                 </div>
@@ -95,6 +98,7 @@ export function ItemListView({
                                             e.stopPropagation()
                                             onAdjustmentClick(item)
                                         }}
+                                        data-testid="item-adjust-button"
                                     >
                                         <Diff className="h-4 w-4" />
                                     </Button>
@@ -106,6 +110,7 @@ export function ItemListView({
                                             e.stopPropagation()
                                             onDeleteClick(item)
                                         }}
+                                        data-testid="item-delete-button"
                                     >
                                         <Trash2 className="h-4 w-4" />
                                     </Button>

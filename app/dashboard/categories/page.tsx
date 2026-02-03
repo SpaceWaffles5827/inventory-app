@@ -191,12 +191,14 @@ export default function CategoriesPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-9"
+                      data-testid="search-categories-input"
                     />
                   </div>
 
                   <Button
                     className="shadow-lg shadow-accent/20 text-white"
                     onClick={() => setIsCreateOpen(true)}
+                    data-testid="add-category-button-desktop"
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Add Category
@@ -229,6 +231,7 @@ export default function CategoriesPage() {
                           key={category.id}
                           className="hover:bg-muted/30 transition-colors cursor-pointer"
                           onClick={() => router.push(`/dashboard/categories/${category.id}`)}
+                          data-testid={`category-row-${category.id}`}
                         >
                           <TableCell className="font-medium">{category.name}</TableCell>
                           <TableCell className="text-muted-foreground max-w-md truncate">

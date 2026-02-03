@@ -169,7 +169,10 @@ export function CreateLotDialog({
         <>
             {/* Step 1: Lot Information */}
             <Dialog open={isOpen && !isStep2Open} onOpenChange={handleClose}>
-                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                <DialogContent
+                    className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
+                    data-testid="create-lot-dialog-step1"
+                >
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
@@ -194,6 +197,7 @@ export function CreateLotDialog({
                                     onChange={(e) => setLotFormData({ ...lotFormData, lotNumber: e.target.value })}
                                     placeholder="LOT-2024-001"
                                     className="h-8"
+                                    data-testid="lot-number-input"
                                 />
                             </div>
 
@@ -209,6 +213,7 @@ export function CreateLotDialog({
                                     onChange={(e) => setLotFormData({ ...lotFormData, quantity: e.target.value })}
                                     placeholder="1000"
                                     className="h-8"
+                                    data-testid="lot-quantity-input"
                                 />
                             </div>
                         </div>
@@ -224,6 +229,7 @@ export function CreateLotDialog({
                                     value={lotFormData.receivedDate}
                                     onChange={(e) => setLotFormData({ ...lotFormData, receivedDate: e.target.value })}
                                     className="h-8"
+                                    data-testid="lot-received-date-input"
                                 />
                             </div>
 
@@ -237,6 +243,7 @@ export function CreateLotDialog({
                                     value={lotFormData.manufactureDate}
                                     onChange={(e) => setLotFormData({ ...lotFormData, manufactureDate: e.target.value })}
                                     className="h-8"
+                                    data-testid="lot-manufacture-date-input"
                                 />
                             </div>
 
@@ -250,6 +257,7 @@ export function CreateLotDialog({
                                     value={lotFormData.expirationDate}
                                     onChange={(e) => setLotFormData({ ...lotFormData, expirationDate: e.target.value })}
                                     className="h-8"
+                                    data-testid="lot-expiration-date-input"
                                 />
                             </div>
                         </div>
@@ -297,6 +305,7 @@ export function CreateLotDialog({
                                 onChange={(e) => setLotFormData({ ...lotFormData, notes: e.target.value })}
                                 placeholder="Any additional information about this lot..."
                                 className="min-h-16 resize-none text-xs"
+                                data-testid="lot-notes-input"
                             />
                         </div>
                     </div>
@@ -306,10 +315,11 @@ export function CreateLotDialog({
                             variant="outline"
                             onClick={handleClose}
                             size="sm"
+                            data-testid="lot-cancel-button"
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleStep1Continue} size="sm">
+                        <Button onClick={handleStep1Continue} size="sm" data-testid="lot-step1-next-button">
                             Next: Distribute Stock →
                         </Button>
                     </DialogFooter>
@@ -318,7 +328,10 @@ export function CreateLotDialog({
 
             {/* Step 2: Location Distribution */}
             <Dialog open={isStep2Open} onOpenChange={(open) => !isSaving && setIsStep2Open(open)}>
-                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                <DialogContent
+                    className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
+                    data-testid="create-lot-dialog-step2"
+                >
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
@@ -370,6 +383,7 @@ export function CreateLotDialog({
                                             }}
                                             className="h-8 text-sm"
                                             placeholder="0"
+                                            data-testid={`lot-location-quantity-${(location?.code || assignment.locationId).toLowerCase().replace(/\s+/g, "-")}`}
                                         />
                                         <span className="text-xs text-muted-foreground whitespace-nowrap">units</span>
                                     </div>
@@ -468,6 +482,7 @@ export function CreateLotDialog({
                             }}
                             size="sm"
                             disabled={isSaving}
+                            data-testid="lot-step2-back-button"
                         >
                             ← Back
                         </Button>
@@ -478,6 +493,7 @@ export function CreateLotDialog({
                                 locationAssignments.reduce((sum, loc) => sum + loc.quantity, 0) !== parseInt(lotFormData.quantity)
                             }
                             size="sm"
+                            data-testid="lot-create-button"
                         >
                             {isSaving ? (
                                 <>

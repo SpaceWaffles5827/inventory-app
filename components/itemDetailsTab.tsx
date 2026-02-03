@@ -81,6 +81,7 @@ export function ItemDetailsTab({
                                     id="lotTracking"
                                     checked={lotTracking}
                                     onCheckedChange={onLotTrackingChange}
+                                    data-testid="lot-tracking-switch"
                                 />
                             </div>
                         )}
@@ -96,6 +97,7 @@ export function ItemDetailsTab({
                                             onChange={(e) => onFormDataChange({ ...formData, itemNumber: e.target.value })}
                                             className="mt-1.5 h-9 text-sm font-mono"
                                             placeholder="Enter item number"
+                                            data-testid="edit-item-number-input"
                                         />
                                     ) : (
                                         <p className="text-sm mt-1 font-mono font-medium truncate">{item.itemNumber}</p>
@@ -110,6 +112,7 @@ export function ItemDetailsTab({
                                                 onChange={(e) => onFormDataChange({ ...formData, barcode: e.target.value })}
                                                 className="h-9 text-sm flex-1 font-mono"
                                                 placeholder="Enter barcode"
+                                                data-testid="edit-item-barcode-input"
                                             />
                                             <Button
                                                 variant="outline"
@@ -136,6 +139,7 @@ export function ItemDetailsTab({
                                         onChange={(e) => onFormDataChange({ ...formData, description: e.target.value })}
                                         className="mt-1.5 h-20 text-sm resize-none"
                                         placeholder="Enter description"
+                                        data-testid="edit-item-description-input"
                                     />
                                 ) : (
                                     <p className="text-sm mt-1 leading-relaxed">{item.description || "—"}</p>
@@ -171,6 +175,7 @@ export function ItemDetailsTab({
                                             onChange={(e) => onFormDataChange({ ...formData, unit: e.target.value })}
                                             className="mt-1.5 h-9 text-sm"
                                             placeholder="e.g., EA, BOX"
+                                            data-testid="edit-item-unit-input"
                                         />
                                     ) : (
                                         <p className="text-sm mt-1 font-medium">{item.unit || "—"}</p>
@@ -213,6 +218,7 @@ export function ItemDetailsTab({
                                             onChange={(e) => onFormDataChange({ ...formData, cost: e.target.value })}
                                             className="mt-1.5 h-9 text-sm"
                                             placeholder="0.00"
+                                            data-testid="edit-item-cost-input"
                                         />
                                     ) : (
                                         <p className="text-sm mt-1 font-medium">${item.cost.toFixed(2)}</p>

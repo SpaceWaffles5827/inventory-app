@@ -126,6 +126,7 @@ export function ItemHeroSection({
                                 onChange={(e) => onFormDataChange({ ...formData, name: e.target.value })}
                                 className="text-2xl font-bold h-auto py-2 mb-3 border-dashed"
                                 placeholder="Enter item name"
+                                data-testid="edit-item-name-input"
                             />
                         ) : (
                             <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">{item.name}</h1>
@@ -180,6 +181,7 @@ export function ItemHeroSection({
                                 onChange={(e) => onFormDataChange({ ...formData, name: e.target.value })}
                                 className="text-lg font-bold h-10 mb-2 border-dashed"
                                 placeholder="Item name"
+                                data-testid="edit-item-name-input"
                             />
                         ) : (
                             <h1 className="text-lg font-bold text-foreground leading-tight">{item.name}</h1>

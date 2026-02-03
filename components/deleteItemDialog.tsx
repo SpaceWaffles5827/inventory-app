@@ -75,6 +75,7 @@ export function DeleteItemDialog({
                 enableKeyboardAvoidance={true}
                 hideClose={true}
                 className="sm:max-w-[425px] max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                data-testid="delete-item-dialog"
             >
                 {/* Header */}
                 <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
@@ -86,6 +87,7 @@ export function DeleteItemDialog({
                             onClick={() => handleOpenChange(false)}
                             disabled={isDeleting}
                             className="h-9"
+                            data-testid="cancel-button-mobile"
                         >
                             Cancel
                         </Button>
@@ -96,6 +98,7 @@ export function DeleteItemDialog({
                             onClick={handleDelete}
                             disabled={isDeleting || !isDeleteEnabled}
                             className="h-9"
+                            data-testid="submit-button-mobile"
                         >
                             {isDeleting ? "Deleting..." : "Delete"}
                         </Button>
@@ -152,6 +155,7 @@ export function DeleteItemDialog({
                                 autoComplete="off"
                                 inputMode="numeric"
                                 className={confirmStock && !isDeleteEnabled ? "border-destructive" : ""}
+                                data-testid="confirm-stock-input"
                             />
                             {confirmStock && !isDeleteEnabled && (
                                 <p className="text-xs text-destructive flex items-center gap-1">
@@ -169,6 +173,7 @@ export function DeleteItemDialog({
                         variant="outline"
                         onClick={() => handleOpenChange(false)}
                         disabled={isDeleting}
+                        data-testid="cancel-button-desktop"
                     >
                         Cancel
                     </Button>
@@ -176,6 +181,7 @@ export function DeleteItemDialog({
                         variant="destructive"
                         onClick={handleDelete}
                         disabled={isDeleting || !isDeleteEnabled}
+                        data-testid="submit-button-desktop"
                     >
                         {isDeleting ? (
                             <>Deleting...</>

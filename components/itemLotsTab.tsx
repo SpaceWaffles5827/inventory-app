@@ -69,13 +69,13 @@ export function ItemLotsTab({
     })
 
     return (
-        <div className="bg-card p-4">
+        <div className="bg-card p-4" data-testid="item-lots-tab">
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h3 className="text-base font-semibold">Lot / Batch Tracking</h3>
                     <p className="text-xs text-muted-foreground">Track inventory by production batch or lot number</p>
                 </div>
-                <Button onClick={onCreateLot} className="gap-2 h-8">
+                <Button onClick={onCreateLot} className="gap-2 h-8" data-testid="item-create-lot-button">
                     <Plus className="h-4 w-4" />
                     <span className="hidden sm:inline">New Lot</span>
                 </Button>
@@ -98,6 +98,7 @@ export function ItemLotsTab({
                                 key={lot.id}
                                 className="group p-4 rounded-lg border border-border/50 bg-card hover:bg-muted/30 hover:border-accent/50 transition-all cursor-pointer"
                                 onClick={() => onNavigateToLot(lot.id)}
+                                data-testid={`item-lot-row-${lot.lotNumber.toLowerCase().replace(/\s+/g, "-")}`}
                             >
                                 <div className="flex items-start justify-between gap-4">
                                     <div className="flex-1 min-w-0">

@@ -93,7 +93,7 @@ export function ManageLocationsDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[500px]" data-testid="manage-locations-dialog">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -119,6 +119,7 @@ export function ManageLocationsDialog({
                                     <div
                                         key={location.id}
                                         className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/30"
+                                        data-testid={`manage-location-row-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
                                     >
                                         <div className="flex items-center gap-1.5">
                                             <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
@@ -131,6 +132,7 @@ export function ManageLocationsDialog({
                                             size="sm"
                                             className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
                                             onClick={() => handleRemoveLocation(location.id)}
+                                            data-testid={`manage-location-remove-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
                                         >
                                             <Trash2 className="h-3.5 w-3.5" />
                                         </Button>
@@ -146,20 +148,34 @@ export function ManageLocationsDialog({
                         </Label>
                         <div className="flex gap-2">
                             <Select value={newLocationId} onValueChange={(value) => setNewLocationId(value)}>
-                                <SelectTrigger id="addLocation" className="flex-1 h-8">
+                                <SelectTrigger
+                                    id="addLocation"
+                                    className="flex-1 h-8"
+                                    data-testid="manage-location-select-trigger"
+                                >
                                     <SelectValue placeholder="Select a location" />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {locations
                                         .filter((l) => !selectedLocationIds.includes(l.id))
                                         .map((location) => (
-                                            <SelectItem key={location.id} value={location.id}>
+                                            <SelectItem
+                                                key={location.id}
+                                                value={location.id}
+                                                data-testid={`manage-location-option-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
+                                            >
                                                 <div className="font-mono text-sm">{location.code}</div>
                                             </SelectItem>
                                         ))}
                                 </SelectContent>
                             </Select>
-                            <Button onClick={handleAddLocation} disabled={!newLocationId} size="sm" className="h-8">
+                            <Button
+                                onClick={handleAddLocation}
+                                disabled={!newLocationId}
+                                size="sm"
+                                className="h-8"
+                                data-testid="manage-location-add-button"
+                            >
                                 <Plus className="h-3.5 w-3.5 mr-1" />
                                 Add
                             </Button>
@@ -176,10 +192,16 @@ export function ManageLocationsDialog({
                         onClick={onClose}
                         disabled={isSaving}
                         size="sm"
+                        data-testid="manage-location-cancel-button"
                     >
                         Cancel
                     </Button>
-                    <Button onClick={handleUpdateLocations} disabled={isSaving} size="sm">
+                    <Button
+                        onClick={handleUpdateLocations}
+                        disabled={isSaving}
+                        size="sm"
+                        data-testid="manage-location-save-button"
+                    >
                         {isSaving ? (
                             <>
                                 <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />

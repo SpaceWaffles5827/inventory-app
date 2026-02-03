@@ -393,6 +393,7 @@ export function TransferStockWizard({
                         enableKeyboardAvoidance={true}
                         hideClose={true}
                         className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                        data-testid="transfer-stock-dialog-source"
                     >
                         <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
                             <div className="flex items-center justify-between gap-2 sm:hidden">
@@ -401,7 +402,15 @@ export function TransferStockWizard({
                                     <ArrowRightLeft className="h-4 w-4" />
                                     Transfer From
                                 </DialogTitle>
-                                <Button size="sm" onClick={handleSourceLocationSelected} disabled={!sourceLocationId} className="h-9">Next</Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleSourceLocationSelected}
+                                    disabled={!sourceLocationId}
+                                    className="h-9"
+                                    data-testid="transfer-stock-next-button"
+                                >
+                                    Next
+                                </Button>
                             </div>
                             <div className="hidden sm:block">
                                 <DialogTitle className="text-base flex items-center gap-2">
@@ -447,6 +456,7 @@ export function TransferStockWizard({
                                                         : "border-border hover:border-primary/50"
                                                         }`}
                                                     onClick={() => setSourceLocationId(itemLocation.locationId)}
+                                                    data-testid={`transfer-source-option-${itemLocation.location.code.toLowerCase().replace(/\s+/g, "-")}`}
                                                 >
                                                     <RadioGroupItem
                                                         value={itemLocation.locationId}
@@ -478,7 +488,14 @@ export function TransferStockWizard({
 
                         <DialogFooter className="hidden sm:flex px-4 pb-4 sm:px-0 sm:pb-0 flex-shrink-0 border-t sm:border-0 pt-4 sm:pt-0">
                             <Button variant="outline" onClick={onClose} size="sm">Cancel</Button>
-                            <Button onClick={handleSourceLocationSelected} disabled={!sourceLocationId} size="sm">Next →</Button>
+                            <Button
+                                onClick={handleSourceLocationSelected}
+                                disabled={!sourceLocationId}
+                                size="sm"
+                                data-testid="transfer-stock-next-button"
+                            >
+                                Next →
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
@@ -490,6 +507,7 @@ export function TransferStockWizard({
                     enableKeyboardAvoidance={true}
                     hideClose={true}
                     className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                    data-testid="transfer-stock-dialog-lot"
                 >
                     <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
                         <div className="flex items-center justify-between gap-2 sm:hidden">
@@ -497,7 +515,15 @@ export function TransferStockWizard({
                                 {shouldShowSourceStep ? 'Back' : 'Cancel'}
                             </Button>
                             <DialogTitle className="text-base font-semibold">Select Lot</DialogTitle>
-                            <Button size="sm" onClick={handleLotSelected} disabled={!lotId} className="h-9">Next</Button>
+                            <Button
+                                size="sm"
+                                onClick={handleLotSelected}
+                                disabled={!lotId}
+                                className="h-9"
+                                data-testid="transfer-stock-next-button"
+                            >
+                                Next
+                            </Button>
                         </div>
                         <div className="hidden sm:block">
                             <DialogTitle className="text-base flex items-center gap-2">
@@ -558,6 +584,7 @@ export function TransferStockWizard({
                                                             : "border-border hover:border-primary/50"
                                                             }`}
                                                         onClick={() => setLotId(lot.id)}
+                                                        data-testid={`transfer-lot-option-${lot.lotNumber.toLowerCase().replace(/\s+/g, "-")}`}
                                                     >
                                                         <RadioGroupItem value={lot.id} id={`transfer-lot-${lot.id}`} className="flex-shrink-0" />
                                                         <Label htmlFor={`transfer-lot-${lot.id}`} className="flex-1 cursor-pointer min-w-0">
@@ -607,7 +634,14 @@ export function TransferStockWizard({
                         >
                             Skip (Transfer Non-Lotted)
                         </Button>
-                        <Button onClick={handleLotSelected} disabled={!lotId} size="sm">Next →</Button>
+                        <Button
+                            onClick={handleLotSelected}
+                            disabled={!lotId}
+                            size="sm"
+                            data-testid="transfer-stock-next-button"
+                        >
+                            Next →
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -619,6 +653,7 @@ export function TransferStockWizard({
                         enableKeyboardAvoidance={true}
                         hideClose={true}
                         className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                        data-testid="transfer-stock-dialog-destination"
                     >
                         <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
                             <div className="flex items-center justify-between gap-2 sm:hidden">
@@ -632,7 +667,15 @@ export function TransferStockWizard({
                                     }
                                 }} className="h-9">Back</Button>
                                 <DialogTitle className="text-base font-semibold">Transfer To</DialogTitle>
-                                <Button size="sm" onClick={handleDestinationLocationSelected} disabled={!destinationLocationId} className="h-9">Next</Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleDestinationLocationSelected}
+                                    disabled={!destinationLocationId}
+                                    className="h-9"
+                                    data-testid="transfer-stock-next-button"
+                                >
+                                    Next
+                                </Button>
                             </div>
                             <div className="hidden sm:block">
                                 <DialogTitle className="text-base flex items-center gap-2">
@@ -683,6 +726,7 @@ export function TransferStockWizard({
                                                                 : "border-border hover:border-primary/50"
                                                                 }`}
                                                             onClick={() => setDestinationLocationId(location.id)}
+                                                            data-testid={`transfer-destination-option-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
                                                         >
                                                             <RadioGroupItem value={location.id} id={`transfer-dest-${location.id}`} className="flex-shrink-0" />
                                                             <Label htmlFor={`transfer-dest-${location.id}`} className="flex-1 cursor-pointer min-w-0">
@@ -730,7 +774,14 @@ export function TransferStockWizard({
                                     goBackToSource()
                                 }
                             }} size="sm">← Back</Button>
-                            <Button onClick={handleDestinationLocationSelected} disabled={!destinationLocationId} size="sm">Next →</Button>
+                            <Button
+                                onClick={handleDestinationLocationSelected}
+                                disabled={!destinationLocationId}
+                                size="sm"
+                                data-testid="transfer-stock-next-button"
+                            >
+                                Next →
+                            </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
@@ -742,6 +793,7 @@ export function TransferStockWizard({
                     enableKeyboardAvoidance={true}
                     hideClose={true}
                     className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                    data-testid="transfer-stock-dialog-quantity"
                 >
                     <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
                         <div className="flex items-center justify-between gap-2 sm:hidden">
@@ -757,7 +809,13 @@ export function TransferStockWizard({
                                 }
                             }} className="h-9">Back</Button>
                             <DialogTitle className="text-base font-semibold">Transfer Qty</DialogTitle>
-                            <Button size="sm" onClick={handleTransferStock} disabled={!canSubmit} className="h-9 bg-blue-600 hover:bg-blue-700">
+                            <Button
+                                size="sm"
+                                onClick={handleTransferStock}
+                                disabled={!canSubmit}
+                                className="h-9 bg-blue-600 hover:bg-blue-700"
+                                data-testid="transfer-stock-submit-button"
+                            >
                                 Transfer
                             </Button>
                         </div>
@@ -833,6 +891,7 @@ export function TransferStockWizard({
                                         className="text-center font-semibold flex-1 min-w-0 h-9 text-sm"
                                         autoComplete="off"
                                         inputMode="numeric"
+                                        data-testid="transfer-stock-quantity-input"
                                     />
 
                                     <Button
@@ -868,6 +927,7 @@ export function TransferStockWizard({
                                     className="font-semibold h-9 text-sm"
                                     autoComplete="off"
                                     inputMode="numeric"
+                                    data-testid="transfer-stock-new-destination-input"
                                 />
                                 {newDestinationQuantity && Number.parseInt(newDestinationQuantity) < getCurrentDestinationQuantity() && (
                                     <Alert variant="destructive" className="py-1.5">
@@ -892,6 +952,7 @@ export function TransferStockWizard({
                                     autoCorrect="off"
                                     autoCapitalize="off"
                                     spellCheck="false"
+                                    data-testid="transfer-stock-note-input"
                                 />
                             </div>
                         </div>
@@ -899,7 +960,13 @@ export function TransferStockWizard({
 
                     <DialogFooter className="hidden sm:flex px-4 pb-4 sm:px-0 sm:pb-0 flex-shrink-0 border-t sm:border-0 pt-4 sm:pt-0">
                         <Button variant="outline" onClick={goBackToDestination} size="sm">← Back</Button>
-                        <Button onClick={handleTransferStock} disabled={!canSubmit} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                        <Button
+                            onClick={handleTransferStock}
+                            disabled={!canSubmit}
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700"
+                            data-testid="transfer-stock-submit-button"
+                        >
                             Transfer Stock
                         </Button>
                     </DialogFooter>

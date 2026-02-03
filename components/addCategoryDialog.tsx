@@ -86,6 +86,7 @@ export function AddCategoryDialog({
                 enableKeyboardAvoidance={true}
                 hideClose={true}
                 className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                data-testid="add-category-dialog"
             >
                 {/* Header */}
                 <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
@@ -97,6 +98,7 @@ export function AddCategoryDialog({
                             onClick={() => onOpenChange(false)}
                             disabled={isCreating}
                             className="h-9"
+                            data-testid="cancel-button-mobile"
                         >
                             Cancel
                         </Button>
@@ -106,6 +108,7 @@ export function AddCategoryDialog({
                             onClick={handleCreate}
                             disabled={!isFormValid || isCreating}
                             className="h-9"
+                            data-testid="submit-button-mobile"
                         >
                             {isCreating ? "Creating..." : "Create"}
                         </Button>
@@ -141,6 +144,7 @@ export function AddCategoryDialog({
                                 autoCorrect="off"
                                 autoCapitalize="off"
                                 spellCheck="false"
+                                data-testid="category-name-input"
                             />
                         </div>
                         <div className="space-y-2">
@@ -155,6 +159,7 @@ export function AddCategoryDialog({
                                 autoCorrect="off"
                                 autoCapitalize="off"
                                 spellCheck="false"
+                                data-testid="category-description-input"
                             />
                         </div>
                     </div>
@@ -166,12 +171,14 @@ export function AddCategoryDialog({
                         variant="outline"
                         onClick={() => onOpenChange(false)}
                         disabled={isCreating}
+                        data-testid="cancel-button-desktop"
                     >
                         Cancel
                     </Button>
                     <Button
                         onClick={handleCreate}
                         disabled={!isFormValid || isCreating}
+                        data-testid="submit-button-desktop"
                     >
                         {isCreating ? "Creating..." : "Create Category"}
                     </Button>

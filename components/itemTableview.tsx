@@ -117,7 +117,9 @@ export function ItemTableView({
                                 </TableCell>
                                 <TableCell className="text-center">
                                     <div className="flex items-baseline justify-center gap-1">
-                                        <span className="font-semibold text-lg tabular-nums">{item.onHand}</span>
+                                        <span className="font-semibold text-lg tabular-nums" data-testid="item-stock-value">
+                                            {item.onHand}
+                                        </span>
                                         <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight">{item.unit || "EA"}</span>
                                     </div>
                                 </TableCell>
@@ -144,27 +146,30 @@ export function ItemTableView({
                                                 e.stopPropagation()
                                                 onAdjustmentClick(item)
                                             }}
+                                            data-testid="item-adjust-button"
                                         >
                                             <Diff className="h-4 w-4" />
                                         </Button>
 
                                         <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button
-                                                    variant="outline"
-                                                    size="icon"
-                                                    className="h-8 w-8"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <MoreVertical className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-8 w-8"
+                                                onClick={(e) => e.stopPropagation()}
+                                                data-testid="item-actions-button"
+                                            >
+                                                <MoreVertical className="h-4 w-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem
                                                     onClick={(e) => {
                                                         e.stopPropagation()
                                                         onTransferClick(item)
                                                     }}
+                                                    data-testid="item-transfer-button"
                                                 >
                                                     <ArrowRightLeft className="h-4 w-4 mr-2" />
                                                     Transfer Stock
@@ -176,6 +181,7 @@ export function ItemTableView({
                                                         e.stopPropagation()
                                                         onDeleteClick(item)
                                                     }}
+                                                    data-testid="item-delete-button"
                                                 >
                                                     <Trash2 className="h-4 w-4 mr-2" />
                                                     Delete Item

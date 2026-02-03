@@ -74,7 +74,9 @@ export function ItemGridView({
                                 <div>
                                     <p className="text-xs text-muted-foreground mb-1">Stock</p>
                                     <div className="flex items-baseline gap-1.5">
-                                        <p className="text-2xl font-bold tabular-nums">{item.onHand}</p>
+                                        <p className="text-2xl font-bold tabular-nums" data-testid="item-stock-value">
+                                            {item.onHand}
+                                        </p>
                                         <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight">{item.unit || "EA"}</span>
                                     </div>
                                 </div>
@@ -93,6 +95,7 @@ export function ItemGridView({
                                     e.stopPropagation()
                                     onAdjustmentClick(item)
                                 }}
+                                data-testid="item-adjust-button"
                             >
                                 <Diff className="h-4 w-4" />
                             </Button>
@@ -104,6 +107,7 @@ export function ItemGridView({
                                     e.stopPropagation()
                                     onDeleteClick(item)
                                 }}
+                                data-testid="item-delete-button"
                             >
                                 <Trash2 className="h-4 w-4" />
                             </Button>

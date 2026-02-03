@@ -96,17 +96,22 @@ export function ItemMobileView({
                             <DropdownMenuItem onClick={() => router.push(`/dashboard/items/${item.id}`)}>
                                 View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => {
-                                e.stopPropagation()
-                                onAdjustmentClick(item)
-                            }}>
+                            <DropdownMenuItem
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onAdjustmentClick(item)
+                                }}
+                                data-testid="item-adjust-button"
+                            >
                                 <Diff className="h-4 w-4 mr-2" />
                                 Adjust Stock
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={(e) => {
                                 e.stopPropagation()
                                 onTransferClick(item)
-                            }}>
+                            }}
+                                data-testid="item-transfer-button"
+                            >
                                 <ArrowRightLeft className="h-4 w-4 mr-2" />
                                 Transfer Stock
                             </DropdownMenuItem>
@@ -117,6 +122,7 @@ export function ItemMobileView({
                                     e.stopPropagation()
                                     onDeleteClick(item)
                                 }}
+                                data-testid="item-delete-button"
                             >
                                 <Trash2 className="h-4 w-4 mr-2" />
                                 Delete Item

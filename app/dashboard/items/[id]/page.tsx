@@ -343,10 +343,22 @@ export default function ItemDetailPage() {
           <div className="flex items-center gap-1 sm:gap-2">
             {isEditing ? (
               <>
-                <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-sm">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancel}
+                  className="h-9 px-3 text-sm"
+                  data-testid="cancel-item-edit-button"
+                >
                   Cancel
                 </Button>
-                <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-9 px-4 gap-1.5">
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="h-9 px-4 gap-1.5"
+                  data-testid="save-item-button"
+                >
                   {isSaving ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -368,6 +380,7 @@ export default function ItemDetailPage() {
                   size="sm"
                   onClick={() => setIsEditing(true)}
                   className="h-9 w-9 p-0 sm:w-auto sm:px-3 sm:gap-2"
+                  data-testid="edit-item-button"
                 >
                   <Edit2 className="h-4 w-4" />
                   <span className="hidden sm:inline">Edit</span>
@@ -406,6 +419,7 @@ export default function ItemDetailPage() {
               <TabsTrigger
                 value="locations"
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
+                data-testid="item-locations-tab-trigger"
               >
                 Locations
               </TabsTrigger>
@@ -413,6 +427,7 @@ export default function ItemDetailPage() {
                 <TabsTrigger
                   value="lots"
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
+                  data-testid="item-lots-tab-trigger"
                 >
                   Lots ({lots.filter(l => l.status === 'ACTIVE').length})
                 </TabsTrigger>
@@ -448,7 +463,7 @@ export default function ItemDetailPage() {
           </TabsContent>
 
           {/* Locations Tab */}
-          <TabsContent value="locations" className="mt-0">
+          <TabsContent value="locations" className="mt-0" data-testid="item-locations-tab-content">
             <ItemLocationsTab
               itemId={itemId}
               itemLocations={item.locations || []}
@@ -463,7 +478,7 @@ export default function ItemDetailPage() {
 
           {/* Lots Tab */}
           {lotTracking && (
-            <TabsContent value="lots" className="mt-0">
+            <TabsContent value="lots" className="mt-0" data-testid="item-lots-tab-content">
               <ItemLotsTab
                 itemId={itemId}
                 lots={lots}

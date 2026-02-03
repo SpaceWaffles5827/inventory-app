@@ -457,6 +457,7 @@ export function StockAdjustmentWizard({
                         enableKeyboardAvoidance={true}
                         hideClose={true}
                         className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                        data-testid="stock-adjustment-dialog-location"
                     >
                         {/* Header */}
                         <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
@@ -478,6 +479,7 @@ export function StockAdjustmentWizard({
                                     onClick={() => handleLocationSelected()}
                                     disabled={!selectedLocationId}
                                     className="h-9"
+                                    data-testid="stock-adjustment-next-button"
                                 >
                                     Next
                                 </Button>
@@ -538,6 +540,7 @@ export function StockAdjustmentWizard({
                                                                     : "border-border hover:border-primary/50"
                                                                     }`}
                                                                 onClick={() => setSelectedLocationId(itemLocation.locationId)}
+                                                                data-testid={`adjust-location-option-${itemLocation.location.code.toLowerCase().replace(/\s+/g, "-")}`}
                                                             >
                                                                 <RadioGroupItem
                                                                     value={itemLocation.locationId}
@@ -606,6 +609,7 @@ export function StockAdjustmentWizard({
                                                                 role="combobox"
                                                                 aria-expanded={locationOpen}
                                                                 className="w-full justify-between h-9 font-normal bg-transparent"
+                                                                data-testid="stock-adjustment-other-location-button"
                                                             >
                                                                 {selectedOtherLocation
                                                                     ? `${selectedOtherLocation.code} (0 units)`
@@ -615,7 +619,11 @@ export function StockAdjustmentWizard({
                                                         </PopoverTrigger>
                                                         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
                                                             <Command shouldFilter={true}>
-                                                                <CommandInput placeholder="Search location..." className="h-9" />
+                                                                <CommandInput
+                                                                    placeholder="Search location..."
+                                                                    className="h-9"
+                                                                    data-testid="stock-adjustment-location-search-input"
+                                                                />
                                                                 <CommandList>
                                                                     <CommandEmpty>No location found.</CommandEmpty>
                                                                     <CommandGroup>
@@ -640,6 +648,7 @@ export function StockAdjustmentWizard({
                                                                                     setSelectedLocationId(location.id)
                                                                                     setLocationOpen(false)
                                                                                 }}
+                                                                                data-testid={`adjust-location-option-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
                                                                             >
                                                                                 <Check
                                                                                     className={cn(
@@ -676,7 +685,12 @@ export function StockAdjustmentWizard({
                             <Button variant="outline" onClick={onClose} size="sm">
                                 Cancel
                             </Button>
-                            <Button onClick={() => handleLocationSelected()} disabled={!selectedLocationId} size="sm">
+                            <Button
+                                onClick={() => handleLocationSelected()}
+                                disabled={!selectedLocationId}
+                                size="sm"
+                                data-testid="stock-adjustment-next-button"
+                            >
                                 Next →
                             </Button>
                         </DialogFooter>
@@ -690,6 +704,7 @@ export function StockAdjustmentWizard({
                     enableKeyboardAvoidance={true}
                     hideClose={true}
                     className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                    data-testid="stock-adjustment-dialog-lot"
                 >
                     {/* Header */}
                     <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
@@ -711,6 +726,7 @@ export function StockAdjustmentWizard({
                                 onClick={handleLotSelected}
                                 disabled={!selectedLotId}
                                 className="h-9"
+                                data-testid="stock-adjustment-next-button"
                             >
                                 Next
                             </Button>
@@ -785,6 +801,7 @@ export function StockAdjustmentWizard({
                                                             : "border-border hover:border-primary/50"
                                                             }`}
                                                         onClick={() => setSelectedLotId(lot.id)}
+                                                        data-testid={`adjust-lot-option-${lot.lotNumber.toLowerCase().replace(/\s+/g, "-")}`}
                                                     >
                                                         <RadioGroupItem
                                                             value={lot.id}
@@ -858,6 +875,7 @@ export function StockAdjustmentWizard({
                     enableKeyboardAvoidance={true}
                     hideClose={true}
                     className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                    data-testid="stock-adjustment-dialog-quantity"
                 >
                     {/* Header */}
                     <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
@@ -887,6 +905,7 @@ export function StockAdjustmentWizard({
                                 onClick={handleStockAdjustment}
                                 disabled={!canSubmit}
                                 className="h-9"
+                                data-testid="stock-adjustment-submit-button"
                             >
                                 Update
                             </Button>
@@ -981,6 +1000,7 @@ export function StockAdjustmentWizard({
                                         placeholder="0"
                                         autoComplete="off"
                                         inputMode="numeric"
+                                        data-testid="stock-adjustment-amount-input"
                                     />
 
                                     <Button
@@ -1007,6 +1027,7 @@ export function StockAdjustmentWizard({
                                     className="font-semibold h-9 text-sm"
                                     autoComplete="off"
                                     inputMode="numeric"
+                                    data-testid="stock-adjustment-new-quantity-input"
                                 />
                                 {Number.parseInt(newStockAmount) < 0 && (
                                     <Alert variant="destructive" className="py-1.5">
@@ -1031,6 +1052,7 @@ export function StockAdjustmentWizard({
                                     autoCorrect="off"
                                     autoCapitalize="off"
                                     spellCheck="false"
+                                    data-testid="stock-adjustment-note-input"
                                 />
                             </div>
                         </div>
@@ -1057,6 +1079,7 @@ export function StockAdjustmentWizard({
                             onClick={handleStockAdjustment}
                             disabled={!canSubmit}
                             size="sm"
+                            data-testid="stock-adjustment-submit-button"
                         >
                             Update Stock
                         </Button>

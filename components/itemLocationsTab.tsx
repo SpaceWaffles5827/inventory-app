@@ -76,10 +76,16 @@ export function ItemLocationsTab({
     }
 
     return (
-        <div className="bg-card p-4">
+        <div className="bg-card p-4" data-testid="item-locations-tab">
             <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-semibold">Storage Locations</h3>
-                <Button variant="outline" size="sm" onClick={onManageLocations} className="gap-2 h-7">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onManageLocations}
+                    className="gap-2 h-7"
+                    data-testid="item-manage-locations-button"
+                >
                     <Plus className="h-4 w-4" />
                     <span className="hidden sm:inline">Manage</span>
                 </Button>
@@ -99,6 +105,7 @@ export function ItemLocationsTab({
                             <div
                                 key={itemLocation.id}
                                 className="group flex items-center justify-between p-4 rounded-lg border border-border/50 bg-card hover:bg-muted/30 hover:border-accent/50 transition-all"
+                                data-testid={`item-location-row-${itemLocation.location.code.toLowerCase().replace(/\s+/g, "-")}`}
                             >
                                 <div
                                     className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
@@ -139,7 +146,7 @@ export function ItemLocationsTab({
                                 <div className="flex items-center gap-2">
                                     <div className="text-right">
                                         <p className="text-xs text-muted-foreground mb-0">Quantity</p>
-                                        <p className="text-xl font-bold text-accent">
+                                        <p className="text-xl font-bold text-accent" data-testid="item-location-quantity">
                                             {itemLocation.quantity || 0}
                                             {itemUnit && <span className="text-xs text-muted-foreground ml-1">{itemUnit}</span>}
                                         </p>
