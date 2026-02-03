@@ -333,7 +333,12 @@ export default function DashboardPage() {
                       <SelectItem value="table">Table</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button onClick={() => setIsAddItemOpen(true)} size="sm" className="shadow-lg shadow-accent/20">
+                  <Button
+                    onClick={() => setIsAddItemOpen(true)}
+                    size="sm"
+                    className="shadow-lg shadow-accent/20"
+                    data-testid="add-item-button-desktop"
+                  >
                     <Plus className="h-4 w-4 mr-2" />
                     Add Item
                   </Button>
@@ -351,6 +356,7 @@ export default function DashboardPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-9 h-9 lg:h-9 text-sm"
+                      data-testid="search-items-input"
                     />
                   </div>
 
@@ -482,7 +488,7 @@ export default function DashboardPage() {
                 )}
 
                 {/* Item Count - DESKTOP ONLY */}
-                <div className="hidden lg:block text-sm text-muted-foreground">
+                <div className="hidden lg:block text-sm text-muted-foreground" data-testid="item-count">
                   Showing {filteredInventory.length} of {inventory.length} items
                 </div>
               </div>

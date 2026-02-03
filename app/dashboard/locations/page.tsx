@@ -230,6 +230,7 @@ export default function LocationsPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-9 h-9 sm:h-10 bg-background border-border/50 focus:border-primary/50 transition-colors"
+                      data-testid="search-locations-input"
                     />
                   </div>
 
@@ -237,6 +238,7 @@ export default function LocationsPage() {
                     variant="outline"
                     onClick={() => setIsConfigureStructureOpen(true)}
                     className="shadow-sm hover:bg-accent/10 hover:border-accent/50 transition-all bg-transparent h-9 sm:h-10"
+                    data-testid="configure-structure-button"
                   >
                     <Settings2 className="h-4 w-4 sm:mr-2" />
                     <span className="hidden sm:inline">Configure</span>
@@ -245,6 +247,7 @@ export default function LocationsPage() {
                   <Button
                     className="shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90 h-9 sm:h-10 text-white"
                     onClick={() => setIsCreateOpen(true)}
+                    data-testid="add-location-button-desktop"
                   >
                     <Plus className="h-4 w-4 sm:mr-2" />
                     <span className="hidden sm:inline">Add Location</span>
@@ -292,6 +295,7 @@ export default function LocationsPage() {
                             key={location.id}
                             className="hover:bg-muted/30 transition-colors cursor-pointer"
                             onClick={() => router.push(`/dashboard/locations/${location.id}`)}
+                            data-testid={`location-row-${location.id}`}
                           >
                             <TableCell className="font-mono font-semibold text-accent">{location.code}</TableCell>
                             <TableCell>
@@ -328,6 +332,7 @@ export default function LocationsPage() {
                                     e.stopPropagation()
                                     openEditDialog(location)
                                   }}
+                                  data-testid={`edit-location-button-${location.id}`}
                                 >
                                   <Pencil className="h-4 w-4" />
                                 </Button>
@@ -339,6 +344,7 @@ export default function LocationsPage() {
                                     e.stopPropagation()
                                     handleDelete(location.id)
                                   }}
+                                  data-testid={`delete-location-button-${location.id}`}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>

@@ -128,16 +128,24 @@ export default function SignupPage() {
 
       <div className="flex items-center justify-center p-4 py-16">
         <div className="w-full max-w-md">
-          <Card>
+          <Card data-testid="signup-card">
             <CardHeader>
               <CardTitle>Create an account</CardTitle>
               <CardDescription>Get started with StockFlow today</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4" data-testid="signup-form">
                 <div className="space-y-2">
                   <Label htmlFor="name">Full name</Label>
-                  <Input id="name" name="name" type="text" placeholder="John Doe" required disabled={loading} />
+                  <Input
+                    id="name"
+                    name="name"
+                    type="text"
+                    placeholder="John Doe"
+                    required
+                    disabled={loading}
+                    data-testid="name-input"
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -149,6 +157,7 @@ export default function SignupPage() {
                     placeholder="you@example.com"
                     required
                     disabled={loading}
+                    data-testid="email-input"
                   />
                 </div>
 
@@ -161,6 +170,7 @@ export default function SignupPage() {
                     placeholder="••••••••"
                     required
                     disabled={loading}
+                    data-testid="password-input"
                   />
                 </div>
 
@@ -173,6 +183,7 @@ export default function SignupPage() {
                     placeholder="••••••••"
                     required
                     disabled={loading}
+                    data-testid="confirm-password-input"
                   />
                 </div>
 
@@ -183,6 +194,7 @@ export default function SignupPage() {
                     onCheckedChange={(checked) => setAgreedToTerms(checked as boolean)}
                     disabled={loading}
                     className="mt-1 cursor-pointer"
+                    data-testid="terms-checkbox"
                   />
                   <label htmlFor="terms" className="text-sm text-muted-foreground leading-relaxed cursor-pointer">
                     I agree to the{" "}
@@ -196,9 +208,18 @@ export default function SignupPage() {
                   </label>
                 </div>
 
-                {error && <p className="text-sm text-destructive">{error}</p>}
+                {error && (
+                  <p className="text-sm text-destructive" data-testid="error-message">
+                    {error}
+                  </p>
+                )}
 
-                <Button type="submit" className="w-full cursor-pointer" disabled={loading}>
+                <Button
+                  type="submit"
+                  className="w-full cursor-pointer"
+                  disabled={loading}
+                  data-testid="submit-button"
+                >
                   {loading ? "Creating account..." : "Create account"}
                 </Button>
               </form>

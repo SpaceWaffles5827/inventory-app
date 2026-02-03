@@ -84,6 +84,7 @@ export function ItemTableView({
                                 key={item.id}
                                 className="hover:bg-muted/30 transition-colors cursor-pointer"
                                 onClick={() => router.push(`/dashboard/items/${item.id}`)}
+                                data-testid={`item-row-${item.id}`}
                             >
                                 <TableCell>
                                     <div className="w-12 h-12 rounded-md bg-muted/50 border border-border flex items-center justify-center overflow-hidden">

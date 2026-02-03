@@ -36,6 +36,7 @@ export function ItemGridView({
                     key={item.id}
                     className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:border-accent/50 flex flex-col pt-0 overflow-hidden"
                     onClick={() => router.push(`/dashboard/items/${item.id}`)}
+                    data-testid={`item-card-${item.id}`}
                 >
                     <div className="relative w-full h-48 bg-muted/30 border-b border-border overflow-hidden">
                         <ItemImage

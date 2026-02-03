@@ -186,6 +186,7 @@ export function AddLocationDialog({
                 enableKeyboardAvoidance={true}
                 hideClose={true}
                 className="max-w-5xl max-h-[85vh] flex flex-col p-0 sm:p-6"
+                data-testid="add-location-dialog"
             >
                 {/* Header */}
                 <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-3 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-b">
@@ -197,6 +198,7 @@ export function AddLocationDialog({
                             onClick={() => onOpenChange(false)}
                             disabled={isCreating}
                             className="h-9"
+                            data-testid="cancel-button-mobile"
                         >
                             Cancel
                         </Button>
@@ -206,6 +208,7 @@ export function AddLocationDialog({
                             onClick={handleCreate}
                             disabled={!isFormValid || isCreating}
                             className="h-9"
+                            data-testid="submit-button-mobile"
                         >
                             {isCreating ? "Creating..." : "Create"}
                         </Button>
@@ -213,7 +216,7 @@ export function AddLocationDialog({
 
                     {/* Desktop Header */}
                     <div className="hidden sm:block">
-                        <DialogTitle className="flex items-center gap-2 text-lg">
+                        <DialogTitle className="flex items-center gap-2 text-lg" data-testid="dialog-title">
                             <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
                                 <Settings2 className="h-4 w-4 text-primary" />
                             </div>
@@ -238,6 +241,7 @@ export function AddLocationDialog({
                                         variant="outline"
                                         onClick={saveDefaultStructureFromModal}
                                         className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
+                                        data-testid="save-default-structure-button"
                                     >
                                         <Settings2 className="h-3 w-3 sm:mr-1" />
                                         <span className="hidden sm:inline">Save Default</span>
@@ -247,6 +251,7 @@ export function AddLocationDialog({
                                         size="sm"
                                         onClick={addLocationLevel}
                                         className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
+                                        data-testid="add-location-level-button"
                                     >
                                         <Plus className="h-3 w-3 mr-1" />
                                         Add
@@ -254,11 +259,12 @@ export function AddLocationDialog({
                                 </div>
                             </div>
 
-                            <div className="space-y-2 flex-1 overflow-y-auto">
+                            <div className="space-y-2 flex-1 overflow-y-auto" data-testid="location-levels-container">
                                 {locationLevels.map((level, index) => (
                                     <div
                                         key={level.id}
                                         className="group flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all"
+                                        data-testid={`location-level-${index}`}
                                     >
                                         <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-bold text-xs flex-shrink-0">
                                             {index + 1}
@@ -274,6 +280,7 @@ export function AddLocationDialog({
                                                     autoCorrect="off"
                                                     autoCapitalize="off"
                                                     spellCheck="false"
+                                                    data-testid={`location-level-label-${index}`}
                                                 />
                                             </div>
                                             <div className="w-24">
@@ -287,6 +294,7 @@ export function AddLocationDialog({
                                                     autoCorrect="off"
                                                     autoCapitalize="off"
                                                     spellCheck="false"
+                                                    data-testid={`location-level-value-${index}`}
                                                 />
                                             </div>
                                         </div>
@@ -296,6 +304,7 @@ export function AddLocationDialog({
                                             onClick={() => removeLocationLevel(level.id)}
                                             disabled={locationLevels.length === 1}
                                             className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
+                                            data-testid={`remove-location-level-${index}`}
                                         >
                                             <X className="h-3.5 w-3.5" />
                                         </Button>
@@ -311,7 +320,10 @@ export function AddLocationDialog({
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-xs text-muted-foreground">Generated Code</p>
-                                        <p className={`text-base font-mono font-bold truncate ${isFormValid ? 'text-primary' : 'text-muted-foreground/50'}`}>
+                                        <p
+                                            className={`text-base font-mono font-bold truncate ${isFormValid ? 'text-primary' : 'text-muted-foreground/50'}`}
+                                            data-testid="generated-location-code"
+                                        >
                                             {isFormValid ? generateLocationCode() : locationLevels.map(() => '--').join(' ')}
                                         </p>
                                     </div>
@@ -339,6 +351,7 @@ export function AddLocationDialog({
                                     autoCorrect="off"
                                     autoCapitalize="off"
                                     spellCheck="false"
+                                    data-testid="location-description-input"
                                 />
                                 <p className="text-xs text-muted-foreground flex-shrink-0">
                                     This information will be visible to all team members with access to this location
@@ -355,6 +368,7 @@ export function AddLocationDialog({
                         onClick={() => onOpenChange(false)}
                         disabled={isCreating}
                         className="h-9 px-5 hover:bg-accent/10 transition-all"
+                        data-testid="cancel-button-desktop"
                     >
                         Cancel
                     </Button>
@@ -362,6 +376,7 @@ export function AddLocationDialog({
                         onClick={handleCreate}
                         disabled={!isFormValid || isCreating}
                         className="h-9 px-5 shadow-md hover:shadow-lg transition-all"
+                        data-testid="submit-button-desktop"
                     >
                         {isCreating ? "Creating..." : "Create Location"}
                     </Button>

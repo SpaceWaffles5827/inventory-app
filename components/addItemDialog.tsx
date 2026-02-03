@@ -27,7 +27,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { Check, ChevronsUpDown, Plus, X } from "lucide-react"
+import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { createItemApi } from "@/lib/api/items.api"
 import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
@@ -336,6 +336,7 @@ export function AddItemDialog({
                     enableKeyboardAvoidance={true}
                     hideClose={true}
                     className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
+                    data-testid="add-item-dialog"
                 >
                     {/* Header */}
                     <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
@@ -347,6 +348,7 @@ export function AddItemDialog({
                                 onClick={() => handleOpenChange(false)}
                                 disabled={isCreating}
                                 className="h-9"
+                                data-testid="cancel-button-mobile"
                             >
                                 Cancel
                             </Button>
@@ -356,6 +358,7 @@ export function AddItemDialog({
                                 onClick={handleSubmit}
                                 disabled={isCreating || !isFormValid || isLoadingData}
                                 className="h-9"
+                                data-testid="submit-button-mobile"
                             >
                                 {isCreating ? "Adding..." : "Add"}
                             </Button>
@@ -363,7 +366,7 @@ export function AddItemDialog({
 
                         {/* Desktop Header */}
                         <div className="hidden sm:block">
-                            <DialogTitle>Add New Item</DialogTitle>
+                            <DialogTitle data-testid="dialog-title">Add New Item</DialogTitle>
                             <DialogDescription className="mt-1.5">
                                 Add a new item to your inventory with all required details.
                             </DialogDescription>
@@ -394,6 +397,7 @@ export function AddItemDialog({
                                         autoCorrect="off"
                                         autoCapitalize="off"
                                         spellCheck="false"
+                                        data-testid="item-name-input"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -407,6 +411,7 @@ export function AddItemDialog({
                                         autoCorrect="off"
                                         autoCapitalize="off"
                                         spellCheck="false"
+                                        data-testid="item-unit-input"
                                     />
                                 </div>
                             </div>
@@ -423,6 +428,7 @@ export function AddItemDialog({
                                                 aria-expanded={categoryOpen}
                                                 className="w-full justify-between h-9 font-normal bg-transparent"
                                                 disabled={isLoadingData}
+                                                data-testid="category-select-button"
                                             >
                                                 {formData.category
                                                     ? categories.find((category) => category.id === formData.category)?.name
@@ -442,6 +448,7 @@ export function AddItemDialog({
                                                                 setIsAddCategoryOpen(true)
                                                             }}
                                                             className="bg-primary/5 border-b"
+                                                            data-testid="create-category-option"
                                                         >
                                                             <Plus className="mr-2 h-4 w-4 text-primary" />
                                                             <span className="font-medium text-primary">Create new category</span>
@@ -454,6 +461,7 @@ export function AddItemDialog({
                                                                     updateFormField("category", category.id)
                                                                     setCategoryOpen(false)
                                                                 }}
+                                                                data-testid={`category-option-${category.name.toLowerCase().replace(/\s+/g, '-')}`}
                                                             >
                                                                 <Check
                                                                     className={cn(
@@ -480,6 +488,7 @@ export function AddItemDialog({
                                                 aria-expanded={supplierOpen}
                                                 className="w-full justify-between h-9 font-normal bg-transparent"
                                                 disabled={isLoadingData}
+                                                data-testid="supplier-select-button"
                                             >
                                                 {formData.supplier
                                                     ? suppliers.find((supplier) => supplier.id === formData.supplier)?.name
@@ -499,6 +508,7 @@ export function AddItemDialog({
                                                                 setIsAddSupplierOpen(true)
                                                             }}
                                                             className="bg-primary/5 border-b"
+                                                            data-testid="create-supplier-option"
                                                         >
                                                             <Plus className="mr-2 h-4 w-4 text-primary" />
                                                             <span className="font-medium text-primary">Create new supplier</span>
@@ -511,6 +521,7 @@ export function AddItemDialog({
                                                                     updateFormField("supplier", supplier.id)
                                                                     setSupplierOpen(false)
                                                                 }}
+                                                                data-testid={`supplier-option-${supplier.name.toLowerCase().replace(/\s+/g, '-')}`}
                                                             >
                                                                 <Check
                                                                     className={cn(
@@ -542,6 +553,7 @@ export function AddItemDialog({
                                     autoCorrect="off"
                                     autoCapitalize="off"
                                     spellCheck="false"
+                                    data-testid="item-description-input"
                                 />
                             </div>
 
@@ -560,6 +572,7 @@ export function AddItemDialog({
                                         onChange={(e) => updateFormField("onHand", e.target.value)}
                                         autoComplete="off"
                                         inputMode="numeric"
+                                        data-testid="item-stock-input"
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -576,6 +589,7 @@ export function AddItemDialog({
                                         onChange={(e) => updateFormField("cost", e.target.value)}
                                         autoComplete="off"
                                         inputMode="decimal"
+                                        data-testid="item-cost-input"
                                     />
                                 </div>
                                 <div className="space-y-2 col-span-2 md:col-span-1">
@@ -588,6 +602,7 @@ export function AddItemDialog({
                                                 aria-expanded={locationOpen}
                                                 className="w-full justify-between h-9 font-normal bg-transparent"
                                                 disabled={isLoadingData}
+                                                data-testid="location-select-button"
                                             >
                                                 {formData.storageLocation
                                                     ? locations.find((location) => location.id === formData.storageLocation)?.code
@@ -607,6 +622,7 @@ export function AddItemDialog({
                                                                 setIsAddLocationOpen(true)
                                                             }}
                                                             className="bg-primary/5 border-b"
+                                                            data-testid="create-location-option"
                                                         >
                                                             <Plus className="mr-2 h-4 w-4 text-primary" />
                                                             <span className="font-medium text-primary">Create new location</span>
@@ -619,6 +635,7 @@ export function AddItemDialog({
                                                                     updateFormField("storageLocation", location.id)
                                                                     setLocationOpen(false)
                                                                 }}
+                                                                data-testid={`location-option-${location.code.toLowerCase().replace(/\s+/g, '-')}`}
                                                             >
                                                                 <Check
                                                                     className={cn(
@@ -639,7 +656,10 @@ export function AddItemDialog({
 
                             {/* Error Message */}
                             {error && (
-                                <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                                <div
+                                    className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3"
+                                    data-testid="form-error-message"
+                                >
                                     {error}
                                 </div>
                             )}
@@ -652,12 +672,14 @@ export function AddItemDialog({
                             variant="outline"
                             onClick={() => handleOpenChange(false)}
                             disabled={isCreating}
+                            data-testid="cancel-button-desktop"
                         >
                             Cancel
                         </Button>
                         <Button
                             onClick={handleSubmit}
                             disabled={isCreating || !isFormValid || isLoadingData}
+                            data-testid="submit-button-desktop"
                         >
                             {isCreating ? "Creating..." : "Add Item"}
                         </Button>

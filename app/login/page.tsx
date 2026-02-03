@@ -93,13 +93,13 @@ export default function LoginPage() {
 
       <div className="flex items-center justify-center p-4 py-16">
         <div className="w-full max-w-md">
-          <Card>
+          <Card data-testid="login-card">
             <CardHeader>
               <CardTitle>Welcome back</CardTitle>
               <CardDescription>Sign in to your account to continue</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4" data-testid="login-form">
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
                   <Input
@@ -109,6 +109,7 @@ export default function LoginPage() {
                     placeholder="you@example.com"
                     required
                     disabled={loading}
+                    data-testid="email-input"
                   />
                 </div>
 
@@ -126,12 +127,17 @@ export default function LoginPage() {
                     placeholder="••••••••"
                     required
                     disabled={loading}
+                    data-testid="password-input"
                   />
                 </div>
 
-                {error && <p className="text-sm text-destructive">{error}</p>}
+                {error && (
+                  <p className="text-sm text-destructive" data-testid="error-message">
+                    {error}
+                  </p>
+                )}
 
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button type="submit" className="w-full" disabled={loading} data-testid="submit-button">
                   {loading ? "Signing in..." : "Sign in"}
                 </Button>
               </form>

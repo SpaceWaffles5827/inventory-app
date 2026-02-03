@@ -159,15 +159,11 @@ const locationsController = {
   // Create a new location
   createLocation: async (req: Request, res: Response) => {
     try {
-      const {
-        code,
-        barcode, // Optional custom barcode
-        structure, // Array of { label: string, value: string }
-        capacity,
-        description,
-        workspaceId,
-      } = req.body;
+      const { code, barcode, structure, capacity, description, workspaceId } =
+        req.body;
       const userId = req.user?.id;
+
+      console.log("creating a location", req.body);
 
       if (!userId) {
         return res.status(401).json({
