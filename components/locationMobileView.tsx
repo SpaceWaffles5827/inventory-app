@@ -49,6 +49,7 @@ export function LocationMobileView({
                         key={location.id}
                         className="flex items-center gap-3 p-4 active:bg-muted/50 transition-colors"
                         onClick={() => router.push(`/dashboard/locations/${location.id}`)}
+                        data-testid={`location-row-${location.id}`}
                     >
                         {/* Location Icon */}
                         <div className="w-12 h-12 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center flex-shrink-0">

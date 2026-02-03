@@ -34,34 +34,34 @@ services:
       retries: 40
     restart: unless-stopped
 
-  prisma-bootstrap-test:
-    image: node:22-alpine
-    container_name: prisma-bootstrap-test
-    working_dir: /workspace
-    volumes:
-      - ./prisma:/workspace/prisma:ro
-    env_file: [.test.env]
-    environment:
-      DATABASE_URL: "mysql://root:${MYSQL_ROOT_PASSWORD}@mysql-test:3306/${MYSQL_DATABASE}"
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    depends_on:
-      mysql-test:
-        condition: service_healthy
-      mysql-init-grants-test:
-        condition: service_completed_successfully
-    command: >
-      sh -lc "
-        set -euo pipefail
-        apk add --no-cache mysql-client >/dev/null
-        [ -f /workspace/prisma/schema.prisma ] || { echo 'ERROR: schema.prisma missing'; exit 2; }
-        npx --yes prisma --version || true
-        npx --yes prisma db push --schema /workspace/prisma/schema.prisma --accept-data-loss
-        mysql -hmysql-test -P3306 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" -e \"USE $${MYSQL_DATABASE}; SHOW TABLES;\"
-      "
-    restart: "no"
+  # prisma-bootstrap-test:
+  #   image: node:22-alpine
+  #   container_name: prisma-bootstrap-test
+  #   working_dir: /workspace
+  #   volumes:
+  #     - ./prisma:/workspace/prisma:ro
+  #   env_file: [.test.env]
+  #   environment:
+  #     DATABASE_URL: "mysql://root:${MYSQL_ROOT_PASSWORD}@mysql-test:3306/${MYSQL_DATABASE}"
+  #     MYSQL_DATABASE: ${MYSQL_DATABASE}
+  #     MYSQL_USER: ${MYSQL_USER}
+  #     MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+  #     MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+  #   depends_on:
+  #     mysql-test:
+  #       condition: service_healthy
+  #     mysql-init-grants-test:
+  #       condition: service_completed_successfully
+  #   command: >
+  #     sh -lc "
+  #       set -euo pipefail
+  #       apk add --no-cache mysql-client >/dev/null
+  #       [ -f /workspace/prisma/schema.prisma ] || { echo 'ERROR: schema.prisma missing'; exit 2; }
+  #       npx --yes prisma --version || true
+  #       npx --yes prisma db push --schema /workspace/prisma/schema.prisma --accept-data-loss
+  #       mysql -hmysql-test -P3306 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\" -e \"USE $${MYSQL_DATABASE}; SHOW TABLES;\"
+  #     "
+  #   restart: "no"
 
   mysql-shadow-init-test:
     image: mysql:8.0

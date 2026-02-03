@@ -612,7 +612,11 @@ export function AddItemDialog({
                                         </PopoverTrigger>
                                         <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
                                             <Command>
-                                                <CommandInput placeholder="Search location..." className="h-9" />
+                                            <CommandInput
+                                                placeholder="Search location..."
+                                                className="h-9"
+                                                data-testid="location-search-input"
+                                            />
                                                 <CommandList>
                                                     <CommandEmpty>No location found.</CommandEmpty>
                                                     <CommandGroup>

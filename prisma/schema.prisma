@@ -141,7 +141,7 @@ model Category {
 model Location {
   id          String   @id @default(cuid())
   code        String
-  barcode     String   @default("") // Optional barcode
+  barcode     String?  // Optional barcode
   structure   Json
   capacity    Int      @default(100)
   description String?

@@ -21,6 +21,7 @@ import {
     LocationWithCount,
     LocationTemplate,
 } from "@/lib/api/locations.api"
+import { toast } from "sonner"
 
 interface LocationLevel {
     id: string
@@ -111,7 +112,7 @@ export function AddLocationDialog({
         }
 
         if (structure.levels.length === 0) {
-            alert("Please add at least one level to your structure")
+            toast.error("Please add at least one level to your structure")
             return
         }
 
@@ -131,10 +132,12 @@ export function AddLocationDialog({
                 })),
             )
 
-            alert("Default structure saved successfully!")
+            toast.success("Default structure saved successfully!")
         } catch (error) {
             console.error("Failed to save workspace structure:", error)
-            alert(error instanceof Error ? error.message : "Failed to save structure")
+            toast.error("Failed to save structure", {
+                description: error instanceof Error ? error.message : "An unexpected error occurred",
+            })
         }
     }
 
@@ -172,7 +175,9 @@ export function AddLocationDialog({
             }
         } catch (error) {
             console.error("Failed to create location:", error)
-            alert(error instanceof Error ? error.message : "Failed to create location")
+            toast.error("Failed to create location", {
+                description: error instanceof Error ? error.message : "An unexpected error occurred",
+            })
         } finally {
             setIsCreating(false)
         }
