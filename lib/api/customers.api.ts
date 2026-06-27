@@ -1,5 +1,5 @@
 // Client-side API helper functions for customers
-import type { Customer, Item, Prisma } from "@prisma/client";
+import type { Customer, Item } from "@prisma/client";
 import type { ApiResponse } from "./types";
 
 // ============================================
@@ -14,6 +14,8 @@ export type CustomerWithCount = Customer & {
 };
 
 // Customer with items (for detail view)
+// onHand is a derived field (sum of lot-location quantities) added by the API,
+// not a stored column on Item.
 export type CustomerWithItems = Customer & {
   _count: {
     items: number;
@@ -25,33 +27,11 @@ export type CustomerWithItems = Customer & {
     notes: string | null;
     createdAt: Date;
     updatedAt: Date;
-    item: Pick<
-      Item,
-      "id" | "itemNumber" | "name" | "onHand" | "status" | "cost"
-    >;
+    item: Pick<Item, "id" | "itemNumber" | "name" | "status" | "cost"> & {
+      onHand: number;
+    };
   }>;
 };
-
-// Or use Prisma's built-in payload type
-export type CustomerWithItemsAlt = Prisma.CustomerGetPayload<{
-  include: {
-    _count: { select: { items: true } };
-    items: {
-      include: {
-        item: {
-          select: {
-            id: true;
-            itemNumber: true;
-            name: true;
-            onHand: true;
-            status: true;
-            cost: true;
-          };
-        };
-      };
-    };
-  };
-}>;
 
 // ============================================
 // Request types
@@ -118,10 +98,9 @@ export type ItemCustomerApiResponse = ApiResponse<{
     quantity: number;
     lastOrderDate: Date | null;
     notes: string | null;
-    item: Pick<
-      Item,
-      "id" | "itemNumber" | "name" | "onHand" | "status" | "cost"
-    >;
+    item: Pick<Item, "id" | "itemNumber" | "name" | "status" | "cost"> & {
+      onHand: number;
+    };
     customer: Customer;
   };
 }>;

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
+import { sumLotsOnHand } from "../utils/onHand";
 
 const suppliersController = {
   // Create a new supplier
@@ -208,8 +209,14 @@ const suppliersController = {
               id: true,
               itemNumber: true,
               name: true,
-              onHand: true,
               status: true,
+              lots: {
+                select: {
+                  locations: {
+                    select: { quantity: true },
+                  },
+                },
+              },
             },
             orderBy: {
               name: "asc",
@@ -225,9 +232,18 @@ const suppliersController = {
         });
       }
 
+      // onHand is derived from lot locations, not a stored column
+      const supplierWithOnHand = {
+        ...supplier,
+        items: supplier.items.map(({ lots, ...item }) => ({
+          ...item,
+          onHand: sumLotsOnHand(lots),
+        })),
+      };
+
       return res.status(200).json({
         status: "success",
-        data: { supplier },
+        data: { supplier: supplierWithOnHand },
       });
     } catch (error) {
       console.error("Get supplier by ID error:", error);

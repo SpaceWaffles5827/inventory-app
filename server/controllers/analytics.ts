@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
+import { sumLotsOnHand } from "../utils/onHand";
 
 interface MonthlyData {
   month: string;
@@ -83,12 +84,17 @@ const analyticsController = {
         },
         include: {
           category: true,
+          lots: {
+            include: {
+              locations: true,
+            },
+          },
         },
       });
 
-      // Calculate key metrics
+      // Calculate key metrics (onHand is derived from lot locations)
       const totalStockValue = items.reduce(
-        (sum, item) => sum + item.onHand * item.cost,
+        (sum, item) => sum + sumLotsOnHand(item.lots) * item.cost,
         0
       );
 
@@ -127,7 +133,10 @@ const analyticsController = {
         (sum, t) => sum + t.quantity,
         0
       );
-      const averageStock = items.reduce((sum, item) => sum + item.onHand, 0);
+      const averageStock = items.reduce(
+        (sum, item) => sum + sumLotsOnHand(item.lots),
+        0
+      );
       const stockTurnover =
         averageStock > 0 ? totalTransactions / averageStock : 0;
 

@@ -1,5 +1,5 @@
 // Client-side API helper functions for categories
-import type { Category, Item, Prisma } from "@prisma/client";
+import type { Category, Item } from "@prisma/client";
 
 // ============================================
 // Use Prisma's generated types directly
@@ -14,28 +14,16 @@ export type CategoryWithCount = Category & {
 };
 
 // Category with items (for detail view)
+// onHand is a derived field (sum of lot-location quantities) added by the API,
+// not a stored column on Item.
 export type CategoryWithItems = Category & {
   _count: {
     items: number;
   };
-  items: Pick<Item, "id" | "itemNumber" | "name" | "onHand" | "status">[];
+  items: (Pick<Item, "id" | "itemNumber" | "name" | "status"> & {
+    onHand: number;
+  })[];
 };
-
-// Or use Prisma's built-in payload type
-export type CategoryWithItemsAlt = Prisma.CategoryGetPayload<{
-  include: {
-    _count: { select: { items: true } };
-    items: {
-      select: {
-        id: true;
-        itemNumber: true;
-        name: true;
-        onHand: true;
-        status: true;
-      };
-    };
-  };
-}>;
 
 // ============================================
 // Request types

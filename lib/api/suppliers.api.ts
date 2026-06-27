@@ -1,5 +1,5 @@
 // Client-side API helper functions for suppliers
-import type { Supplier, Item, Prisma } from "@prisma/client";
+import type { Supplier, Item } from "@prisma/client";
 import type { ApiResponse } from "./types";
 
 // ============================================
@@ -14,28 +14,16 @@ export type SupplierWithCount = Supplier & {
 };
 
 // Supplier with items (for detail view)
+// onHand is a derived field (sum of lot-location quantities) added by the API,
+// not a stored column on Item.
 export type SupplierWithItems = Supplier & {
   _count: {
     items: number;
   };
-  items: Pick<Item, "id" | "itemNumber" | "name" | "onHand" | "status">[];
+  items: (Pick<Item, "id" | "itemNumber" | "name" | "status"> & {
+    onHand: number;
+  })[];
 };
-
-// Or use Prisma's built-in payload type
-export type SupplierWithItemsAlt = Prisma.SupplierGetPayload<{
-  include: {
-    _count: { select: { items: true } };
-    items: {
-      select: {
-        id: true;
-        itemNumber: true;
-        name: true;
-        onHand: true;
-        status: true;
-      };
-    };
-  };
-}>;
 
 // ============================================
 // Request types

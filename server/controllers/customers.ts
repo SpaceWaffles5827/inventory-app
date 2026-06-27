@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
 import { Prisma } from "@prisma/client";
+import { sumLotsOnHand } from "../utils/onHand";
 
 const customersController = {
   // Create a new customer
@@ -238,9 +239,15 @@ const customersController = {
                   id: true,
                   itemNumber: true,
                   name: true,
-                  onHand: true,
                   status: true,
                   cost: true,
+                  lots: {
+                    select: {
+                      locations: {
+                        select: { quantity: true },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -258,9 +265,21 @@ const customersController = {
         });
       }
 
+      // onHand is derived from lot locations, not a stored column
+      const customerWithOnHand = {
+        ...customer,
+        items: customer.items.map((itemCustomer) => {
+          const { lots, ...item } = itemCustomer.item;
+          return {
+            ...itemCustomer,
+            item: { ...item, onHand: sumLotsOnHand(lots) },
+          };
+        }),
+      };
+
       return res.status(200).json({
         status: "success",
-        data: { customer },
+        data: { customer: customerWithOnHand },
       });
     } catch (error) {
       console.error("Get customer by ID error:", error);

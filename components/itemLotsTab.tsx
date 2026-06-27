@@ -40,7 +40,7 @@ export function ItemLotsTab({
         }
     }
 
-    const getDaysUntilExpiration = (expirationDate: string | null) => {
+    const getDaysUntilExpiration = (expirationDate: string | Date | null) => {
         if (!expirationDate) return null
         const now = new Date()
         const expDate = new Date(expirationDate)
@@ -49,7 +49,7 @@ export function ItemLotsTab({
         return diffDays
     }
 
-    const getExpirationWarning = (expirationDate: string | null) => {
+    const getExpirationWarning = (expirationDate: string | Date | null) => {
         const days = getDaysUntilExpiration(expirationDate)
         if (days === null) return null
 

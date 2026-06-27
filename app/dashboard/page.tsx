@@ -572,9 +572,6 @@ export default function DashboardPage() {
         open={isAddItemOpen}
         onOpenChange={setIsAddItemOpen}
         workspaceId={currentWorkspaceId}
-        categories={categories}
-        locations={locations}
-        suppliers={suppliers}
         onSuccess={() => {
           if (currentWorkspaceId) {
             loadItems(currentWorkspaceId)
