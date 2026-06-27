@@ -21,7 +21,8 @@ COPY prisma ./prisma
 COPY . .
 
 # Now generate Prisma Client (schema is present)
-RUN pnpm dlx prisma generate --schema prisma/schema.prisma
+# Generate Prisma Client with the lockfile-pinned prisma (6.18.0); pnpm dlx would pull v7.
+RUN pnpm exec prisma generate --schema prisma/schema.prisma
 
 # Build Next.js app
 RUN pnpm run build

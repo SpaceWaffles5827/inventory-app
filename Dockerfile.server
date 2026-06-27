@@ -23,8 +23,10 @@ COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY server ./server
 
-# Generate Prisma Client (schema is present now)
-RUN pnpm dlx prisma generate --schema prisma/schema.prisma
+# Generate Prisma Client with the lockfile-pinned prisma (6.18.0).
+# NOTE: `pnpm dlx` fetches the LATEST prisma (v7), which rejects url/shadowDatabaseUrl
+# in schema.prisma. `pnpm exec` runs the local pinned binary instead.
+RUN pnpm exec prisma generate --schema prisma/schema.prisma
 
 # Build TypeScript server code with verbose output
 WORKDIR /app/server
