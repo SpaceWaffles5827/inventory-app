@@ -1,0 +1,12 @@
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  '@scarf/scarf': true
+  bcrypt: true
+  core-js: true
+  esbuild: true
+  msw: true
+  node: false
+  prisma: true
+  sharp: true
+  unrs-resolver: true

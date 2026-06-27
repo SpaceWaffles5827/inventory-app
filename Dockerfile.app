@@ -4,7 +4,7 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Enable pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
 
 # Copy manifests first for better layer caching
 COPY package.json pnpm-lock.yaml ./
