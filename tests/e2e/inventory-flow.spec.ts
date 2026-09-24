@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Browser, type Page } from "@playwright/test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3100";
@@ -21,7 +21,7 @@ const locationQuantities: Record<string, number> = {};
 const normalizeTestId = (value: string) =>
   value.toLowerCase().replace(/\s+/g, "-");
 
-const getItemLocationQuantity = async (page: any, locationCode: string) => {
+const getItemLocationQuantity = async (page: Page, locationCode: string) => {
   const row = page.getByTestId(
     `item-location-row-${normalizeTestId(locationCode)}`,
   );
@@ -31,7 +31,7 @@ const getItemLocationQuantity = async (page: any, locationCode: string) => {
 };
 
 const assertItemLocationQuantity = async (
-  page: any,
+  page: Page,
   locationCode: string,
   quantity: number,
 ) => {
@@ -52,7 +52,7 @@ if (!existsSync(AUTH_STATE_PATH)) {
   writeFileSync(AUTH_STATE_PATH, JSON.stringify({ cookies: [], origins: [] }));
 }
 
-const ensureWorkspaceReady = async (page: any) => {
+const ensureWorkspaceReady = async (page: Page) => {
   const waitForWorkspace = async (timeout: number) =>
     page
       .waitForFunction(
@@ -96,7 +96,7 @@ const ensureWorkspaceReady = async (page: any) => {
   return await waitForWorkspace(8000);
 };
 
-const ensureSignedIn = async (page: any) => {
+const ensureSignedIn = async (page: Page) => {
   await page.goto(`${BASE_URL}/login`);
 
   await page.getByTestId("email-input").fill(TEST_EMAIL);
@@ -145,7 +145,7 @@ const ensureSignedIn = async (page: any) => {
   }
 };
 
-const ensureAuthenticated = async (page: any) => {
+const ensureAuthenticated = async (page: Page) => {
   await page.goto(`${BASE_URL}/dashboard`, { waitUntil: "domcontentloaded" });
   await page.waitForURL(/\/dashboard|\/login/, { timeout: 10000 });
   if (page.url().includes("/login")) {
@@ -159,7 +159,7 @@ const ensureAuthenticated = async (page: any) => {
   }
 };
 
-const isAuthStateValid = async (browser: any) => {
+const isAuthStateValid = async (browser: Browser) => {
   if (!existsSync(AUTH_STATE_PATH)) {
     return false;
   }
@@ -300,7 +300,7 @@ test.describe.serial("Location Management", () => {
     await expect(locationDialog).toBeVisible();
 
     const levelCount = await locationDialog
-      .locator('[data-testid^="location-level-"]')
+      .locator('[data-testid^="location-level-value-"]')
       .count();
     console.log(`Found ${levelCount} location levels`);
 
@@ -356,12 +356,10 @@ test.describe.serial("Location Management", () => {
     }
 
     // Verify location appears in the list
-    if (await locationDialog.isVisible()) {
-      const cancelButton = locationDialog.getByTestId("cancel-button-desktop");
-      if (await cancelButton.isVisible()) {
-        await cancelButton.click();
-      }
-    }
+    // the dialog closes itself after saving; only cancel if it stayed open
+    await locationDialog.waitFor({ state: "hidden", timeout: 5000 }).catch(async () => {
+      await locationDialog.getByTestId("cancel-button-desktop").click();
+    });
     await page.getByTestId("search-locations-input").fill(generatedCode);
     const locationRow = page
       .locator('[data-testid^="location-row-"]:visible')
@@ -375,17 +373,21 @@ test.describe.serial("Location Management", () => {
     const locationDialog = page.getByTestId("add-location-dialog");
     await expect(locationDialog).toBeVisible();
 
-    // Add a third level
+    // Add an extra level on top of the workspace structure
+    const valueInputs = locationDialog.locator('[data-testid^="location-level-value-"]');
+    const baseLevels = await valueInputs.count();
     await locationDialog.getByTestId("add-location-level-button").click();
+    await expect(valueInputs).toHaveCount(baseLevels + 1);
 
     const uniqueSuffix = String(timestamp + 1).slice(-4);
 
-    await locationDialog.getByTestId("location-level-label-2").fill("Shelf");
+    await locationDialog.getByTestId(`location-level-label-${baseLevels}`).fill("Slot");
     await locationDialog
       .getByTestId("location-level-value-0")
       .fill(`B${uniqueSuffix}`);
-    await locationDialog.getByTestId("location-level-value-1").fill("02");
-    await locationDialog.getByTestId("location-level-value-2").fill("05");
+    for (let i = 1; i <= baseLevels; i++) {
+      await locationDialog.getByTestId(`location-level-value-${i}`).fill(String(i + 1).padStart(2, "0"));
+    }
 
     const generatedCodeElement = locationDialog.getByTestId(
       "generated-location-code",
@@ -416,12 +418,10 @@ test.describe.serial("Location Management", () => {
     }
 
     // Verify location appears in the list
-    if (await locationDialog.isVisible()) {
-      const cancelButton = locationDialog.getByTestId("cancel-button-desktop");
-      if (await cancelButton.isVisible()) {
-        await cancelButton.click();
-      }
-    }
+    // the dialog closes itself after saving; only cancel if it stayed open
+    await locationDialog.waitFor({ state: "hidden", timeout: 5000 }).catch(async () => {
+      await locationDialog.getByTestId("cancel-button-desktop").click();
+    });
     await page.getByTestId("search-locations-input").fill(generatedCode);
     const locationRow = page
       .locator('[data-testid^="location-row-"]:visible')
@@ -472,14 +472,10 @@ test.describe.serial("Category Management", () => {
       );
     }
 
-    if (await categoryDialog.isVisible()) {
-      const cancelButton = categoryDialog.getByTestId(
-        "cancel-button-desktop",
-      );
-      if (await cancelButton.isVisible()) {
-        await cancelButton.click();
-      }
-    }
+    // the dialog closes itself after saving; only cancel if it stayed open
+    await categoryDialog.waitFor({ state: "hidden", timeout: 5000 }).catch(async () => {
+      await categoryDialog.getByTestId("cancel-button-desktop").click();
+    });
 
     await page.getByTestId("search-categories-input").fill(categoryName);
     const categoryRow = page
@@ -498,7 +494,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should create a new item with location", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     await page.getByTestId("add-item-button-desktop").click();
     const itemDialog = page.getByTestId("add-item-dialog");
@@ -572,7 +568,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should edit an existing item", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     expect(createdItemName).not.toBe("");
 
@@ -621,7 +617,7 @@ test.describe.serial("Item Management", () => {
 
     createdItemName = updatedName;
 
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
     await page.getByTestId("search-items-input").fill(updatedName);
     const updatedRow = page
       .locator('[data-testid^="item-row-"]:visible, [data-testid^="item-card-"]:visible')
@@ -630,7 +626,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should adjust an item's quantity", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     expect(createdItemName).not.toBe("");
 
@@ -758,7 +754,7 @@ test.describe.serial("Item Management", () => {
   test("should add stock to a new location using adjustment amount", async ({
     page,
   }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     expect(createdItemName).not.toBe("");
 
@@ -780,7 +776,7 @@ test.describe.serial("Item Management", () => {
       if (locationsResponse.ok()) {
         const locationData = await locationsResponse.json();
         const fetchedCodes =
-          locationData?.data?.locations?.map((loc: any) => loc.code) || [];
+          locationData?.data?.locations?.map((loc: { code: string }) => loc.code) || [];
         locationCodes = Array.from(
           new Set([...locationCodes, ...fetchedCodes]),
         );
@@ -942,7 +938,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should transfer stock between locations", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
     await page.evaluate(() => {
       localStorage.setItem("inventoryViewMode", "table");
     });
@@ -967,7 +963,7 @@ test.describe.serial("Item Management", () => {
       if (locationsResponse.ok()) {
         const locationData = await locationsResponse.json();
         const fetchedCodes =
-          locationData?.data?.locations?.map((loc: any) => loc.code) || [];
+          locationData?.data?.locations?.map((loc: { code: string }) => loc.code) || [];
         locationCodes = Array.from(
           new Set([...locationCodes, ...fetchedCodes]),
         );
@@ -1033,7 +1029,7 @@ test.describe.serial("Item Management", () => {
       ).toBeVisible({ timeout: 10000 });
       sourceQty = await getItemLocationQuantity(page, sourceCode);
       destinationQty = await getItemLocationQuantity(page, destinationCode);
-      await page.goto(`${BASE_URL}/dashboard`);
+      await page.goto(`${BASE_URL}/dashboard/items`);
       await page.getByTestId("search-items-input").fill(createdItemName);
       await expect(itemRow.first()).toBeVisible({ timeout: 10000 });
     }
@@ -1136,7 +1132,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should add and remove item locations", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     expect(createdItemName).not.toBe("");
 
@@ -1157,7 +1153,7 @@ test.describe.serial("Item Management", () => {
       if (locationsResponse.ok()) {
         const locationData = await locationsResponse.json();
         const fetchedCodes =
-          locationData?.data?.locations?.map((loc: any) => loc.code) || [];
+          locationData?.data?.locations?.map((loc: { code: string }) => loc.code) || [];
         locationCodes = Array.from(
           new Set([...locationCodes, ...fetchedCodes]),
         );
@@ -1246,7 +1242,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should create a lot for a lot-tracked item", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     expect(createdItemName).not.toBe("");
 
@@ -1308,7 +1304,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should require location when stock > 0", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     await page.getByTestId("add-item-button-desktop").click();
     const itemDialog = page.getByTestId("add-item-dialog");
@@ -1325,7 +1321,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should cancel item creation", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     await page.getByTestId("add-item-button-desktop").click();
     const itemDialog = page.getByTestId("add-item-dialog");
@@ -1342,7 +1338,7 @@ test.describe.serial("Item Management", () => {
   test("should create item with zero stock (no location required)", async ({
     page,
   }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     await page.getByTestId("add-item-button-desktop").click();
     const itemDialog = page.getByTestId("add-item-dialog");
@@ -1363,7 +1359,7 @@ test.describe.serial("Item Management", () => {
   });
 
   test("should delete an item", async ({ page }) => {
-    await page.goto(`${BASE_URL}/dashboard`);
+    await page.goto(`${BASE_URL}/dashboard/items`);
 
     expect(createdItemName).not.toBe("");
 
@@ -1470,9 +1466,8 @@ test.describe.serial("Location Cleanup", () => {
       );
     }
 
-    page.once("dialog", async (dialog) => {
-      await dialog.accept();
-    });
+    // the list was loaded before the API call created the location
+    await page.reload();
 
     await page.getByTestId("search-locations-input").fill(deleteCode);
     const locationRow = page
@@ -1483,6 +1478,9 @@ test.describe.serial("Location Cleanup", () => {
       .first()
       .locator('[data-testid^="delete-location-button-"]')
       .click();
+
+    // in-app confirm dialog (replaces the old window.confirm)
+    await page.getByTestId("confirm-dialog-confirm").click();
 
     await expect(locationRow).toHaveCount(0, { timeout: 10000 });
   });
