@@ -1,800 +1,303 @@
 import { Request, Response } from "express";
-import prisma from "../utils/prisma";
 import { Prisma } from "@prisma/client";
-import { sumLotsOnHand } from "../utils/onHand";
+import { z } from "zod";
+import prisma from "../utils/prisma";
+import { PERMISSIONS, requireMembership, requireUserId } from "../utils/access";
+import { badRequest, notFound, sendSuccess } from "../utils/http";
+import {
+  parseBody,
+  parseQuery,
+  zId,
+  zMoney,
+  zNonNegativeInt,
+  zOptionalText,
+  zText,
+} from "../utils/validate";
+import { getOnHandByItem } from "../utils/stock";
+
+const workspaceQuery = z.object({ workspaceId: zId });
+const zStatus = z.enum(["ACTIVE", "INACTIVE"]);
+
+const zOptionalEmail = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+  z.string().trim().max(191).email("Invalid email format").nullable().optional()
+);
+
+const optionalNumber = <S extends z.ZodTypeAny>(schema: S) =>
+  z.preprocess((v) => (v === null || v === "" ? undefined : v), schema.optional());
+
+const customerFields = {
+  contactPerson: zOptionalText(191),
+  email: zOptionalEmail,
+  phone: zOptionalText(50),
+  address: zOptionalText(191),
+  company: zOptionalText(191),
+  status: zStatus.optional(),
+};
 
 const customersController = {
-  // Create a new customer
+  // POST /api/customers
   createCustomer: async (req: Request, res: Response) => {
-    try {
-      const {
-        name,
-        contactPerson,
-        email,
-        phone,
-        address,
-        status,
-        workspaceId,
-      } = req.body;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const body = parseBody(z.object({ workspaceId: zId, name: zText(191), ...customerFields }), req);
+    await requireMembership(userId, body.workspaceId, PERMISSIONS.edit);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const existing = await prisma.customer.findFirst({
+      where: { workspaceId: body.workspaceId, name: body.name },
+      select: { id: true },
+    });
+    if (existing) throw badRequest("Customer name already exists in this workspace");
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      if (!name || name.trim() === "") {
-        return res.status(400).json({
-          status: "error",
-          message: "Customer name is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if customer name already exists in this workspace
-      const existingCustomer = await prisma.customer.findFirst({
-        where: {
-          workspaceId: workspaceId,
-          name: name.trim(),
-        },
-      });
-
-      if (existingCustomer) {
-        return res.status(400).json({
-          status: "error",
-          message: "Customer name already exists in this workspace",
-        });
-      }
-
-      // Validate email format if provided
-      if (email && email.trim() !== "") {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email.trim())) {
-          return res.status(400).json({
-            status: "error",
-            message: "Invalid email format",
-          });
-        }
-      }
-
-      // Create the customer
-      const customer = await prisma.customer.create({
-        data: {
-          name: name.trim(),
-          contactPerson: contactPerson?.trim() || null,
-          email: email?.trim() || null,
-          phone: phone?.trim() || null,
-          address: address?.trim() || null,
-          status: status || "ACTIVE",
-          workspaceId: workspaceId,
-        },
-      });
-
-      return res.status(201).json({
-        status: "success",
-        message: "Customer created successfully",
-        data: { customer },
-      });
-    } catch (error) {
-      console.error("Create customer error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to create customer",
-      });
-    }
+    const customer = await prisma.customer.create({
+      data: {
+        name: body.name,
+        contactPerson: body.contactPerson ?? null,
+        email: body.email ?? null,
+        phone: body.phone ?? null,
+        address: body.address ?? null,
+        company: body.company ?? null,
+        status: body.status ?? "ACTIVE",
+        workspaceId: body.workspaceId,
+      },
+    });
+    return sendSuccess(res, { customer }, "Customer created successfully", 201);
   },
 
-  // Get all customers in a workspace
+  // GET /api/customers?workspaceId=&status=&search=
   getCustomers: async (req: Request, res: Response) => {
-    try {
-      const { workspaceId, status, search } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const q = parseQuery(
+      workspaceQuery.extend({
+        status: z.preprocess((v) => (v === "" ? undefined : v), zStatus.optional()),
+        search: z.string().trim().max(191).optional(),
+      }),
+      req
+    );
+    await requireMembership(userId, q.workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Build filter conditions
-      const whereConditions: Prisma.CustomerWhereInput = {
-        workspaceId: workspaceId as string,
-      };
-
-      if (status) {
-        whereConditions.status = status as "ACTIVE" | "INACTIVE";
-      }
-
-      if (search) {
-        whereConditions.OR = [
-          { name: { contains: search as string } },
-          { contactPerson: { contains: search as string } },
-          { email: { contains: search as string } },
-          { company: { contains: search as string } },
-        ];
-      }
-
-      // Get all customers in the workspace
-      const customers = await prisma.customer.findMany({
-        where: whereConditions,
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-        orderBy: {
-          name: "asc",
-        },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        data: { customers },
-      });
-    } catch (error) {
-      console.error("Get customers error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve customers",
-      });
+    const where: Prisma.CustomerWhereInput = { workspaceId: q.workspaceId };
+    if (q.status) where.status = q.status;
+    if (q.search) {
+      where.OR = [
+        { name: { contains: q.search } },
+        { contactPerson: { contains: q.search } },
+        { email: { contains: q.search } },
+        { company: { contains: q.search } },
+      ];
     }
+
+    const customers = await prisma.customer.findMany({
+      where,
+      include: { _count: { select: { items: true } } },
+      orderBy: { name: "asc" },
+    });
+    return sendSuccess(res, { customers });
   },
 
-  // Get a single customer by ID
+  // GET /api/customers/:id?workspaceId=
   getCustomerById: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get the customer
-      const customer = await prisma.customer.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-          items: {
-            include: {
-              item: {
-                select: {
-                  id: true,
-                  itemNumber: true,
-                  name: true,
-                  status: true,
-                  cost: true,
-                  lots: {
-                    select: {
-                      locations: {
-                        select: { quantity: true },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-            orderBy: {
-              updatedAt: "desc",
-            },
-          },
-        },
-      });
-
-      if (!customer) {
-        return res.status(404).json({
-          status: "error",
-          message: "Customer not found",
-        });
-      }
-
-      // onHand is derived from lot locations, not a stored column
-      const customerWithOnHand = {
-        ...customer,
-        items: customer.items.map((itemCustomer) => {
-          const { lots, ...item } = itemCustomer.item;
-          return {
-            ...itemCustomer,
-            item: { ...item, onHand: sumLotsOnHand(lots) },
-          };
-        }),
-      };
-
-      return res.status(200).json({
-        status: "success",
-        data: { customer: customerWithOnHand },
-      });
-    } catch (error) {
-      console.error("Get customer by ID error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve customer",
-      });
-    }
-  },
-
-  // Update a customer
-  updateCustomer: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const {
-        name,
-        contactPerson,
-        email,
-        phone,
-        address,
-        company,
-        status,
-        orderCount,
-        totalSpent,
-        workspaceId,
-      } = req.body;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if customer exists in this workspace
-      const existingCustomer = await prisma.customer.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId,
-        },
-      });
-
-      if (!existingCustomer) {
-        return res.status(404).json({
-          status: "error",
-          message: "Customer not found",
-        });
-      }
-
-      // If name is being updated, check for duplicates
-      if (name && name.trim() !== existingCustomer.name) {
-        const duplicateCustomer = await prisma.customer.findFirst({
-          where: {
-            workspaceId: workspaceId,
-            name: name.trim(),
-            id: { not: id },
-          },
-        });
-
-        if (duplicateCustomer) {
-          return res.status(400).json({
-            status: "error",
-            message: "Customer name already exists in this workspace",
-          });
-        }
-      }
-
-      // Validate email format if provided
-      if (email && email.trim() !== "") {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email.trim())) {
-          return res.status(400).json({
-            status: "error",
-            message: "Invalid email format",
-          });
-        }
-      }
-
-      // Update the customer
-      const customer = await prisma.customer.update({
-        where: { id: id },
-        data: {
-          ...(name && { name: name.trim() }),
-          ...(contactPerson !== undefined && {
-            contactPerson: contactPerson?.trim() || null,
-          }),
-          ...(email !== undefined && { email: email?.trim() || null }),
-          ...(phone !== undefined && { phone: phone?.trim() || null }),
-          ...(address !== undefined && { address: address?.trim() || null }),
-          ...(company !== undefined && {
-            company: company?.trim() || name?.trim() || existingCustomer.name,
-          }),
-          ...(status !== undefined && { status }),
-          ...(orderCount !== undefined && { orderCount }),
-          ...(totalSpent !== undefined && { totalSpent }),
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Customer updated successfully",
-        data: { customer },
-      });
-    } catch (error) {
-      console.error("Update customer error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to update customer",
-      });
-    }
-  },
-
-  // Delete a customer
-  deleteCustomer: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if customer exists in this workspace
-      const customer = await prisma.customer.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-      });
-
-      if (!customer) {
-        return res.status(404).json({
-          status: "error",
-          message: "Customer not found",
-        });
-      }
-
-      // Check if customer has items
-      if (customer._count.items > 0) {
-        return res.status(400).json({
-          status: "error",
-          message: `Cannot delete customer with ${customer._count.items} associated item(s). Please remove the associations first.`,
-        });
-      }
-
-      // Delete the customer
-      await prisma.customer.delete({
-        where: { id: id },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Customer deleted successfully",
-      });
-    } catch (error) {
-      console.error("Delete customer error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to delete customer",
-      });
-    }
-  },
-
-  // Attach item to customer
-  attachItemToCustomer: async (req: Request, res: Response) => {
-    try {
-      const { customerId, itemId, quantity, notes } = req.body;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!customerId || !itemId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Customer ID and Item ID are required",
-        });
-      }
-
-      // Verify customer exists and get workspace
-      const customer = await prisma.customer.findUnique({
-        where: { id: customerId },
-        select: { workspaceId: true },
-      });
-
-      if (!customer) {
-        return res.status(404).json({
-          status: "error",
-          message: "Customer not found",
-        });
-      }
-
-      // Verify item exists and belongs to same workspace
-      const item = await prisma.item.findFirst({
-        where: {
-          id: itemId,
-          workspaceId: customer.workspaceId,
-        },
-      });
-
-      if (!item) {
-        return res.status(404).json({
-          status: "error",
-          message: "Item not found in this workspace",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: customer.workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if association already exists
-      const existingAssociation = await prisma.itemCustomer.findUnique({
-        where: {
-          itemId_customerId: {
-            itemId: itemId,
-            customerId: customerId,
-          },
-        },
-      });
-
-      if (existingAssociation) {
-        // Update existing association
-        const updated = await prisma.itemCustomer.update({
-          where: {
-            itemId_customerId: {
-              itemId: itemId,
-              customerId: customerId,
-            },
-          },
-          data: {
-            quantity: quantity || existingAssociation.quantity,
-            notes: notes !== undefined ? notes : existingAssociation.notes,
-            lastOrderDate: new Date(),
-          },
+    const customer = await prisma.customer.findFirst({
+      where: { id: req.params.id, workspaceId },
+      include: {
+        _count: { select: { items: true } },
+        items: {
           include: {
-            item: true,
-            customer: true,
+            item: {
+              select: { id: true, itemNumber: true, name: true, status: true, cost: true },
+            },
           },
-        });
+          orderBy: { updatedAt: "desc" },
+        },
+      },
+    });
+    if (!customer) throw notFound("Customer not found");
 
-        return res.status(200).json({
-          status: "success",
-          message: "Item-customer association updated successfully",
-          data: { itemCustomer: updated },
-        });
-      }
+    const onHand = await getOnHandByItem(prisma, workspaceId, customer.items.map((ic) => ic.item.id));
+    return sendSuccess(res, {
+      customer: {
+        ...customer,
+        items: customer.items.map((ic) => ({
+          ...ic,
+          item: { ...ic.item, onHand: onHand.get(ic.item.id) ?? 0 },
+        })),
+      },
+    });
+  },
 
-      // Create new association
-      const itemCustomer = await prisma.itemCustomer.create({
+  // PATCH /api/customers/:id
+  updateCustomer: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const id = req.params.id;
+    const body = parseBody(
+      z.object({
+        workspaceId: zId,
+        name: zText(191).optional(),
+        ...customerFields,
+        orderCount: optionalNumber(zNonNegativeInt("Order count")),
+        totalSpent: optionalNumber(zMoney("Total spent")),
+      }),
+      req
+    );
+    await requireMembership(userId, body.workspaceId, PERMISSIONS.edit);
+
+    const existing = await prisma.customer.findFirst({ where: { id, workspaceId: body.workspaceId } });
+    if (!existing) throw notFound("Customer not found");
+
+    if (body.name && body.name !== existing.name) {
+      const dup = await prisma.customer.findFirst({
+        where: { workspaceId: body.workspaceId, name: body.name, id: { not: id } },
+        select: { id: true },
+      });
+      if (dup) throw badRequest("Customer name already exists in this workspace");
+    }
+
+    const customer = await prisma.customer.update({
+      where: { id },
+      data: {
+        ...(body.name && { name: body.name }),
+        ...(body.contactPerson !== undefined && { contactPerson: body.contactPerson }),
+        ...(body.email !== undefined && { email: body.email }),
+        ...(body.phone !== undefined && { phone: body.phone }),
+        ...(body.address !== undefined && { address: body.address }),
+        ...(body.company !== undefined && {
+          company: body.company || body.name || existing.name,
+        }),
+        ...(body.status !== undefined && { status: body.status }),
+        ...(body.orderCount !== undefined && { orderCount: body.orderCount }),
+        ...(body.totalSpent !== undefined && { totalSpent: body.totalSpent }),
+      },
+      include: { _count: { select: { items: true } } },
+    });
+    return sendSuccess(res, { customer }, "Customer updated successfully");
+  },
+
+  // DELETE /api/customers/:id?workspaceId= (ADMIN+)
+  deleteCustomer: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId, PERMISSIONS.delete, {
+      message: "You don't have permission to delete customers",
+    });
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: req.params.id, workspaceId },
+      include: { _count: { select: { items: true } } },
+    });
+    if (!customer) throw notFound("Customer not found");
+    if (customer._count.items > 0) {
+      throw badRequest(
+        `Cannot delete customer with ${customer._count.items} associated item(s). Please remove the associations first.`
+      );
+    }
+
+    await prisma.customer.delete({ where: { id: customer.id } });
+    return sendSuccess(res, {}, "Customer deleted successfully");
+  },
+
+  // POST /api/customers/attach-item  { customerId, itemId, quantity?, notes? }
+  attachItemToCustomer: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const body = parseBody(
+      z.object({
+        customerId: zId,
+        itemId: zId,
+        quantity: optionalNumber(zNonNegativeInt("Quantity")),
+        notes: zOptionalText(1000),
+      }),
+      req
+    );
+
+    const customer = await prisma.customer.findUnique({
+      where: { id: body.customerId },
+      select: { workspaceId: true },
+    });
+    if (!customer) throw notFound("Customer not found");
+    await requireMembership(userId, customer.workspaceId, PERMISSIONS.edit);
+
+    const item = await prisma.item.findFirst({
+      where: { id: body.itemId, workspaceId: customer.workspaceId },
+      select: { id: true },
+    });
+    if (!item) throw notFound("Item not found in this workspace");
+
+    const key = { itemId_customerId: { itemId: body.itemId, customerId: body.customerId } };
+    const existing = await prisma.itemCustomer.findUnique({ where: key });
+
+    if (existing) {
+      const updated = await prisma.itemCustomer.update({
+        where: key,
         data: {
-          itemId: itemId,
-          customerId: customerId,
-          quantity: quantity || 0,
-          notes: notes || null,
+          quantity: body.quantity || existing.quantity,
+          notes: body.notes !== undefined ? body.notes : existing.notes,
           lastOrderDate: new Date(),
         },
-        include: {
-          item: true,
-          customer: true,
-        },
+        include: { item: true, customer: true },
       });
-
-      return res.status(201).json({
-        status: "success",
-        message: "Item attached to customer successfully",
-        data: { itemCustomer },
-      });
-    } catch (error) {
-      console.error("Attach item to customer error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to attach item to customer",
-      });
+      return sendSuccess(res, { itemCustomer: updated }, "Item-customer association updated successfully");
     }
+
+    const itemCustomer = await prisma.itemCustomer.create({
+      data: {
+        itemId: body.itemId,
+        customerId: body.customerId,
+        quantity: body.quantity ?? 0,
+        notes: body.notes ?? null,
+        lastOrderDate: new Date(),
+      },
+      include: { item: true, customer: true },
+    });
+    return sendSuccess(res, { itemCustomer }, "Item attached to customer successfully", 201);
   },
 
-  // Detach item from customer
+  // DELETE /api/customers/:customerId/items/:itemId
   detachItemFromCustomer: async (req: Request, res: Response) => {
-    try {
-      const { customerId, itemId } = req.params;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { customerId, itemId } = req.params;
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const customer = await prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { workspaceId: true },
+    });
+    if (!customer) throw notFound("Customer not found");
+    await requireMembership(userId, customer.workspaceId, PERMISSIONS.edit);
 
-      // Verify customer exists and get workspace
-      const customer = await prisma.customer.findUnique({
-        where: { id: customerId },
-        select: { workspaceId: true },
-      });
+    const key = { itemId_customerId: { itemId, customerId } };
+    const association = await prisma.itemCustomer.findUnique({ where: key });
+    if (!association) throw notFound("Item-customer association not found");
 
-      if (!customer) {
-        return res.status(404).json({
-          status: "error",
-          message: "Customer not found",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: customer.workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if association exists
-      const association = await prisma.itemCustomer.findUnique({
-        where: {
-          itemId_customerId: {
-            itemId: itemId,
-            customerId: customerId,
-          },
-        },
-      });
-
-      if (!association) {
-        return res.status(404).json({
-          status: "error",
-          message: "Item-customer association not found",
-        });
-      }
-
-      // Delete the association
-      await prisma.itemCustomer.delete({
-        where: {
-          itemId_customerId: {
-            itemId: itemId,
-            customerId: customerId,
-          },
-        },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Item detached from customer successfully",
-      });
-    } catch (error) {
-      console.error("Detach item from customer error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to detach item from customer",
-      });
-    }
+    await prisma.itemCustomer.delete({ where: key });
+    return sendSuccess(res, {}, "Item detached from customer successfully");
   },
 
-  // Get customer statistics
+  // GET /api/customers/stats?workspaceId=
   getCustomerStats: async (req: Request, res: Response) => {
-    try {
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const [totalCustomers, activeCustomers, sums] = await Promise.all([
+      prisma.customer.count({ where: { workspaceId } }),
+      prisma.customer.count({ where: { workspaceId, status: "ACTIVE" } }),
+      prisma.customer.aggregate({
+        where: { workspaceId },
+        _sum: { orderCount: true, totalSpent: true },
+      }),
+    ]);
+    const totalOrders = sums._sum.orderCount ?? 0;
+    const totalRevenue = sums._sum.totalSpent ?? 0;
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get customer statistics
-      const totalCustomers = await prisma.customer.count({
-        where: { workspaceId: workspaceId as string },
-      });
-
-      const activeCustomers = await prisma.customer.count({
-        where: {
-          workspaceId: workspaceId as string,
-          status: "ACTIVE",
-        },
-      });
-
-      const customers = await prisma.customer.findMany({
-        where: { workspaceId: workspaceId as string },
-        select: {
-          orderCount: true,
-          totalSpent: true,
-        },
-      });
-
-      const totalOrders = customers.reduce(
-        (sum, customer) => sum + customer.orderCount,
-        0
-      );
-
-      const totalRevenue = customers.reduce(
-        (sum, customer) => sum + customer.totalSpent,
-        0
-      );
-
-      return res.status(200).json({
-        status: "success",
-        data: {
-          totalCustomers,
-          activeCustomers,
-          inactiveCustomers: totalCustomers - activeCustomers,
-          totalOrders,
-          totalRevenue,
-          averageOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
-        },
-      });
-    } catch (error) {
-      console.error("Get customer stats error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve customer statistics",
-      });
-    }
+    return sendSuccess(res, {
+      totalCustomers,
+      activeCustomers,
+      inactiveCustomers: totalCustomers - activeCustomers,
+      totalOrders,
+      totalRevenue,
+      averageOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
+    });
   },
 };
 

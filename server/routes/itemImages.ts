@@ -1,22 +1,27 @@
 import { Router } from "express";
-import itemImagesController from "../controllers/itemImages";
 import multer from "multer";
+import itemImagesController from "../controllers/itemImages";
 
-const upload = multer();
+// In-memory uploads, capped. The controller re-checks the bytes with sharp.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 10, fields: 20 },
+});
 const router = Router();
 
-// Get all images for an item
-router.get("/:itemId", itemImagesController.getItemImages);
+// --- Multipart upload routes (static paths first) ---
+router.post("/multipart/part-url", itemImagesController.getPartUrl);
+router.get("/multipart/list", itemImagesController.listParts);
+router.post("/multipart/abort", itemImagesController.abortMultipart);
 
 // Get a specific image file
 router.get("/image/:imageId", itemImagesController.getItemImage);
 
+// Get all images for an item
+router.get("/:itemId", itemImagesController.getItemImages);
+
 // Upload a single image (non-multipart)
-router.post(
-  "/:itemId",
-  upload.single("image"),
-  itemImagesController.uploadItemImage
-);
+router.post("/:itemId", upload.single("image"), itemImagesController.uploadItemImage);
 
 // Set an image as primary
 router.patch("/:imageId/primary", itemImagesController.setPrimaryImage);
@@ -24,24 +29,8 @@ router.patch("/:imageId/primary", itemImagesController.setPrimaryImage);
 // Delete an image
 router.delete("/:imageId", itemImagesController.deleteItemImage);
 
-// --- Multipart upload routes ---
-
-// Start multipart upload
+// Start / complete multipart upload for an item
 router.post("/:itemId/multipart/start", itemImagesController.startMultipart);
-
-// Get presigned URL for part upload
-router.post("/multipart/part-url", itemImagesController.getPartUrl);
-
-// Complete multipart upload
-router.post(
-  "/:itemId/multipart/complete",
-  itemImagesController.completeMultipart
-);
-
-// List uploaded parts
-router.get("/multipart/list", itemImagesController.listParts);
-
-// Abort multipart upload
-router.post("/multipart/abort", itemImagesController.abortMultipart);
+router.post("/:itemId/multipart/complete", itemImagesController.completeMultipart);
 
 export default router;

@@ -1,0 +1,6 @@
+{
+  "watch": ["server", "prisma/schema.prisma"],
+  "ext": "ts,json,prisma",
+  "ignore": ["server/dist/**", "server/logs/**", "logs/**"],
+  "delay": 300
+}

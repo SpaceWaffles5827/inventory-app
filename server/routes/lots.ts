@@ -6,8 +6,11 @@ const router = Router();
 // Get all lots for an item
 router.get("/item/:itemId", lotsController.getLotsByItem);
 
-// Create new lot for an item
+// Create (receive) a new lot for an item
 router.post("/item/:itemId", lotsController.createLot);
+
+// Lots with stock expiring within ?days= (default 30) — before "/:id"
+router.get("/expiring", lotsController.getExpiringLots);
 
 // Get single lot
 router.get("/:id", lotsController.getLotById);
@@ -15,7 +18,7 @@ router.get("/:id", lotsController.getLotById);
 // Update lot status
 router.patch("/:id/status", lotsController.updateLotStatus);
 
-// In your lots routes file (e.g., routes/lots.routes.ts)
+// Adjust lot quantity at a location
 router.post("/:id/adjust", lotsController.adjustLotQuantity);
 
 // Update lot details

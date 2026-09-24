@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import localStrategy from "passport-local";
 import { PassportStatic } from "passport";
 import prisma from "./utils/prisma";
+import logger from "./utils/logger";
 
 // Helper function to transform user data to match Express.User interface
 const transformUserForSession = async (userId: string) => {
@@ -110,7 +111,7 @@ const configurePassport = (passport: PassportStatic) => {
 
           return done(null, userInfo);
         } catch (err) {
-          console.error("Passport authentication error:", err);
+          logger.error("passport authentication error", { error: String(err) });
           return done(err as Error);
         }
       }
@@ -131,7 +132,7 @@ const configurePassport = (passport: PassportStatic) => {
 
       done(null, userInfo);
     } catch (err) {
-      console.error("Passport deserialization error:", err);
+      logger.error("passport deserialization error", { error: String(err) });
       done(err as Error);
     }
   });

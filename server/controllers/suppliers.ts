@@ -1,450 +1,151 @@
 import { Request, Response } from "express";
+import { z } from "zod";
 import prisma from "../utils/prisma";
-import { sumLotsOnHand } from "../utils/onHand";
+import { PERMISSIONS, requireMembership, requireUserId } from "../utils/access";
+import { badRequest, notFound, sendSuccess } from "../utils/http";
+import { parseBody, parseQuery, zBooleanish, zId, zOptionalText, zText } from "../utils/validate";
+import { getOnHandByItem } from "../utils/stock";
+
+const workspaceQuery = z.object({ workspaceId: zId });
+
+const zOptionalEmail = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+  z.string().trim().max(191).email("Invalid email format").nullable().optional()
+);
+
+const supplierFields = {
+  contactPerson: zOptionalText(191),
+  email: zOptionalEmail,
+  phone: zOptionalText(50),
+  address: zOptionalText(191),
+  isActive: zBooleanish.optional(),
+};
 
 const suppliersController = {
-  // Create a new supplier
+  // POST /api/suppliers
   createSupplier: async (req: Request, res: Response) => {
-    try {
-      const {
-        name,
-        contactPerson,
-        email,
-        phone,
-        address,
-        isActive,
-        workspaceId,
-      } = req.body;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const body = parseBody(z.object({ workspaceId: zId, name: zText(191), ...supplierFields }), req);
+    await requireMembership(userId, body.workspaceId, PERMISSIONS.edit);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const existing = await prisma.supplier.findFirst({
+      where: { workspaceId: body.workspaceId, name: body.name },
+      select: { id: true },
+    });
+    if (existing) throw badRequest("Supplier name already exists in this workspace");
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      if (!name || name.trim() === "") {
-        return res.status(400).json({
-          status: "error",
-          message: "Supplier name is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if supplier name already exists in this workspace
-      const existingSupplier = await prisma.supplier.findFirst({
-        where: {
-          workspaceId: workspaceId,
-          name: name.trim(),
-        },
-      });
-
-      if (existingSupplier) {
-        return res.status(400).json({
-          status: "error",
-          message: "Supplier name already exists in this workspace",
-        });
-      }
-
-      // Create the supplier
-      const supplier = await prisma.supplier.create({
-        data: {
-          name: name.trim(),
-          contactPerson: contactPerson?.trim() || null,
-          email: email?.trim() || null,
-          phone: phone?.trim() || null,
-          address: address?.trim() || null,
-          isActive: isActive !== undefined ? isActive : true,
-          workspaceId: workspaceId,
-        },
-      });
-
-      return res.status(201).json({
-        status: "success",
-        message: "Supplier created successfully",
-        data: { supplier },
-      });
-    } catch (error) {
-      console.error("Create supplier error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to create supplier",
-      });
-    }
+    const supplier = await prisma.supplier.create({
+      data: {
+        name: body.name,
+        contactPerson: body.contactPerson ?? null,
+        email: body.email ?? null,
+        phone: body.phone ?? null,
+        address: body.address ?? null,
+        isActive: body.isActive ?? true,
+        workspaceId: body.workspaceId,
+      },
+    });
+    return sendSuccess(res, { supplier }, "Supplier created successfully", 201);
   },
 
-  // Get all suppliers in a workspace
+  // GET /api/suppliers?workspaceId=
   getSuppliers: async (req: Request, res: Response) => {
-    try {
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get all suppliers in the workspace
-      const suppliers = await prisma.supplier.findMany({
-        where: {
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-        orderBy: {
-          name: "asc",
-        },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        data: { suppliers },
-      });
-    } catch (error) {
-      console.error("Get suppliers error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve suppliers",
-      });
-    }
+    const suppliers = await prisma.supplier.findMany({
+      where: { workspaceId },
+      include: { _count: { select: { items: true } } },
+      orderBy: { name: "asc" },
+    });
+    return sendSuccess(res, { suppliers });
   },
 
-  // Get a single supplier by ID
+  // GET /api/suppliers/:id?workspaceId=
   getSupplierById: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: req.params.id, workspaceId },
+      include: {
+        _count: { select: { items: true } },
+        items: {
+          select: { id: true, itemNumber: true, name: true, status: true },
+          orderBy: { name: "asc" },
         },
-      });
+      },
+    });
+    if (!supplier) throw notFound("Supplier not found");
 
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get the supplier
-      const supplier = await prisma.supplier.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-          items: {
-            select: {
-              id: true,
-              itemNumber: true,
-              name: true,
-              status: true,
-              lots: {
-                select: {
-                  locations: {
-                    select: { quantity: true },
-                  },
-                },
-              },
-            },
-            orderBy: {
-              name: "asc",
-            },
-          },
-        },
-      });
-
-      if (!supplier) {
-        return res.status(404).json({
-          status: "error",
-          message: "Supplier not found",
-        });
-      }
-
-      // onHand is derived from lot locations, not a stored column
-      const supplierWithOnHand = {
+    const onHand = await getOnHandByItem(prisma, workspaceId, supplier.items.map((i) => i.id));
+    return sendSuccess(res, {
+      supplier: {
         ...supplier,
-        items: supplier.items.map(({ lots, ...item }) => ({
-          ...item,
-          onHand: sumLotsOnHand(lots),
-        })),
-      };
-
-      return res.status(200).json({
-        status: "success",
-        data: { supplier: supplierWithOnHand },
-      });
-    } catch (error) {
-      console.error("Get supplier by ID error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve supplier",
-      });
-    }
+        items: supplier.items.map((item) => ({ ...item, onHand: onHand.get(item.id) ?? 0 })),
+      },
+    });
   },
 
-  // Update a supplier
+  // PATCH /api/suppliers/:id
   updateSupplier: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const {
-        name,
-        contactPerson,
-        email,
-        phone,
-        address,
-        isActive,
-        workspaceId,
-      } = req.body;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const id = req.params.id;
+    const body = parseBody(
+      z.object({ workspaceId: zId, name: zText(191).optional(), ...supplierFields }),
+      req
+    );
+    await requireMembership(userId, body.workspaceId, PERMISSIONS.edit);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const existing = await prisma.supplier.findFirst({ where: { id, workspaceId: body.workspaceId } });
+    if (!existing) throw notFound("Supplier not found");
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-        },
+    if (body.name && body.name !== existing.name) {
+      const dup = await prisma.supplier.findFirst({
+        where: { workspaceId: body.workspaceId, name: body.name, id: { not: id } },
+        select: { id: true },
       });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if supplier exists in this workspace
-      const existingSupplier = await prisma.supplier.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId,
-        },
-      });
-
-      if (!existingSupplier) {
-        return res.status(404).json({
-          status: "error",
-          message: "Supplier not found",
-        });
-      }
-
-      // If name is being updated, check for duplicates
-      if (name && name.trim() !== existingSupplier.name) {
-        const duplicateSupplier = await prisma.supplier.findFirst({
-          where: {
-            workspaceId: workspaceId,
-            name: name.trim(),
-            id: { not: id },
-          },
-        });
-
-        if (duplicateSupplier) {
-          return res.status(400).json({
-            status: "error",
-            message: "Supplier name already exists in this workspace",
-          });
-        }
-      }
-
-      // Update the supplier
-      const supplier = await prisma.supplier.update({
-        where: { id: id },
-        data: {
-          ...(name && { name: name.trim() }),
-          ...(contactPerson !== undefined && {
-            contactPerson: contactPerson?.trim() || null,
-          }),
-          ...(email !== undefined && { email: email?.trim() || null }),
-          ...(phone !== undefined && { phone: phone?.trim() || null }),
-          ...(address !== undefined && { address: address?.trim() || null }),
-          ...(isActive !== undefined && { isActive }),
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Supplier updated successfully",
-        data: { supplier },
-      });
-    } catch (error) {
-      console.error("Update supplier error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to update supplier",
-      });
+      if (dup) throw badRequest("Supplier name already exists in this workspace");
     }
+
+    const supplier = await prisma.supplier.update({
+      where: { id },
+      data: {
+        ...(body.name && { name: body.name }),
+        ...(body.contactPerson !== undefined && { contactPerson: body.contactPerson }),
+        ...(body.email !== undefined && { email: body.email }),
+        ...(body.phone !== undefined && { phone: body.phone }),
+        ...(body.address !== undefined && { address: body.address }),
+        ...(body.isActive !== undefined && { isActive: body.isActive }),
+      },
+      include: { _count: { select: { items: true } } },
+    });
+    return sendSuccess(res, { supplier }, "Supplier updated successfully");
   },
 
-  // Delete a supplier
+  // DELETE /api/suppliers/:id?workspaceId= (ADMIN+)
   deleteSupplier: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId, PERMISSIONS.delete, {
+      message: "You don't have permission to delete suppliers",
+    });
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if supplier exists in this workspace
-      const supplier = await prisma.supplier.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-      });
-
-      if (!supplier) {
-        return res.status(404).json({
-          status: "error",
-          message: "Supplier not found",
-        });
-      }
-
-      // Check if supplier has items
-      if (supplier._count.items > 0) {
-        return res.status(400).json({
-          status: "error",
-          message: `Cannot delete supplier with ${supplier._count.items} item(s). Please reassign or delete the items first.`,
-        });
-      }
-
-      // Delete the supplier
-      await prisma.supplier.delete({
-        where: { id: id },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Supplier deleted successfully",
-      });
-    } catch (error) {
-      console.error("Delete supplier error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to delete supplier",
-      });
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: req.params.id, workspaceId },
+      include: { _count: { select: { items: true } } },
+    });
+    if (!supplier) throw notFound("Supplier not found");
+    if (supplier._count.items > 0) {
+      throw badRequest(
+        `Cannot delete supplier with ${supplier._count.items} item(s). Please reassign or delete the items first.`
+      );
     }
+
+    await prisma.supplier.delete({ where: { id: supplier.id } });
+    return sendSuccess(res, {}, "Supplier deleted successfully");
   },
 };
 

@@ -1,9 +1,22 @@
+// Item images stored in S3/MinIO.
+//
+// New objects live under a tenant prefix:
+//   item-images/ws/<workspaceId>/<itemId>/<uuid>.jpg
+// and ItemImage.imageName stores the part after "item-images/" (older rows
+// hold a bare "<uuid>.jpeg", which still resolves). Multipart endpoints that
+// receive an objectKey from the client parse it, and only accept keys inside
+// the prefix of an item the caller can access.
+//
+// Responses use { status, message, data }. For compatibility, error bodies
+// also carry `error`, and the multipart endpoints keep their old top-level
+// fields (uploadId, objectKey, url, parts, ok).
 import { Request, Response } from "express";
 import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
   CreateMultipartUploadCommand,
   UploadPartCommand,
   CompleteMultipartUploadCommand,
@@ -11,25 +24,23 @@ import {
   AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { v4 as uuidv4 } from "uuid";
-import { Prisma } from "@prisma/client";
-import prisma from "../utils/prisma";
 import sharp from "sharp";
 import crypto from "crypto";
+import { z } from "zod";
+import prisma from "../utils/prisma";
+import { PERMISSIONS, loadItemForUser, requireMembership, requireUserId } from "../utils/access";
+import { HttpError, badRequest, notFound, sendSuccess } from "../utils/http";
+import { parseBody, parseQuery, zBooleanish } from "../utils/validate";
+import logger from "../utils/logger";
 
 const BUCKET = process.env.BUCKET_NAME!;
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
+const PREFIX = "item-images/";
+const MAX_MULTIPART_BYTES = 25 * 1024 * 1024;
+const MAX_PARTS = 100;
+const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const ALLOWED_FORMATS = new Set(["jpeg", "png", "gif", "webp"]);
 
-if (
-  !process.env.BUCKET_REGION ||
-  !process.env.MINIO_ROOT_USER ||
-  !process.env.MINIO_ROOT_PASSWORD
-) {
+if (!process.env.BUCKET_REGION || !process.env.MINIO_ROOT_USER || !process.env.MINIO_ROOT_PASSWORD) {
   throw new Error("Environment variables for S3 are missing.");
 }
 
@@ -43,555 +54,318 @@ const s3Client = new S3Client({
   },
 });
 
-function randomKey(ext: string) {
-  return `item-images/${crypto.randomUUID()}.${ext}`;
+// ---------------------------------------------------------------------------
+// Key scoping
+// ---------------------------------------------------------------------------
+
+const KEY_PATTERN =
+  /^item-images\/ws\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})\/([0-9a-f-]{36})\.jpg$/;
+
+const newObjectKey = (workspaceId: string, itemId: string) =>
+  `${PREFIX}ws/${workspaceId}/${itemId}/${crypto.randomUUID()}.jpg`;
+
+/**
+ * Validate a client-supplied object key and the caller's access to it.
+ * Returns the item the key belongs to.
+ */
+async function authorizeObjectKey(userId: string, objectKey: string, expectItemId?: string) {
+  const m = KEY_PATTERN.exec(objectKey);
+  if (!m) throw badRequest("Invalid object key");
+  const [, workspaceId, itemId] = m;
+  if (expectItemId && expectItemId !== itemId) throw badRequest("Object key does not belong to this item");
+
+  const item = await prisma.item.findFirst({
+    where: { id: itemId, workspaceId },
+    select: { id: true, workspaceId: true },
+  });
+  if (!item) throw notFound("Item not found");
+  await requireMembership(userId, workspaceId, PERMISSIONS.edit, {
+    message: "You don't have permission to upload images for this item",
+  });
+  return item;
 }
 
+/** Only JPEG / PNG / GIF / WebP, judged by the bytes (not the declared mimetype). */
+function sniffImage(head: Buffer): boolean {
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return true;
+  if (head.length >= 8 && head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return true;
+  if (head.length >= 6 && /^GIF8[79]a$/.test(head.subarray(0, 6).toString("ascii"))) return true;
+  if (head.length >= 12 && head.subarray(0, 4).toString("ascii") === "RIFF" && head.subarray(8, 12).toString("ascii") === "WEBP") return true;
+  return false;
+}
+
+async function nextDisplayOrder(itemId: string) {
+  const last = await prisma.itemImage.findFirst({
+    where: { itemId },
+    orderBy: { displayOrder: "desc" },
+    select: { displayOrder: true },
+  });
+  return last ? last.displayOrder + 1 : 0;
+}
+
+/** Create the DB row (making it primary if asked) atomically. */
+async function createImageRecord(itemId: string, imageName: string, isPrimary: boolean, userId: string) {
+  const displayOrder = await nextDisplayOrder(itemId);
+  return prisma.$transaction(async (tx) => {
+    if (isPrimary) {
+      await tx.itemImage.updateMany({ where: { itemId, isPrimary: true }, data: { isPrimary: false } });
+    }
+    return tx.itemImage.create({
+      data: { itemId, imageName, isPrimary, displayOrder, uploadedBy: userId },
+    });
+  });
+}
+
+async function loadImageForUser(userId: string, imageId: string, minRole: "MEMBER" | "ADMIN", message?: string) {
+  const image = await prisma.itemImage.findUnique({
+    where: { id: imageId },
+    include: { item: { select: { workspaceId: true } } },
+  });
+  if (!image) throw notFound("Image not found");
+  await requireMembership(userId, image.item.workspaceId, minRole, { message });
+  return image;
+}
+
+const multipartKeySchema = z.object({
+  uploadId: z.string().min(1).max(1024),
+  objectKey: z.string().min(1).max(512),
+});
+
+// ---------------------------------------------------------------------------
+// Controller
+// ---------------------------------------------------------------------------
+
 const itemImagesController = {
-  // Upload a single item image
+  // POST /api/items/images/:itemId (multipart/form-data, field "image")
   uploadItemImage: async (req: Request, res: Response) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "No file uploaded." });
-      }
+    const userId = requireUserId(req);
+    if (!req.file) throw badRequest("No file uploaded.");
+    const { isPrimary } = parseBody(z.object({ isPrimary: zBooleanish.optional() }), req);
 
-      const { itemId } = req.params;
-      const userId = req.user?.id;
-      const { isPrimary } = req.body;
+    const { item } = await loadItemForUser(
+      userId,
+      req.params.itemId,
+      PERMISSIONS.edit,
+      "You don't have permission to upload images for this item"
+    );
 
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      const { buffer, mimetype } = req.file;
-
-      if (!ALLOWED_MIME_TYPES.has(mimetype)) {
-        return res.status(400).json({
-          error: "Invalid file type. Only image files are allowed.",
-        });
-      }
-
-      // Verify item exists and user has access
-      const item = await prisma.item.findUnique({
-        where: { id: itemId },
-        select: { workspaceId: true },
-      });
-
-      if (!item) {
-        return res.status(404).json({ error: "Item not found" });
-      }
-
-      // Verify user has access to workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] },
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          error: "You don't have permission to upload images for this item",
-        });
-      }
-
-      // Convert image to JPEG
-      const imageId = uuidv4();
-      let processedBuffer: Buffer;
-
-      try {
-        processedBuffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
-      } catch (err) {
-        console.error("Error processing image:", err);
-        return res.status(500).json({ error: "Error processing the image." });
-      }
-
-      // Upload to S3
-      const imageName = `${imageId}.jpeg`;
-      await s3Client.send(
-        new PutObjectCommand({
-          Bucket: BUCKET,
-          Body: processedBuffer,
-          Key: `item-images/${imageName}`,
-          ContentType: "image/jpeg",
-        })
-      );
-
-      // If this is set as primary, unset other primary images
-      if (isPrimary === "true" || isPrimary === true) {
-        await prisma.itemImage.updateMany({
-          where: {
-            itemId: itemId,
-            isPrimary: true,
-          },
-          data: {
-            isPrimary: false,
-          },
-        });
-      }
-
-      // Get the highest display order
-      const lastImage = await prisma.itemImage.findFirst({
-        where: { itemId: itemId },
-        orderBy: { displayOrder: "desc" },
-        select: { displayOrder: true },
-      });
-
-      const displayOrder = lastImage ? lastImage.displayOrder + 1 : 0;
-
-      // Create database record
-      const itemImage = await prisma.itemImage.create({
-        data: {
-          itemId: itemId,
-          imageName: imageName,
-          isPrimary: isPrimary === "true" || isPrimary === true,
-          displayOrder: displayOrder,
-          uploadedBy: userId,
-        },
-      });
-
-      return res.status(200).json({
-        message: "Image uploaded successfully",
-        data: { image: itemImage },
-      });
-    } catch (error) {
-      console.error("Upload item image error:", error);
-      return res.status(500).json({ error: "Internal server error" });
+    if (!ALLOWED_MIME_TYPES.has(req.file.mimetype)) {
+      throw badRequest("Invalid file type. Only image files are allowed.");
     }
+
+    // Trust the bytes, not the declared mimetype.
+    let processed: Buffer;
+    try {
+      const meta = await sharp(req.file.buffer).metadata();
+      if (!meta.format || !ALLOWED_FORMATS.has(meta.format)) {
+        throw badRequest("Invalid file type. Only JPEG, PNG, GIF and WebP images are allowed.");
+      }
+      processed = await sharp(req.file.buffer).rotate().jpeg({ quality: 90 }).toBuffer();
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw badRequest("The uploaded file is not a valid image.");
+    }
+
+    const key = newObjectKey(item.workspaceId, item.id);
+    await s3Client.send(
+      new PutObjectCommand({ Bucket: BUCKET, Body: processed, Key: key, ContentType: "image/jpeg" })
+    );
+
+    const image = await createImageRecord(item.id, key.slice(PREFIX.length), !!isPrimary, userId);
+    return sendSuccess(res, { image }, "Image uploaded successfully");
   },
 
-  // Get all images for an item
+  // GET /api/items/images/:itemId
   getItemImages: async (req: Request, res: Response) => {
-    try {
-      const { itemId } = req.params;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      // Verify item exists and user has access
-      const item = await prisma.item.findUnique({
-        where: { id: itemId },
-        select: { workspaceId: true },
-      });
-
-      if (!item) {
-        return res.status(404).json({ error: "Item not found" });
-      }
-
-      // Verify user has access to workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          error: "You don't have access to this item",
-        });
-      }
-
-      const images = await prisma.itemImage.findMany({
-        where: { itemId: itemId },
-        orderBy: [{ isPrimary: "desc" }, { displayOrder: "asc" }],
-      });
-
-      return res.status(200).json({
-        status: "success",
-        data: { images },
-      });
-    } catch (error) {
-      console.error("Get item images error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+    const userId = requireUserId(req);
+    const { item } = await loadItemForUser(userId, req.params.itemId);
+    const images = await prisma.itemImage.findMany({
+      where: { itemId: item.id },
+      orderBy: [{ isPrimary: "desc" }, { displayOrder: "asc" }],
+    });
+    return sendSuccess(res, { images });
   },
 
-  // Get a single item image
-  getItemImage: async (
-    req: Request,
-    res: Response
-  ): Promise<Response | void> => {
-    try {
-      const { imageId } = req.params;
+  // GET /api/items/images/image/:imageId — the image bytes
+  getItemImage: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const image = await loadImageForUser(userId, req.params.imageId, "MEMBER");
 
-      // Fetch image from database
-      const itemImage = await prisma.itemImage.findUnique({
-        where: { id: imageId },
-        select: { imageName: true, itemId: true },
-      });
+    const data = await s3Client.send(
+      new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}${image.imageName}` })
+    );
+    if (!data.Body) throw notFound("File not found in storage.");
 
-      if (!itemImage) {
-        return res.status(404).json({ error: "Image not found" });
-      }
-
-      // Download from S3
-      const downloadParams = {
-        Bucket: BUCKET,
-        Key: `item-images/${itemImage.imageName}`,
-      };
-
-      const data = await s3Client.send(new GetObjectCommand(downloadParams));
-      if (!data.Body) {
-        return res.status(404).json({ error: "File not found in S3." });
-      }
-
-      res.set("Content-Type", "image/jpeg");
-
-      const body = data.Body as { pipe?: (destination: Response) => void };
-      if (typeof body.pipe === "function") {
-        return body.pipe(res);
-      } else {
-        return res.send(body);
-      }
-    } catch (error) {
-      console.error("Get item image error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+    res.set("Content-Type", data.ContentType?.startsWith("image/") ? data.ContentType : "image/jpeg");
+    res.set("Cache-Control", "private, max-age=3600");
+    res.set("X-Content-Type-Options", "nosniff");
+    const body = data.Body as { pipe?: (destination: Response) => void };
+    if (typeof body.pipe === "function") return body.pipe(res);
+    return res.send(await data.Body.transformToByteArray());
   },
 
-  // Delete an item image
+  // DELETE /api/items/images/:imageId (ADMIN+)
   deleteItemImage: async (req: Request, res: Response) => {
-    try {
-      const { imageId } = req.params;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const image = await loadImageForUser(
+      userId,
+      req.params.imageId,
+      PERMISSIONS.delete,
+      "You don't have permission to delete this image"
+    );
 
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      // Get image and verify access
-      const itemImage = await prisma.itemImage.findUnique({
-        where: { id: imageId },
-        include: {
-          item: {
-            select: { workspaceId: true },
-          },
-        },
-      });
-
-      if (!itemImage) {
-        return res.status(404).json({ error: "Image not found" });
-      }
-
-      // Verify user has access to workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: itemImage.item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] },
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          error: "You don't have permission to delete this image",
-        });
-      }
-
-      // Delete from S3
-      await s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: BUCKET,
-          Key: `item-images/${itemImage.imageName}`,
-        })
-      );
-
-      // Delete from database
-      await prisma.itemImage.delete({
-        where: { id: imageId },
-      });
-
-      return res.status(200).json({
-        message: "Image deleted successfully",
-      });
-    } catch (error) {
-      console.error("Delete item image error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+    await s3Client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}${image.imageName}` }));
+    await prisma.itemImage.delete({ where: { id: image.id } });
+    return sendSuccess(res, {}, "Image deleted successfully");
   },
 
-  // Set primary image
+  // PATCH /api/items/images/:imageId/primary
   setPrimaryImage: async (req: Request, res: Response) => {
-    try {
-      const { imageId } = req.params;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const image = await loadImageForUser(
+      userId,
+      req.params.imageId,
+      PERMISSIONS.edit,
+      "You don't have permission to update this image"
+    );
 
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      // Get image and verify access
-      const itemImage = await prisma.itemImage.findUnique({
-        where: { id: imageId },
-        include: {
-          item: {
-            select: { workspaceId: true },
-          },
-        },
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.itemImage.updateMany({
+        where: { itemId: image.itemId, isPrimary: true },
+        data: { isPrimary: false },
       });
-
-      if (!itemImage) {
-        return res.status(404).json({ error: "Image not found" });
-      }
-
-      // Verify user has access to workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: itemImage.item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] },
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          error: "You don't have permission to update this image",
-        });
-      }
-
-      // Unset other primary images for this item
-      await prisma.itemImage.updateMany({
-        where: {
-          itemId: itemImage.itemId,
-          isPrimary: true,
-        },
-        data: {
-          isPrimary: false,
-        },
-      });
-
-      // Set this image as primary
-      const updatedImage = await prisma.itemImage.update({
-        where: { id: imageId },
-        data: { isPrimary: true },
-      });
-
-      return res.status(200).json({
-        message: "Primary image updated successfully",
-        data: { image: updatedImage },
-      });
-    } catch (error) {
-      console.error("Set primary image error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+      return tx.itemImage.update({ where: { id: image.id }, data: { isPrimary: true } });
+    });
+    return sendSuccess(res, { image: updated }, "Primary image updated successfully");
   },
 
-  // Start multipart upload
+  // POST /api/items/images/:itemId/multipart/start  { mime }
   startMultipart: async (req: Request, res: Response) => {
-    try {
-      const { itemId } = req.params;
-      const { mime } = req.body as { mime: string };
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { mime } = parseBody(z.object({ mime: z.string().max(100) }), req);
+    if (!ALLOWED_MIME_TYPES.has(mime)) throw badRequest("Unsupported mime type");
 
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
+    const { item } = await loadItemForUser(
+      userId,
+      req.params.itemId,
+      PERMISSIONS.edit,
+      "You don't have permission to upload images for this item"
+    );
 
-      if (!ALLOWED_MIME_TYPES.has(mime)) {
-        return res.status(400).json({ error: "Unsupported mime type" });
-      }
-
-      // Verify item exists and user has access
-      const item = await prisma.item.findUnique({
-        where: { id: itemId },
-        select: { workspaceId: true },
-      });
-
-      if (!item) {
-        return res.status(404).json({ error: "Item not found" });
-      }
-
-      // Verify user has access to workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] },
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          error: "You don't have permission to upload images for this item",
-        });
-      }
-
-      const ext = "jpg";
-      const objectKey = randomKey(ext);
-
-      const create = await s3Client.send(
-        new CreateMultipartUploadCommand({
-          Bucket: BUCKET,
-          Key: objectKey,
-          ContentType: "image/jpeg",
-        })
-      );
-
-      const uploadId = create.UploadId!;
-      return res.json({ uploadId, objectKey });
-    } catch (error) {
-      console.error("Start multipart error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+    const objectKey = newObjectKey(item.workspaceId, item.id);
+    const created = await s3Client.send(
+      new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: objectKey, ContentType: mime })
+    );
+    const uploadId = created.UploadId!;
+    return res.json({ status: "success", data: { uploadId, objectKey }, uploadId, objectKey });
   },
 
-  // Complete multipart upload
-  completeMultipart: async (req: Request, res: Response) => {
-    try {
-      const { itemId } = req.params;
-      const { uploadId, objectKey, parts, isPrimary } = req.body as {
-        uploadId: string;
-        objectKey: string;
-        parts: { ETag: string; PartNumber: number }[];
-        isPrimary?: boolean;
-      };
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-
-      // Finalize the multipart upload in S3
-      await s3Client.send(
-        new CompleteMultipartUploadCommand({
-          Bucket: BUCKET,
-          Key: objectKey,
-          UploadId: uploadId,
-          MultipartUpload: {
-            Parts: [...parts].sort((a, b) => a.PartNumber - b.PartNumber),
-          },
-        })
-      );
-
-      // If this is set as primary, unset other primary images
-      if (isPrimary) {
-        await prisma.itemImage.updateMany({
-          where: {
-            itemId: itemId,
-            isPrimary: true,
-          },
-          data: {
-            isPrimary: false,
-          },
-        });
-      }
-
-      // Get the highest display order
-      const lastImage = await prisma.itemImage.findFirst({
-        where: { itemId: itemId },
-        orderBy: { displayOrder: "desc" },
-        select: { displayOrder: true },
-      });
-
-      const displayOrder = lastImage ? lastImage.displayOrder + 1 : 0;
-
-      // Extract filename from objectKey
-      const fileName = objectKey.includes("/")
-        ? objectKey.substring(objectKey.lastIndexOf("/") + 1)
-        : objectKey;
-
-      // Create database record
-      const itemImage = await prisma.itemImage.create({
-        data: {
-          itemId: itemId,
-          imageName: fileName,
-          isPrimary: isPrimary || false,
-          displayOrder: displayOrder,
-          uploadedBy: userId,
-        },
-      });
-
-      return res.json({
-        ok: true,
-        data: { image: itemImage },
-      });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2025"
-      ) {
-        return res.status(404).json({ error: "Item not found" });
-      }
-      console.error("Complete multipart error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
-  },
-
-  // Get presigned URL for part upload
+  // POST /api/items/images/multipart/part-url  { uploadId, objectKey, partNumber }
   getPartUrl: async (req: Request, res: Response) => {
-    try {
-      const { uploadId, objectKey, partNumber } = req.body as {
-        uploadId: string;
-        objectKey: string;
-        partNumber: number;
-      };
+    const userId = requireUserId(req);
+    const body = parseBody(
+      multipartKeySchema.extend({
+        partNumber: z.preprocess(
+          (v) => (typeof v === "string" ? Number(v) : v),
+          z.number().int().min(1).max(MAX_PARTS)
+        ),
+      }),
+      req
+    );
+    await authorizeObjectKey(userId, body.objectKey);
 
-      const command = new UploadPartCommand({
+    const url = await getSignedUrl(
+      s3Client,
+      new UploadPartCommand({
         Bucket: BUCKET,
-        Key: objectKey,
-        UploadId: uploadId,
-        PartNumber: partNumber,
-      });
-
-      const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-      return res.json({ url });
-    } catch (error) {
-      console.error("Get part URL error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+        Key: body.objectKey,
+        UploadId: body.uploadId,
+        PartNumber: body.partNumber,
+      }),
+      { expiresIn: 900 }
+    );
+    return res.json({ status: "success", data: { url }, url });
   },
 
-  // List parts
+  // POST /api/items/images/:itemId/multipart/complete  { uploadId, objectKey, parts, isPrimary? }
+  completeMultipart: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const body = parseBody(
+      multipartKeySchema.extend({
+        parts: z
+          .array(z.object({ ETag: z.string().min(1).max(256), PartNumber: z.number().int().min(1).max(MAX_PARTS) }))
+          .min(1)
+          .max(MAX_PARTS),
+        isPrimary: zBooleanish.optional(),
+      }),
+      req
+    );
+    const item = await authorizeObjectKey(userId, body.objectKey, req.params.itemId);
+
+    await s3Client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: BUCKET,
+        Key: body.objectKey,
+        UploadId: body.uploadId,
+        MultipartUpload: {
+          Parts: [...body.parts].sort((a, b) => a.PartNumber - b.PartNumber),
+        },
+      })
+    );
+
+    // The bytes went straight to storage: check size and that it is an image.
+    const reject = async (message: string) => {
+      await s3Client
+        .send(new DeleteObjectCommand({ Bucket: BUCKET, Key: body.objectKey }))
+        .catch((e) => logger.warn("failed to delete rejected upload", { error: String(e) }));
+      throw badRequest(message);
+    };
+    const head = await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET, Key: body.objectKey }));
+    if ((head.ContentLength ?? 0) > MAX_MULTIPART_BYTES) {
+      await reject(`Image too large (max ${MAX_MULTIPART_BYTES / 1024 / 1024} MB)`);
+    }
+    const first = await s3Client.send(
+      new GetObjectCommand({ Bucket: BUCKET, Key: body.objectKey, Range: "bytes=0-31" })
+    );
+    const bytes = first.Body ? Buffer.from(await first.Body.transformToByteArray()) : Buffer.alloc(0);
+    if (!sniffImage(bytes)) await reject("The uploaded file is not a valid image.");
+
+    const image = await createImageRecord(
+      item.id,
+      body.objectKey.slice(PREFIX.length),
+      !!body.isPrimary,
+      userId
+    );
+    return res.json({ status: "success", data: { image }, ok: true });
+  },
+
+  // GET /api/items/images/multipart/list?uploadId=&objectKey=
   listParts: async (req: Request, res: Response) => {
-    try {
-      const { uploadId, objectKey } = req.query as {
-        uploadId: string;
-        objectKey: string;
-      };
-      const out = await s3Client.send(
-        new ListPartsCommand({
-          Bucket: BUCKET,
-          Key: objectKey,
-          UploadId: uploadId,
-        })
-      );
-      const parts = (out.Parts || []).map((p) => ({
-        PartNumber: p.PartNumber!,
-        ETag: p.ETag!,
-        Size: p.Size || 0,
-      }));
-      return res.json({ parts });
-    } catch (error) {
-      console.error("List parts error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+    const userId = requireUserId(req);
+    const q = parseQuery(multipartKeySchema, req);
+    await authorizeObjectKey(userId, q.objectKey);
+
+    const out = await s3Client.send(
+      new ListPartsCommand({ Bucket: BUCKET, Key: q.objectKey, UploadId: q.uploadId })
+    );
+    const parts = (out.Parts || []).map((p) => ({
+      PartNumber: p.PartNumber!,
+      ETag: p.ETag!,
+      Size: p.Size || 0,
+    }));
+    return res.json({ status: "success", data: { parts }, parts });
   },
 
-  // Abort multipart upload
+  // POST /api/items/images/multipart/abort  { uploadId, objectKey }
   abortMultipart: async (req: Request, res: Response) => {
-    try {
-      const { uploadId, objectKey } = req.body as {
-        uploadId: string;
-        objectKey: string;
-      };
+    const userId = requireUserId(req);
+    const body = parseBody(multipartKeySchema, req);
+    await authorizeObjectKey(userId, body.objectKey);
 
-      await s3Client.send(
-        new AbortMultipartUploadCommand({
-          Bucket: BUCKET,
-          Key: objectKey,
-          UploadId: uploadId,
-        })
-      );
-
-      return res.json({ ok: true });
-    } catch (error) {
-      console.error("Abort multipart error:", error);
-      return res.status(500).json({ error: "Internal server error" });
-    }
+    await s3Client.send(
+      new AbortMultipartUploadCommand({ Bucket: BUCKET, Key: body.objectKey, UploadId: body.uploadId })
+    );
+    return res.json({ status: "success", data: {}, ok: true });
   },
 };
 

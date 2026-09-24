@@ -17,12 +17,14 @@ model User {
   email     String   @unique
   name      String?
   password  String
+  // SHA-256 hex digest of the emailed reset token (the raw token is never stored)
   passwordResetToken String?  @map("password_reset_token")
   passwordResetExpires DateTime? @map("password_reset_expires")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // ADD THESE TWO FIELDS for 2FA
+  // 2FA columns are reserved for a future feature. Nothing sets
+  // two_factor_enabled today, so the login flow never challenges for a code.
   two_factor_enabled Boolean @default(false)
   two_factor_code    String?
 
@@ -32,6 +34,7 @@ model User {
   itemImages        ItemImage[]
   lots              Lot[]
 
+  @@index([passwordResetToken])
   @@map("users")
 }
 
@@ -103,6 +106,9 @@ model WorkspaceMember {
 // Invitation model for pending workspace invites
 model Invitation {
   id        String   @id @default(cuid())
+  // Random, unguessable accept token (crypto.randomBytes(32).toString("base64url")).
+  // Used in accept/verify links instead of the primary key.
+  token     String   @unique @db.VarChar(64)
   email     String
   role      Role     @default(MEMBER)
   status    InvitationStatus @default(PENDING)
@@ -115,6 +121,7 @@ model Invitation {
   // Relations
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
+  @@index([workspaceId, status])
   @@map("invitations")
 }
 
@@ -270,7 +277,9 @@ model Item {
   unit        String?  // Unit of measurement (e.g., "EA", "BOX", "KG", "LB")
   description String?  @db.Text
   cost        Float    @default(0)
-  status      ItemStatus @default(IN_STOCK)
+  status      ItemStatus @default(IN_STOCK) // CACHED: derived from on-hand vs reorderPoint
+  // Low-stock threshold: OUT_OF_STOCK when onHand <= 0, LOW_STOCK when onHand <= reorderPoint
+  reorderPoint Int     @default(10)
   lotTracking Boolean  @default(false) // Enable lot/batch tracking for this item
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -315,13 +324,13 @@ model Lot {
   itemId      String   // The item this lot belongs to
   workspaceId String
   supplierId  String?  // Which supplier this lot came from
-  createdBy   String   // User who created/received this lot
+  createdBy   String?  // User who created/received this lot (NULL if that user was deleted)
 
   // Relations
   item        Item              @relation(fields: [itemId], references: [id], onDelete: Cascade)
   workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   supplier    Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  creator     User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  creator     User?             @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   locations   LotLocation[]     // Where this lot is stored (can be multiple locations) - SOURCE OF TRUTH
   transactions StockTransaction[]
 
@@ -377,12 +386,16 @@ model ItemImage {
 }
 
 // Stock transaction model for audit trail
+// previousStock / newStock are ALWAYS the item's TOTAL on-hand (sum of every
+// LotLocation of the item) immediately before / after the movement. For a
+// TRANSFER they are equal. Locations: OUTPUT sets fromLocationId, INPUT sets
+// toLocationId, TRANSFER sets both.
 model StockTransaction {
   id            String            @id @default(cuid())
   type          TransactionType   // INPUT, OUTPUT, or TRANSFER
-  quantity      Int
-  previousStock Int
-  newStock      Int
+  quantity      Int               // Always positive; direction comes from type
+  previousStock Int               // Item total on-hand before
+  newStock      Int               // Item total on-hand after
   reason        String
   lotId         String            // REQUIRED: Always references a lot (SYSTEM lot for non-lotted items)
   createdAt     DateTime          @default(now())
@@ -394,18 +407,19 @@ model StockTransaction {
   // Foreign keys
   itemId      String
   workspaceId String
-  userId      String
+  userId      String? // NULL if the acting user was later deleted (history is kept)
 
   // Relations
   item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   lot       Lot       @relation(fields: [lotId], references: [id], onDelete: Cascade)
   fromLocation Location? @relation("TransactionFromLocation", fields: [fromLocationId], references: [id], onDelete: SetNull)
   toLocation   Location? @relation("TransactionToLocation", fields: [toLocationId], references: [id], onDelete: SetNull)
 
   @@index([lotId])
-  @@index([itemId])
+  @@index([itemId, createdAt])
+  @@index([workspaceId, createdAt])
   @@index([fromLocationId])
   @@index([toLocationId])
   @@map("stock_transactions")

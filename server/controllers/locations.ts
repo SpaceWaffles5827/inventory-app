@@ -1,662 +1,314 @@
 import { Request, Response } from "express";
+import { Prisma } from "@prisma/client";
+import { z } from "zod";
 import prisma from "../utils/prisma";
+import { PERMISSIONS, requireMembership, requireUserId } from "../utils/access";
+import { HttpError, badRequest, notFound, sendSuccess } from "../utils/http";
+import {
+  parseBody,
+  parseQuery,
+  zId,
+  zNonNegativeInt,
+  zOptionalText,
+  zText,
+} from "../utils/validate";
+import { withStockTransaction } from "../utils/stock";
+
+// A location's structure: [{ label: "Zone", value: "A" }, ...]
+const zStructure = z
+  .array(
+    z
+      .object({
+        label: z.string().trim().max(100),
+        value: z.union([z.string(), z.number()]).transform(String),
+      })
+      .passthrough()
+  )
+  .min(1, "Location structure is required")
+  .max(20);
+
+// Workspace template: { levels: [{ label: "Zone" }, ...] }
+const zTemplate = z
+  .object({
+    levels: z
+      .array(z.object({ label: z.string().trim().min(1).max(100) }).passthrough())
+      .min(1, "At least one level is required")
+      .max(20),
+  })
+  .passthrough();
+
+const optionalCapacity = z.preprocess(
+  (v) => (v === null || v === "" ? undefined : v),
+  zNonNegativeInt("Capacity").optional()
+);
+
+const createLocationSchema = z.object({
+  workspaceId: zId,
+  code: zText(100),
+  barcode: zOptionalText(191),
+  structure: zStructure,
+  capacity: optionalCapacity,
+  description: zOptionalText(191),
+});
+
+const updateLocationSchema = z.object({
+  workspaceId: zId,
+  code: zText(100).optional(),
+  barcode: zOptionalText(191),
+  structure: zStructure.optional(),
+  capacity: optionalCapacity,
+  description: zOptionalText(191),
+});
+
+const workspaceQuery = z.object({ workspaceId: zId });
+
+/** LOC-<code>, then LOC-<code>#1, #2, ... until unused in the workspace. */
+async function generateLocationBarcode(code: string, workspaceId: string, excludeId?: string) {
+  const base = `LOC-${code}`;
+  let candidate = base;
+  for (let i = 1; ; i++) {
+    const clash = await prisma.location.findFirst({
+      where: { workspaceId, barcode: candidate, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true },
+    });
+    if (!clash) return candidate;
+    candidate = `${base}#${i}`;
+  }
+}
+
+/** Units stored per location (from LotLocation, the source of truth). */
+async function unitsByLocation(workspaceId: string, locationIds?: string[]) {
+  const rows = await prisma.lotLocation.groupBy({
+    by: ["locationId"],
+    where: {
+      location: { workspaceId },
+      ...(locationIds ? { locationId: { in: locationIds } } : {}),
+    },
+    _sum: { quantity: true },
+  });
+  return new Map(rows.map((r) => [r.locationId, r._sum.quantity ?? 0]));
+}
 
 const locationsController = {
-  // Get workspace default structure
+  // GET /api/locations/workspace-structure?workspaceId=
   getWorkspaceStructure: async (req: Request, res: Response) => {
-    try {
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get workspace with structure
-      const workspace = await prisma.workspace.findUnique({
-        where: { id: workspaceId as string },
-        select: { defaultLocationStructure: true },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        data: { structure: workspace?.defaultLocationStructure || null },
-      });
-    } catch (error) {
-      console.error("Get workspace structure error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve workspace structure",
-      });
-    }
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { defaultLocationStructure: true },
+    });
+    return sendSuccess(res, { structure: workspace?.defaultLocationStructure || null });
   },
 
-  // Update workspace default structure
+  // PUT /api/locations/workspace-structure (ADMIN+)
   updateWorkspaceStructure: async (req: Request, res: Response) => {
-    try {
-      const { workspaceId, structure } = req.body;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId, structure } = parseBody(
+      z.object({ workspaceId: zId, structure: zTemplate }),
+      req
+    );
+    await requireMembership(userId, workspaceId, PERMISSIONS.workspaceSettings, {
+      message: "You don't have permission to update workspace settings",
+    });
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has admin/owner access
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-          role: { in: ["OWNER", "ADMIN"] },
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have permission to update workspace settings",
-        });
-      }
-
-      // Validate structure format
-      if (
-        structure &&
-        (!structure.levels || !Array.isArray(structure.levels))
-      ) {
-        return res.status(400).json({
-          status: "error",
-          message: "Invalid structure format",
-        });
-      }
-
-      // Update workspace structure
-      const workspace = await prisma.workspace.update({
-        where: { id: workspaceId },
-        data: { defaultLocationStructure: structure },
-        select: { defaultLocationStructure: true },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Workspace structure updated successfully",
-        data: { structure: workspace.defaultLocationStructure },
-      });
-    } catch (error) {
-      console.error("Update workspace structure error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to update workspace structure",
-      });
-    }
+    const workspace = await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { defaultLocationStructure: structure as Prisma.InputJsonValue },
+      select: { defaultLocationStructure: true },
+    });
+    return sendSuccess(
+      res,
+      { structure: workspace.defaultLocationStructure },
+      "Workspace structure updated successfully"
+    );
   },
 
-  // Helper function to generate location barcode
-  generateLocationBarcode: async (
-    code: string,
-    workspaceId: string,
-  ): Promise<string> => {
-    // Start with simple format: LOC-{location code}
-    let baseBarcode = `LOC-${code}`;
-    let finalBarcode = baseBarcode;
-    let increment = 1;
-
-    // Check if this barcode already exists in the workspace
-    while (true) {
-      const existing = await prisma.location.findFirst({
-        where: {
-          workspaceId: workspaceId,
-          barcode: finalBarcode,
-        },
-      });
-
-      if (!existing) {
-        // Barcode is unique, we can use it
-        break;
-      }
-
-      // Barcode exists, try with incrementing suffix using #N format
-      finalBarcode = `${baseBarcode}#${increment}`;
-      increment++;
-    }
-
-    return finalBarcode;
-  },
-
-  // Create a new location
+  // POST /api/locations
   createLocation: async (req: Request, res: Response) => {
-    try {
-      const { code, barcode, structure, capacity, description, workspaceId } =
-        req.body;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const body = parseBody(createLocationSchema, req);
+    await requireMembership(userId, body.workspaceId, PERMISSIONS.edit);
 
-      console.log("creating a location", req.body);
+    const existing = await prisma.location.findFirst({
+      where: { workspaceId: body.workspaceId, code: body.code },
+      select: { id: true },
+    });
+    if (existing) throw badRequest("Location code already exists in this workspace");
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-        },
+    const barcode = body.barcode || (await generateLocationBarcode(body.code, body.workspaceId));
+    if (body.barcode) {
+      const clash = await prisma.location.findFirst({
+        where: { workspaceId: body.workspaceId, barcode },
+        select: { id: true },
       });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Validate structure
-      if (!structure || !Array.isArray(structure) || structure.length === 0) {
-        return res.status(400).json({
-          status: "error",
-          message: "Location structure is required",
-        });
-      }
-
-      // Check if location code already exists in this workspace
-      const existingLocation = await prisma.location.findFirst({
-        where: {
-          workspaceId: workspaceId,
-          code: code,
-        },
-      });
-
-      if (existingLocation) {
-        return res.status(400).json({
-          status: "error",
-          message: "Location code already exists in this workspace",
-        });
-      }
-
-      // Generate barcode if not provided
-      const finalBarcode =
-        barcode ||
-        (await locationsController.generateLocationBarcode(code, workspaceId));
-
-      // Check if barcode already exists in this workspace
-      if (finalBarcode) {
-        const existingBarcode = await prisma.location.findFirst({
-          where: {
-            workspaceId: workspaceId,
-            barcode: finalBarcode,
-          },
-        });
-
-        if (existingBarcode) {
-          return res.status(400).json({
-            status: "error",
-            message: "Location barcode already exists in this workspace",
-          });
-        }
-      }
-
-      // Create the location
-      const location = await prisma.location.create({
-        data: {
-          code,
-          barcode: finalBarcode,
-          structure,
-          capacity: capacity || 100,
-          description: description || null,
-          workspaceId: workspaceId,
-        },
-      });
-
-      return res.status(201).json({
-        status: "success",
-        message: "Location created successfully",
-        data: { location },
-      });
-    } catch (error) {
-      console.error("Create location error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to create location",
-      });
+      if (clash) throw badRequest("Location barcode already exists in this workspace");
     }
+
+    const location = await prisma.location.create({
+      data: {
+        code: body.code,
+        barcode,
+        structure: body.structure as Prisma.InputJsonValue,
+        capacity: body.capacity ?? 100,
+        description: body.description ?? null,
+        workspaceId: body.workspaceId,
+      },
+    });
+    return sendSuccess(res, { location }, "Location created successfully", 201);
   },
 
-  // Get all locations in a workspace
+  // GET /api/locations?workspaceId=
   getLocations: async (req: Request, res: Response) => {
-    try {
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const [locations, units] = await Promise.all([
+      prisma.location.findMany({
+        where: { workspaceId },
+        include: { _count: { select: { items: true } } },
+        orderBy: { code: "asc" },
+      }),
+      unitsByLocation(workspaceId),
+    ]);
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get all locations in the workspace with item counts through junction table
-      const locations = await prisma.location.findMany({
-        where: {
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-        orderBy: {
-          code: "asc",
-        },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        data: { locations },
-      });
-    } catch (error) {
-      console.error("Get locations error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve locations",
-      });
-    }
+    return sendSuccess(res, {
+      locations: locations.map((l) => ({ ...l, totalUnits: units.get(l.id) ?? 0 })),
+    });
   },
 
-  // Get a single location by ID
+  // GET /api/locations/:id?workspaceId=
   getLocationById: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get the location with items through junction table
-      const location = await prisma.location.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-          items: {
-            include: {
-              item: {
-                select: {
-                  id: true,
-                  itemNumber: true,
-                  name: true,
-                  status: true,
-                  unit: true,
-                },
-              },
-            },
-            orderBy: {
-              item: {
-                name: "asc",
-              },
+    const location = await prisma.location.findFirst({
+      where: { id: req.params.id, workspaceId },
+      include: {
+        _count: { select: { items: true } },
+        items: {
+          include: {
+            item: {
+              select: { id: true, itemNumber: true, name: true, status: true, unit: true },
             },
           },
+          orderBy: { item: { name: "asc" } },
         },
-      });
+      },
+    });
+    if (!location) throw notFound("Location not found");
 
-      if (!location) {
-        return res.status(404).json({
-          status: "error",
-          message: "Location not found",
-        });
-      }
-
-      // Transform the response to flatten the item data and include quantity
-      const transformedLocation = {
+    const units = await unitsByLocation(workspaceId, [location.id]);
+    return sendSuccess(res, {
+      location: {
         ...location,
-        items: location.items.map((itemLocation) => ({
-          id: itemLocation.item.id,
-          itemNumber: itemLocation.item.itemNumber,
-          name: itemLocation.item.name,
-          status: itemLocation.item.status,
-          unit: itemLocation.item.unit,
-          quantity: itemLocation.quantity,
-          minStock: itemLocation.minStock,
-          maxStock: itemLocation.maxStock,
-          notes: itemLocation.notes,
+        totalUnits: units.get(location.id) ?? 0,
+        items: location.items.map((il) => ({
+          id: il.item.id,
+          itemNumber: il.item.itemNumber,
+          name: il.item.name,
+          status: il.item.status,
+          unit: il.item.unit,
+          quantity: il.quantity,
+          minStock: il.minStock,
+          maxStock: il.maxStock,
+          notes: il.notes,
         })),
-      };
-
-      return res.status(200).json({
-        status: "success",
-        data: { location: transformedLocation },
-      });
-    } catch (error) {
-      console.error("Get location by ID error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve location",
-      });
-    }
+      },
+    });
   },
 
-  // Update a location
+  // PATCH /api/locations/:id
   updateLocation: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { code, barcode, structure, capacity, description, workspaceId } =
-        req.body;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const id = req.params.id;
+    const body = parseBody(updateLocationSchema, req);
+    await requireMembership(userId, body.workspaceId, PERMISSIONS.edit);
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const existing = await prisma.location.findFirst({
+      where: { id, workspaceId: body.workspaceId },
+    });
+    if (!existing) throw notFound("Location not found");
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-        },
+    if (body.code && body.code !== existing.code) {
+      const dup = await prisma.location.findFirst({
+        where: { workspaceId: body.workspaceId, code: body.code, id: { not: id } },
+        select: { id: true },
       });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if location exists in this workspace
-      const existingLocation = await prisma.location.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId,
-        },
-      });
-
-      if (!existingLocation) {
-        return res.status(404).json({
-          status: "error",
-          message: "Location not found",
-        });
-      }
-
-      // If code is being updated, check for duplicates
-      if (code && code !== existingLocation.code) {
-        const duplicateLocation = await prisma.location.findFirst({
-          where: {
-            workspaceId: workspaceId,
-            code: code,
-            id: { not: id },
-          },
-        });
-
-        if (duplicateLocation) {
-          return res.status(400).json({
-            status: "error",
-            message: "Location code already exists in this workspace",
-          });
-        }
-      }
-
-      // If barcode is being updated, check for duplicates
-      if (barcode !== undefined && barcode !== existingLocation.barcode) {
-        if (barcode) {
-          const duplicateBarcode = await prisma.location.findFirst({
-            where: {
-              workspaceId: workspaceId,
-              barcode: barcode,
-              id: { not: id },
-            },
-          });
-
-          if (duplicateBarcode) {
-            return res.status(400).json({
-              status: "error",
-              message: "Location barcode already exists in this workspace",
-            });
-          }
-        }
-      }
-
-      // Prepare update data
-      const updateData: any = {};
-
-      if (code) {
-        updateData.code = code;
-        // If code is updated but barcode is not provided, regenerate barcode
-        if (barcode === undefined) {
-          updateData.barcode =
-            await locationsController.generateLocationBarcode(
-              code,
-              workspaceId,
-            );
-        }
-      }
-
-      if (barcode !== undefined) {
-        updateData.barcode = barcode || null;
-      }
-
-      if (structure) {
-        updateData.structure = structure;
-      }
-
-      if (capacity !== undefined) {
-        updateData.capacity = capacity;
-      }
-
-      if (description !== undefined) {
-        updateData.description = description || null;
-      }
-
-      // Update the location
-      const location = await prisma.location.update({
-        where: { id: id },
-        data: updateData,
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Location updated successfully",
-        data: { location },
-      });
-    } catch (error) {
-      console.error("Update location error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to update location",
-      });
+      if (dup) throw badRequest("Location code already exists in this workspace");
     }
+    if (body.barcode && body.barcode !== existing.barcode) {
+      const dup = await prisma.location.findFirst({
+        where: { workspaceId: body.workspaceId, barcode: body.barcode, id: { not: id } },
+        select: { id: true },
+      });
+      if (dup) throw badRequest("Location barcode already exists in this workspace");
+    }
+
+    const data: Prisma.LocationUpdateInput = {};
+    if (body.code) {
+      data.code = body.code;
+      // New code without an explicit barcode -> regenerate the barcode.
+      if (body.barcode === undefined && body.code !== existing.code) {
+        data.barcode = await generateLocationBarcode(body.code, body.workspaceId, id);
+      }
+    }
+    if (body.barcode !== undefined) data.barcode = body.barcode;
+    if (body.structure) data.structure = body.structure as Prisma.InputJsonValue;
+    if (body.capacity !== undefined) data.capacity = body.capacity;
+    if (body.description !== undefined) data.description = body.description;
+
+    const location = await prisma.location.update({
+      where: { id },
+      data,
+      include: { _count: { select: { items: true } } },
+    });
+    return sendSuccess(res, { location }, "Location updated successfully");
   },
 
-  // Delete a location
+  // DELETE /api/locations/:id?workspaceId= (ADMIN+). Refused while stock remains.
   deleteLocation: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
+    const userId = requireUserId(req);
+    const id = req.params.id;
+    const { workspaceId } = parseQuery(workspaceQuery, req);
+    await requireMembership(userId, workspaceId, PERMISSIONS.delete, {
+      message: "You don't have permission to delete locations",
+    });
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
+    await withStockTransaction(async (tx) => {
+      // Lock the location (blocks new stock rows referencing it) and every
+      // stock row stored there, then read the latest committed quantities.
+      const loc = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM locations WHERE id = ${id} AND workspaceId = ${workspaceId} FOR UPDATE`;
+      if (loc.length === 0) throw notFound("Location not found");
+
+      const stock = await tx.$queryRaw<{ lotId: string; quantity: number }[]>`
+        SELECT lotId, quantity FROM lot_locations WHERE locationId = ${id} FOR UPDATE`;
+      const units = stock.reduce((s, r) => s + Number(r.quantity), 0);
+      if (units > 0) {
+        const lots = stock.filter((r) => Number(r.quantity) > 0).map((r) => r.lotId);
+        const items = await tx.lot.findMany({
+          where: { id: { in: lots } },
+          distinct: ["itemId"],
+          select: { itemId: true },
         });
+        throw new HttpError(
+          409,
+          `Cannot delete this location: it still holds ${units} unit(s) of ${items.length} item(s). Transfer or remove that stock first.`,
+          { data: { units, itemCount: items.length } }
+        );
       }
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
+      // Empty stock rows and item assignments cascade with the location;
+      // transaction history keeps the row with the location reference nulled.
+      await tx.location.delete({ where: { id } });
+    });
 
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Check if location exists in this workspace
-      const location = await prisma.location.findFirst({
-        where: {
-          id: id,
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          _count: {
-            select: { items: true },
-          },
-        },
-      });
-
-      if (!location) {
-        return res.status(404).json({
-          status: "error",
-          message: "Location not found",
-        });
-      }
-
-      // Check if location has items (through junction table)
-      if (location._count.items > 0) {
-        return res.status(400).json({
-          status: "error",
-          message: `Cannot delete location with ${location._count.items} item(s). Please reassign or remove the items first.`,
-        });
-      }
-
-      // Delete the location (junction table entries will cascade delete)
-      await prisma.location.delete({
-        where: { id: id },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Location deleted successfully",
-      });
-    } catch (error) {
-      console.error("Delete location error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to delete location",
-      });
-    }
+    return sendSuccess(res, {}, "Location deleted successfully");
   },
 };
 

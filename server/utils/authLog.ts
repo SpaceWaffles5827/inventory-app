@@ -2,6 +2,7 @@
 import { Request } from "express";
 import crypto from "crypto";
 import prisma from "../utils/prisma";
+import logger from "./logger";
 import { createId } from "@paralleldrive/cuid2";
 import { Prisma } from "@prisma/client";
 
@@ -204,7 +205,7 @@ export async function logAuthEvent(ev: {
       },
     });
   } catch (e) {
-    console.error("[auth_event] insert failed:", e);
+    logger.error("auth_event insert failed", { error: String(e) });
   }
 }
 

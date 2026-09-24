@@ -1,1478 +1,672 @@
 import { Request, Response } from "express";
+import { Item, Prisma } from "@prisma/client";
+import { z } from "zod";
 import prisma from "../utils/prisma";
+import {
+  PERMISSIONS,
+  assertAllInWorkspace,
+  assertInWorkspace,
+  assertRefsInWorkspace,
+  loadItemForUser,
+  requireMembership,
+  requireUserId,
+} from "../utils/access";
+import { HttpError, badRequest, notFound, sendSuccess } from "../utils/http";
+import {
+  paginationQuery,
+  parseBody,
+  parseQuery,
+  zBooleanish,
+  zId,
+  zIdArray,
+  zMoney,
+  zNonNegativeInt,
+  zOptionalId,
+  zOptionalText,
+  zPositiveInt,
+  zText,
+} from "../utils/validate";
+import {
+  EXISTING_STOCK_LOT_NUMBER,
+  SYSTEM_LOT_NUMBER,
+  Tx,
+  addToLotLocation,
+  applyAdjustment,
+  applyTransfer,
+  getItemOnHand,
+  getItemStockByLocation,
+  getOnHandByItem,
+  getOrCreateSystemLot,
+  isUniqueViolation,
+  lockItem,
+  recomputeItemCaches,
+  recordTransaction,
+  withStockTransaction,
+} from "../utils/stock";
 
-// CONSTANTS
-const SYSTEM_LOT_NUMBER = "SYSTEM";
-const EXISTING_STOCK_LOT_NUMBER = "EXISTING-STOCK";
+// ---------------------------------------------------------------------------
+// Shapes
+// ---------------------------------------------------------------------------
 
-// Helper function to get or create SYSTEM lot for non-lotted items
-const getOrCreateSystemLot = async (
-  itemId: string,
-  workspaceId: string,
-  userId: string,
-) => {
-  let systemLot = await prisma.lot.findUnique({
-    where: {
-      workspaceId_itemId_lotNumber: {
-        workspaceId,
-        itemId,
-        lotNumber: SYSTEM_LOT_NUMBER,
-      },
+const itemInclude = {
+  category: true,
+  supplier: true,
+  customers: { include: { customer: true } },
+  locations: { include: { location: true } },
+} satisfies Prisma.ItemInclude;
+
+const itemDetailInclude = {
+  ...itemInclude,
+  workspace: true,
+  transactions: {
+    orderBy: { createdAt: "desc" as const },
+    take: 10,
+    include: {
+      user: { select: { id: true, name: true, email: true } },
+      fromLocation: { select: { code: true } },
+      toLocation: { select: { code: true } },
     },
+  },
+} satisfies Prisma.ItemInclude;
+
+/** Item (list shape) + derived onHand, read after the write committed. */
+async function itemResponse(id: string) {
+  const item = await prisma.item.findUniqueOrThrow({ where: { id }, include: itemInclude });
+  return { ...item, onHand: await getItemOnHand(prisma, id) };
+}
+
+const unique = <T>(xs: T[]) => Array.from(new Set(xs));
+
+/** null / "" -> not provided, for optional numeric fields sent by HTML forms. */
+const optionalNumber = <S extends z.ZodTypeAny>(schema: S) =>
+  z.preprocess((v) => (v === null || v === "" ? undefined : v), schema.optional());
+
+// ---------------------------------------------------------------------------
+// Validation schemas
+// ---------------------------------------------------------------------------
+
+const createItemSchema = z.object({
+  workspaceId: zId,
+  name: zText(191),
+  barcode: zOptionalText(191),
+  unit: zOptionalText(50),
+  description: zOptionalText(10000),
+  onHand: optionalNumber(zNonNegativeInt("Initial quantity")),
+  cost: optionalNumber(zMoney("Cost")),
+  reorderPoint: optionalNumber(zNonNegativeInt("Reorder point")),
+  categoryId: zOptionalId,
+  supplierId: zOptionalId,
+  locationId: zOptionalId,
+  locationIds: zIdArray.optional(),
+  customerIds: zIdArray.optional(),
+});
+
+const locationSettingSchema = z.object({
+  locationId: zId,
+  minStock: optionalNumber(zNonNegativeInt("Min stock")),
+  maxStock: optionalNumber(zNonNegativeInt("Max stock")),
+  notes: zOptionalText(500),
+});
+
+const updateItemSchema = z.object({
+  itemNumber: zText(50).optional(),
+  name: zText(191).optional(),
+  barcode: zOptionalText(191),
+  unit: zOptionalText(50),
+  description: zOptionalText(10000),
+  cost: optionalNumber(zMoney("Cost")),
+  reorderPoint: optionalNumber(zNonNegativeInt("Reorder point")),
+  categoryId: zOptionalId,
+  supplierId: zOptionalId,
+  locationId: zOptionalId,
+  locationIds: zIdArray.optional(),
+  customerIds: zIdArray.optional(),
+  lotTracking: zBooleanish.optional(),
+  /** Optional per-location min/max stock levels. */
+  locationSettings: z.array(locationSettingSchema).max(500).optional(),
+});
+
+const adjustStockSchema = z.object({
+  quantity: zPositiveInt("Quantity"),
+  type: z.enum(["INPUT", "OUTPUT"]),
+  reason: zText(500),
+  locationId: zId,
+});
+
+const transferStockSchema = z
+  .object({
+    quantity: zPositiveInt("Quantity"),
+    fromLocationId: zId,
+    toLocationId: zId,
+    reason: zOptionalText(500),
+    lotId: zOptionalId,
+  })
+  .refine((b) => b.fromLocationId !== b.toLocationId, {
+    message: "Cannot transfer to the same location",
+    path: ["toLocationId"],
   });
 
-  if (!systemLot) {
-    systemLot = await prisma.lot.create({
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Highest ITM-<n> in the workspace + 1. Two concurrent creates can compute the
+ * same number; the unique (workspaceId, itemNumber) index rejects the loser
+ * only after the winner committed, so re-reading the max on retry always
+ * moves forward (and leaves no gaps).
+ */
+async function nextItemNumber(workspaceId: string): Promise<string> {
+  const rows = await prisma.$queryRaw<{ maxNum: bigint | number | null }[]>`
+    SELECT MAX(CAST(SUBSTRING(itemNumber, 5) AS UNSIGNED)) AS maxNum
+    FROM items
+    WHERE workspaceId = ${workspaceId} AND itemNumber REGEXP '^ITM-[0-9]+$'`;
+  const next = Number(rows[0]?.maxNum ?? 0) + 1;
+  return `ITM-${String(next).padStart(3, "0")}`;
+}
+
+const jitter = () => new Promise((r) => setTimeout(r, 5 + Math.floor(Math.random() * 25)));
+
+const isItemNumberCollision = (e: unknown) =>
+  isUniqueViolation(e) &&
+  String((e as Prisma.PrismaClientKnownRequestError).meta?.target ?? "").includes("itemNumber");
+
+const lotKey = (workspaceId: string, itemId: string, lotNumber: string) => ({
+  workspaceId_itemId_lotNumber: { workspaceId, itemId, lotNumber },
+});
+
+const appendNote = (notes: string | null, line: string) =>
+  notes ? `${notes}\n${line}` : line;
+
+/**
+ * Turning lot tracking ON: the untracked stock (SYSTEM lot) becomes a visible
+ * EXISTING-STOCK lot. LotLocation rows — the source of truth — are kept as-is.
+ */
+async function enableLotTracking(tx: Tx, item: Item) {
+  const system = await tx.lot.findUnique({
+    where: lotKey(item.workspaceId, item.id, SYSTEM_LOT_NUMBER),
+    include: { locations: true },
+  });
+  if (!system) return; // nothing untracked to convert
+  const qty = system.locations.reduce((s, l) => s + l.quantity, 0);
+
+  const existing = await tx.lot.findUnique({
+    where: lotKey(item.workspaceId, item.id, EXISTING_STOCK_LOT_NUMBER),
+  });
+  if (!existing) {
+    await tx.lot.update({
+      where: { id: system.id },
       data: {
-        lotNumber: SYSTEM_LOT_NUMBER,
-        quantity: 0,
-        initialQuantity: 0,
+        lotNumber: EXISTING_STOCK_LOT_NUMBER,
         isSystem: true,
-        status: "ACTIVE",
-        itemId,
-        workspaceId,
-        createdBy: userId,
+        initialQuantity: Math.max(system.initialQuantity, qty),
+        notes: "Pre-existing inventory before lot tracking was enabled",
       },
+    });
+    return;
+  }
+
+  // An EXISTING-STOCK lot is already there (e.g. toggled before): merge into it.
+  for (const ll of system.locations) {
+    if (ll.quantity > 0) await addToLotLocation(tx, existing.id, ll.locationId, ll.quantity);
+  }
+  await tx.stockTransaction.updateMany({ where: { lotId: system.id }, data: { lotId: existing.id } });
+  await tx.lot.delete({ where: { id: system.id } });
+}
+
+/**
+ * Turning lot tracking OFF: all stock is consolidated into the SYSTEM lot at
+ * the same locations. Other lots are KEPT (emptied, with a note) so their
+ * transaction history survives.
+ */
+async function disableLotTracking(tx: Tx, item: Item, userId: string) {
+  const lots = await tx.lot.findMany({
+    where: { itemId: item.id },
+    include: { locations: true },
+  });
+
+  let target = lots.find((l) => l.lotNumber === SYSTEM_LOT_NUMBER);
+  if (!target) {
+    const existing = lots.find((l) => l.lotNumber === EXISTING_STOCK_LOT_NUMBER);
+    if (existing) {
+      await tx.lot.update({
+        where: { id: existing.id },
+        data: { lotNumber: SYSTEM_LOT_NUMBER, isSystem: true, notes: null },
+      });
+      target = existing;
+    }
+  }
+  const targetId = target
+    ? target.id
+    : (await getOrCreateSystemLot(tx, item.id, item.workspaceId, userId)).id;
+
+  const today = new Date().toISOString().slice(0, 10);
+  for (const lot of lots) {
+    if (lot.id === targetId) continue;
+    let moved = 0;
+    for (const ll of lot.locations) {
+      if (ll.quantity <= 0) continue;
+      await addToLotLocation(tx, targetId, ll.locationId, ll.quantity);
+      await tx.lotLocation.update({ where: { id: ll.id }, data: { quantity: 0 } });
+      moved += ll.quantity;
+    }
+    if (moved > 0) {
+      await tx.lot.update({
+        where: { id: lot.id },
+        data: {
+          notes: appendNote(
+            lot.notes,
+            `${today}: ${moved} unit(s) consolidated into untracked stock when lot tracking was disabled`
+          ),
+        },
+      });
+    }
+  }
+}
+
+/**
+ * Make the item's assigned locations exactly `desired`. A location that still
+ * holds stock of this item can't be removed (400) — nothing is orphaned.
+ */
+async function setItemLocations(tx: Tx, itemId: string, desired: string[]) {
+  const current = await tx.itemLocation.findMany({
+    where: { itemId },
+    include: { location: { select: { code: true } } },
+  });
+  const stock = await getItemStockByLocation(tx, itemId);
+  const desiredSet = new Set(desired);
+
+  const removing = current.filter((c) => !desiredSet.has(c.locationId));
+  const blocked = removing.filter((c) => (stock.get(c.locationId) ?? 0) > 0);
+  if (blocked.length > 0) {
+    const detail = blocked
+      .map((b) => `${b.location.code} (${stock.get(b.locationId)} units)`)
+      .join(", ");
+    throw new HttpError(
+      400,
+      `Cannot remove location${blocked.length > 1 ? "s" : ""} ${detail}: stock is still stored there. Transfer or remove that stock first.`,
+      {
+        data: {
+          blockedLocations: blocked.map((b) => ({
+            locationId: b.locationId,
+            code: b.location.code,
+            quantity: stock.get(b.locationId) ?? 0,
+          })),
+        },
+      }
+    );
+  }
+
+  if (removing.length > 0) {
+    const ids = removing.map((r) => r.locationId);
+    await tx.itemLocation.deleteMany({ where: { itemId, locationId: { in: ids } } });
+    await tx.lotLocation.deleteMany({
+      where: { locationId: { in: ids }, quantity: 0, lot: { itemId } },
     });
   }
 
-  return systemLot;
-};
+  const currentSet = new Set(current.map((c) => c.locationId));
+  for (const locationId of desired) {
+    if (!currentSet.has(locationId)) {
+      await tx.itemLocation.create({
+        data: { itemId, locationId, quantity: stock.get(locationId) ?? 0 },
+      });
+    }
+  }
+}
 
-// Helper function to recalculate and update Lot.quantity from LotLocation
-const recalculateLotQuantity = async (lotId: string) => {
-  const lotLocations = await prisma.lotLocation.findMany({
-    where: { lotId },
-  });
-
-  const totalQuantity = lotLocations.reduce(
-    (sum, loc) => sum + loc.quantity,
-    0,
-  );
-
-  await prisma.lot.update({
-    where: { id: lotId },
-    data: { quantity: totalQuantity },
-  });
-
-  return totalQuantity;
-};
-
-// Helper function to recalculate and update ItemLocation.quantity from LotLocation
-const recalculateItemLocationQuantity = async (
-  itemId: string,
-  locationId: string,
-) => {
-  // Get all lots for this item
-  const lots = await prisma.lot.findMany({
-    where: { itemId },
-    include: {
-      locations: {
-        where: { locationId },
-      },
-    },
-  });
-
-  const totalQuantity = lots.reduce((sum, lot) => {
-    return (
-      sum +
-      lot.locations.reduce((lotSum, lotLoc) => lotSum + lotLoc.quantity, 0)
-    );
-  }, 0);
-
-  // Update or create ItemLocation
-  await prisma.itemLocation.upsert({
-    where: {
-      itemId_locationId: {
-        itemId,
-        locationId,
-      },
-    },
-    update: {
-      quantity: totalQuantity,
-    },
-    create: {
-      itemId,
-      locationId,
-      quantity: totalQuantity,
-      minStock: 0,
-      maxStock: 0,
-    },
-  });
-
-  return totalQuantity;
-};
-
-// Helper function to calculate total onHand from LotLocation (SOURCE OF TRUTH)
-const calculateOnHandFromLots = async (itemId: string): Promise<number> => {
-  const lots = await prisma.lot.findMany({
-    where: { itemId },
-    include: {
-      locations: true,
-    },
-  });
-
-  return lots.reduce((total, lot) => {
-    return (
-      total +
-      lot.locations.reduce((lotTotal, lotLoc) => lotTotal + lotLoc.quantity, 0)
-    );
-  }, 0);
-};
-
-// Helper function to determine item status based on total quantity
-const determineStatus = (
-  onHand: number,
-): "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" => {
-  if (onHand === 0) return "OUT_OF_STOCK";
-  if (onHand < 10) return "LOW_STOCK";
-  return "IN_STOCK";
-};
-
-// Helper function to add onHand to item (calculated from lots)
-const addOnHandToItem = async <T extends { id: string }>(item: T) => {
-  const onHand = await calculateOnHandFromLots(item.id);
-  return {
-    ...item,
-    onHand,
-  };
-};
+// ---------------------------------------------------------------------------
+// Controller
+// ---------------------------------------------------------------------------
 
 const itemsController = {
-  // Create a new item
+  // POST /api/items
   createItem: async (req: Request, res: Response) => {
-    try {
-      const {
-        name,
-        barcode,
-        unit,
-        description,
-        onHand,
-        cost,
-        categoryId,
-        locationId,
-        locationIds,
-        supplierId,
-        workspaceId,
-        customerIds,
-      } = req.body;
+    const userId = requireUserId(req);
+    const body = parseBody(createItemSchema, req);
+    const workspaceId = body.workspaceId;
+    await requireMembership(userId, workspaceId, PERMISSIONS.edit);
 
-      const userId = req.user?.id;
+    const locationIds = unique(
+      body.locationIds && body.locationIds.length > 0
+        ? body.locationIds
+        : body.locationId
+          ? [body.locationId]
+          : []
+    );
+    const customerIds = unique(body.customerIds ?? []);
+    await assertRefsInWorkspace(workspaceId, {
+      categoryId: body.categoryId,
+      supplierId: body.supplierId,
+      locationIds,
+      customerIds,
+    });
 
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
+    const initialQuantity = body.onHand ?? 0;
+    if (initialQuantity > 0 && locationIds.length === 0) {
+      throw badRequest("A storage location is required to record initial stock");
+    }
 
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Generate next item number for this workspace
-      const lastItem = await prisma.item.findFirst({
-        where: {
-          workspaceId: workspaceId,
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-        select: {
-          itemNumber: true,
-        },
-      });
-
-      let nextNumber = 1;
-      if (lastItem) {
-        const match = lastItem.itemNumber.match(/ITM-(\d+)/);
-        if (match) {
-          nextNumber = parseInt(match[1]) + 1;
-        }
-      }
-
-      const itemNumber = `ITM-${String(nextNumber).padStart(3, "0")}`;
-
-      // Verify all customers belong to the workspace
-      if (customerIds && customerIds.length > 0) {
-        const customers = await prisma.customer.findMany({
-          where: {
-            id: { in: customerIds },
-            workspaceId: workspaceId,
-          },
-        });
-
-        if (customers.length !== customerIds.length) {
-          return res.status(400).json({
-            status: "error",
-            message: "One or more customers not found in this workspace",
-          });
-        }
-      }
-
-      // Determine which locations to use
-      const locationsToCreate =
-        locationIds && locationIds.length > 0
-          ? locationIds
-          : locationId
-            ? [locationId]
-            : [];
-
-      // Verify all locations belong to the workspace
-      if (locationsToCreate.length > 0) {
-        const locations = await prisma.location.findMany({
-          where: {
-            id: { in: locationsToCreate },
-            workspaceId: workspaceId,
-          },
-        });
-
-        if (locations.length !== locationsToCreate.length) {
-          return res.status(400).json({
-            status: "error",
-            message: "One or more locations not found in this workspace",
-          });
-        }
-      }
-
-      const initialQuantity = onHand || 0;
-      const status = determineStatus(initialQuantity);
-
-      // Create the item
-      const item = await prisma.item.create({
-        data: {
-          itemNumber,
-          name,
-          barcode: barcode || null,
-          unit: unit || null,
-          description: description || null,
-          cost: cost || 0,
-          categoryId: categoryId || null,
-          supplierId: supplierId || null,
-          workspaceId: workspaceId,
-          status: status,
-          lotTracking: false, // Default to non-lotted
-          ...(customerIds &&
-            customerIds.length > 0 && {
+    let itemId: string | null = null;
+    for (let attempt = 0; attempt < 10 && !itemId; attempt++) {
+      if (attempt > 0) await jitter();
+      const itemNumber = await nextItemNumber(workspaceId);
+      try {
+        itemId = await withStockTransaction(async (tx) => {
+          const item = await tx.item.create({
+            data: {
+              itemNumber,
+              name: body.name,
+              barcode: body.barcode ?? null,
+              unit: body.unit ?? null,
+              description: body.description ?? null,
+              cost: body.cost ?? 0,
+              reorderPoint: body.reorderPoint ?? 10,
+              categoryId: body.categoryId ?? null,
+              supplierId: body.supplierId ?? null,
+              workspaceId,
+              status: "OUT_OF_STOCK",
+              lotTracking: false,
               customers: {
-                create: customerIds.map((customerId: string) => ({
-                  customerId: customerId,
-                  quantity: 0,
-                })),
+                create: customerIds.map((customerId) => ({ customerId, quantity: 0 })),
               },
-            }),
-        },
-        include: {
-          category: true,
-          supplier: true,
-          customers: {
-            include: {
-              customer: true,
+              locations: {
+                create: locationIds.map((locationId) => ({ locationId, quantity: 0 })),
+              },
             },
-          },
-          locations: {
-            include: {
-              location: true,
-            },
-          },
-        },
-      });
+          });
 
-      // Create SYSTEM lot for this item
-      const systemLot = await getOrCreateSystemLot(
-        item.id,
-        workspaceId,
-        userId,
-      );
+          const systemLot = await getOrCreateSystemLot(tx, item.id, workspaceId, userId);
 
-      // If initial quantity > 0 and locations specified, add to LotLocation
-      if (initialQuantity > 0 && locationsToCreate.length > 0) {
-        // Distribute quantity evenly across locations (or to first location)
-        const quantityPerLocation =
-          locationsToCreate.length === 1
-            ? initialQuantity
-            : Math.floor(initialQuantity / locationsToCreate.length);
-
-        for (let i = 0; i < locationsToCreate.length; i++) {
-          const locId = locationsToCreate[i];
-          const qty =
-            i === 0
-              ? initialQuantity -
-                quantityPerLocation * (locationsToCreate.length - 1)
-              : quantityPerLocation;
-
-          if (qty > 0) {
-            await prisma.lotLocation.create({
-              data: {
-                lotId: systemLot.id,
-                locationId: locId,
+          if (initialQuantity > 0) {
+            // Split evenly; the first location takes the remainder.
+            const per = Math.floor(initialQuantity / locationIds.length);
+            let running = 0;
+            for (let i = 0; i < locationIds.length; i++) {
+              const qty =
+                i === 0 ? initialQuantity - per * (locationIds.length - 1) : per;
+              if (qty <= 0) continue;
+              await addToLotLocation(tx, systemLot.id, locationIds[i], qty);
+              await recordTransaction(tx, {
+                type: "INPUT",
                 quantity: qty,
-              },
-            });
-
-            // Update ItemLocation cache
-            await recalculateItemLocationQuantity(item.id, locId);
-          }
-        }
-
-        // Update Lot.quantity cache
-        await recalculateLotQuantity(systemLot.id);
-
-        // Create stock transaction
-        await prisma.stockTransaction.create({
-          data: {
-            type: "INPUT",
-            quantity: initialQuantity,
-            previousStock: 0,
-            newStock: initialQuantity,
-            reason: "Initial stock",
-            lotId: systemLot.id,
-            itemId: item.id,
-            workspaceId: workspaceId,
-            userId: userId,
-          },
-        });
-      }
-
-      // Add calculated onHand to response
-      const itemWithOnHand = await addOnHandToItem(item);
-
-      return res.status(201).json({
-        status: "success",
-        message: "Item created successfully",
-        data: { item: itemWithOnHand },
-      });
-    } catch (error) {
-      console.error("Create item error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to create item",
-      });
-    }
-  },
-
-  // Get all items in a workspace
-  getItems: async (req: Request, res: Response) => {
-    try {
-      const { workspaceId } = req.query;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!workspaceId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Workspace ID is required",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: workspaceId as string,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this workspace",
-        });
-      }
-
-      // Get all items in the workspace
-      const items = await prisma.item.findMany({
-        where: {
-          workspaceId: workspaceId as string,
-        },
-        include: {
-          category: true,
-          supplier: true,
-          customers: {
-            include: {
-              customer: true,
-            },
-          },
-          locations: {
-            include: {
-              location: true,
-            },
-          },
-        },
-        orderBy: {
-          createdAt: "desc",
-        },
-      });
-
-      // Add calculated onHand to each item
-      const itemsWithOnHand = await Promise.all(
-        items.map((item) => addOnHandToItem(item)),
-      );
-
-      return res.status(200).json({
-        status: "success",
-        data: { items: itemsWithOnHand },
-      });
-    } catch (error) {
-      console.error("Get items error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve items",
-      });
-    }
-  },
-
-  // Get a single item by ID
-  getItemById: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      const item = await prisma.item.findUnique({
-        where: { id },
-        include: {
-          category: true,
-          supplier: true,
-          workspace: true,
-          customers: {
-            include: {
-              customer: true,
-            },
-          },
-          locations: {
-            include: {
-              location: true,
-            },
-          },
-          transactions: {
-            orderBy: {
-              createdAt: "desc",
-            },
-            take: 10,
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-              fromLocation: {
-                select: {
-                  code: true,
-                },
-              },
-              toLocation: {
-                select: {
-                  code: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      if (!item) {
-        return res.status(404).json({
-          status: "error",
-          message: "Item not found",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this item",
-        });
-      }
-
-      // Add calculated onHand to response
-      const itemWithOnHand = await addOnHandToItem(item);
-
-      return res.status(200).json({
-        status: "success",
-        data: { item: itemWithOnHand },
-      });
-    } catch (error) {
-      console.error("Get item error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to retrieve item",
-      });
-    }
-  },
-
-  // Update an item
-  updateItem: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      const item = await prisma.item.findUnique({
-        where: { id },
-        include: {
-          locations: true,
-        },
-      });
-
-      if (!item) {
-        return res.status(404).json({
-          status: "error",
-          message: "Item not found",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] },
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have permission to update this item",
-        });
-      }
-
-      const {
-        itemNumber,
-        name,
-        barcode,
-        unit,
-        description,
-        cost,
-        categoryId,
-        locationId,
-        locationIds,
-        supplierId,
-        customerIds,
-        lotTracking,
-      } = req.body;
-
-      // Check if itemNumber is being changed and if it's unique
-      if (itemNumber && itemNumber !== item.itemNumber) {
-        const existingItem = await prisma.item.findFirst({
-          where: {
-            workspaceId: item.workspaceId,
-            itemNumber: itemNumber,
-            id: { not: id },
-          },
-        });
-
-        if (existingItem) {
-          return res.status(400).json({
-            status: "error",
-            message:
-              "An item with this item number already exists in your workspace",
-          });
-        }
-      }
-
-      // Verify all customers belong to the workspace
-      if (customerIds !== undefined && customerIds.length > 0) {
-        const customers = await prisma.customer.findMany({
-          where: {
-            id: { in: customerIds },
-            workspaceId: item.workspaceId,
-          },
-        });
-
-        if (customers.length !== customerIds.length) {
-          return res.status(400).json({
-            status: "error",
-            message: "One or more customers not found in this workspace",
-          });
-        }
-      }
-
-      // Determine which locations to use
-      const locationsToUpdate =
-        locationIds !== undefined && locationIds.length > 0
-          ? locationIds
-          : locationId !== undefined
-            ? [locationId]
-            : undefined;
-
-      // Verify all locations belong to the workspace
-      if (locationsToUpdate !== undefined && locationsToUpdate.length > 0) {
-        const locations = await prisma.location.findMany({
-          where: {
-            id: { in: locationsToUpdate },
-            workspaceId: item.workspaceId,
-          },
-        });
-
-        if (locations.length !== locationsToUpdate.length) {
-          return res.status(400).json({
-            status: "error",
-            message: "One or more locations not found in this workspace",
-          });
-        }
-      }
-
-      // Handle lot tracking toggle BEFORE updating the item
-      if (lotTracking !== undefined && lotTracking !== item.lotTracking) {
-        if (lotTracking) {
-          // ENABLING lot tracking - Convert SYSTEM lot to EXISTING-STOCK
-
-          let systemLot = await prisma.lot.findUnique({
-            where: {
-              workspaceId_itemId_lotNumber: {
-                workspaceId: item.workspaceId,
-                itemId: id,
-                lotNumber: SYSTEM_LOT_NUMBER,
-              },
-            },
-            include: {
-              locations: true,
-            },
-          });
-
-          // Get current ItemLocation quantities
-          const itemLocations = await prisma.itemLocation.findMany({
-            where: { itemId: id },
-          });
-
-          if (systemLot) {
-            // SYSTEM lot exists - rename it to EXISTING-STOCK and sync quantities
-
-            // First, sync the quantities from ItemLocations
-            await prisma.lotLocation.deleteMany({
-              where: { lotId: systemLot.id },
-            });
-
-            for (const itemLoc of itemLocations) {
-              if (itemLoc.quantity > 0) {
-                await prisma.lotLocation.create({
-                  data: {
-                    lotId: systemLot.id,
-                    locationId: itemLoc.locationId,
-                    quantity: itemLoc.quantity,
-                  },
-                });
-              }
+                previousStock: running,
+                newStock: running + qty,
+                reason: "Initial stock",
+                lotId: systemLot.id,
+                itemId: item.id,
+                workspaceId,
+                userId,
+                toLocationId: locationIds[i],
+              });
+              running += qty;
             }
-
-            const totalQty = itemLocations.reduce(
-              (sum, loc) => sum + loc.quantity,
-              0,
-            );
-
-            // Rename SYSTEM to EXISTING-STOCK and make it user-visible
-            await prisma.lot.update({
+            await tx.lot.update({
               where: { id: systemLot.id },
-              data: {
-                lotNumber: EXISTING_STOCK_LOT_NUMBER,
-                quantity: totalQty,
-                initialQuantity:
-                  totalQty > systemLot.initialQuantity
-                    ? totalQty
-                    : systemLot.initialQuantity,
-                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
-                isSystem: true, // Keep isSystem flag for tracking
-                notes: "Pre-existing inventory before lot tracking was enabled",
-              },
-            });
-          } else {
-            // No SYSTEM lot exists - create EXISTING-STOCK lot
-            const totalQty = itemLocations.reduce(
-              (sum, loc) => sum + loc.quantity,
-              0,
-            );
-
-            await prisma.lot.create({
-              data: {
-                lotNumber: EXISTING_STOCK_LOT_NUMBER,
-                quantity: totalQty,
-                initialQuantity: totalQty,
-                receivedDate: new Date(),
-                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
-                isSystem: true,
-                notes: "Pre-existing inventory before lot tracking was enabled",
-                itemId: id,
-                workspaceId: item.workspaceId,
-                createdBy: userId,
-                locations: {
-                  create: itemLocations
-                    .filter((loc) => loc.quantity > 0)
-                    .map((loc) => ({
-                      locationId: loc.locationId,
-                      quantity: loc.quantity,
-                    })),
-                },
-              },
-            });
-          }
-        } else {
-          // DISABLING lot tracking - Consolidate ALL lots back to SYSTEM
-
-          const lots = await prisma.lot.findMany({
-            where: { itemId: id },
-            include: { locations: true },
-          });
-
-          // Calculate total quantities per location from all lots
-          const locationTotals = new Map<string, number>();
-          lots.forEach((lot) => {
-            lot.locations.forEach((lotLoc) => {
-              const current = locationTotals.get(lotLoc.locationId) || 0;
-              locationTotals.set(lotLoc.locationId, current + lotLoc.quantity);
-            });
-          });
-
-          // Update ItemLocation quantities
-          for (const [locationId, quantity] of locationTotals.entries()) {
-            await prisma.itemLocation.upsert({
-              where: {
-                itemId_locationId: {
-                  itemId: id,
-                  locationId: locationId,
-                },
-              },
-              update: {
-                quantity: quantity,
-              },
-              create: {
-                itemId: id,
-                locationId: locationId,
-                quantity: quantity,
-                minStock: 0,
-                maxStock: 0,
-              },
+              data: { initialQuantity },
             });
           }
 
-          // Check if EXISTING-STOCK lot exists
-          const existingStockLot = await prisma.lot.findUnique({
-            where: {
-              workspaceId_itemId_lotNumber: {
-                workspaceId: item.workspaceId,
-                itemId: id,
-                lotNumber: EXISTING_STOCK_LOT_NUMBER,
-              },
-            },
-          });
+          await recomputeItemCaches(tx, item.id);
+          return item.id;
+        });
+      } catch (e) {
+        if (isItemNumberCollision(e)) continue; // someone took this number; try the next
+        throw e;
+      }
+    }
+    if (!itemId) {
+      throw new HttpError(409, "Could not allocate an item number. Please try again.");
+    }
 
-          if (existingStockLot) {
-            // Rename EXISTING-STOCK back to SYSTEM
-            await prisma.lot.update({
-              where: { id: existingStockLot.id },
-              data: {
-                lotNumber: SYSTEM_LOT_NUMBER,
-                notes: null, // Clear the note
-              },
-            });
+    return sendSuccess(res, { item: await itemResponse(itemId) }, "Item created successfully", 201);
+  },
 
-            // Update its locations to match consolidated totals
-            await prisma.lotLocation.deleteMany({
-              where: { lotId: existingStockLot.id },
-            });
+  // GET /api/items?workspaceId=&limit=&cursor=
+  getItems: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const q = parseQuery(paginationQuery(1000, 1000).extend({ workspaceId: zId }), req);
+    await requireMembership(userId, q.workspaceId);
 
-            for (const [locationId, quantity] of locationTotals.entries()) {
-              if (quantity > 0) {
-                await prisma.lotLocation.create({
-                  data: {
-                    lotId: existingStockLot.id,
-                    locationId: locationId,
-                    quantity: quantity,
-                  },
-                });
-              }
-            }
+    const rows = await prisma.item.findMany({
+      where: { workspaceId: q.workspaceId },
+      include: itemInclude,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: q.limit + 1,
+      ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
+    });
+    const hasMore = rows.length > q.limit;
+    const page = hasMore ? rows.slice(0, q.limit) : rows;
 
-            // Update lot quantity
-            const totalQty = Array.from(locationTotals.values()).reduce(
-              (a, b) => a + b,
-              0,
-            );
-            await prisma.lot.update({
-              where: { id: existingStockLot.id },
-              data: {
-                quantity: totalQty,
-                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
-              },
-            });
+    // One aggregate query for every item on the page (no N+1).
+    const onHand = await getOnHandByItem(
+      prisma,
+      q.workspaceId,
+      page.map((i) => i.id)
+    );
+    const nextCursor = hasMore ? page[page.length - 1].id : null;
 
-            // Delete all OTHER lots (keep the renamed SYSTEM lot)
-            await prisma.lot.deleteMany({
-              where: {
-                itemId: id,
-                id: { not: existingStockLot.id },
-              },
-            });
-          } else {
-            // No EXISTING-STOCK lot - delete all lots and create new SYSTEM lot
-            await prisma.lot.deleteMany({
-              where: { itemId: id },
-            });
+    return sendSuccess(res, {
+      items: page.map((item) => ({ ...item, onHand: onHand.get(item.id) ?? 0 })),
+      nextCursor,
+      pageInfo: { limit: q.limit, hasMore, nextCursor },
+    });
+  },
 
-            const totalQty = Array.from(locationTotals.values()).reduce(
-              (a, b) => a + b,
-              0,
-            );
+  // GET /api/items/:id
+  getItemById: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const item = await prisma.item.findUnique({
+      where: { id: req.params.id },
+      include: itemDetailInclude,
+    });
+    if (!item) throw notFound("Item not found");
+    await requireMembership(userId, item.workspaceId);
 
-            const newSystemLot = await prisma.lot.create({
-              data: {
-                lotNumber: SYSTEM_LOT_NUMBER,
-                quantity: totalQty,
-                initialQuantity: totalQty,
-                receivedDate: new Date(),
-                status: totalQty > 0 ? "ACTIVE" : "DEPLETED",
-                isSystem: true,
-                itemId: id,
-                workspaceId: item.workspaceId,
-                createdBy: userId,
-              },
-            });
+    return sendSuccess(res, {
+      item: { ...item, onHand: await getItemOnHand(prisma, item.id) },
+    });
+  },
 
-            for (const [locationId, quantity] of locationTotals.entries()) {
-              if (quantity > 0) {
-                await prisma.lotLocation.create({
-                  data: {
-                    lotId: newSystemLot.id,
-                    locationId: locationId,
-                    quantity: quantity,
-                  },
-                });
-              }
-            }
-          }
-        }
+  // PATCH /api/items/:id
+  updateItem: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const id = req.params.id;
+    const body = parseBody(updateItemSchema, req);
+
+    const item = await prisma.item.findUnique({ where: { id } });
+    if (!item) throw notFound("Item not found");
+
+    const togglesLotTracking =
+      body.lotTracking !== undefined && body.lotTracking !== item.lotTracking;
+    await requireMembership(
+      userId,
+      item.workspaceId,
+      togglesLotTracking ? PERMISSIONS.toggleLotTracking : PERMISSIONS.edit,
+      togglesLotTracking
+        ? { message: "Only admins and owners can turn lot tracking on or off" }
+        : {}
+    );
+
+    if (body.itemNumber && body.itemNumber !== item.itemNumber) {
+      const clash = await prisma.item.findFirst({
+        where: { workspaceId: item.workspaceId, itemNumber: body.itemNumber, id: { not: id } },
+        select: { id: true },
+      });
+      if (clash) {
+        throw badRequest("An item with this item number already exists in your workspace");
+      }
+    }
+
+    // `locationIds` (even []) sets the exact list; a lone `locationId` replaces it.
+    const desiredLocations =
+      body.locationIds !== undefined
+        ? unique(body.locationIds)
+        : body.locationId
+          ? [body.locationId]
+          : undefined;
+    const customerIds = body.customerIds !== undefined ? unique(body.customerIds) : undefined;
+
+    await assertRefsInWorkspace(item.workspaceId, {
+      categoryId: body.categoryId,
+      supplierId: body.supplierId,
+      locationIds: desiredLocations,
+      customerIds,
+    });
+    if (body.locationSettings?.length) {
+      await assertAllInWorkspace(
+        "location",
+        body.locationSettings.map((s) => s.locationId),
+        item.workspaceId
+      );
+    }
+
+    await withStockTransaction(async (tx) => {
+      const locked = await lockItem(tx, id);
+
+      if (body.lotTracking !== undefined && body.lotTracking !== locked.lotTracking) {
+        if (body.lotTracking) await enableLotTracking(tx, locked);
+        else await disableLotTracking(tx, locked, userId);
       }
 
-      const updatedItem = await prisma.item.update({
+      await tx.item.update({
         where: { id },
         data: {
-          itemNumber: itemNumber !== undefined ? itemNumber : item.itemNumber,
-          name: name || item.name,
-          barcode: barcode !== undefined ? barcode : item.barcode,
-          unit: unit !== undefined ? unit : item.unit,
-          description:
-            description !== undefined ? description : item.description,
-          cost: cost !== undefined ? cost : item.cost,
-          categoryId: categoryId !== undefined ? categoryId : item.categoryId,
-          supplierId: supplierId !== undefined ? supplierId : item.supplierId,
-          lotTracking:
-            lotTracking !== undefined ? lotTracking : item.lotTracking,
+          ...(body.itemNumber !== undefined && { itemNumber: body.itemNumber }),
+          ...(body.name !== undefined && { name: body.name }),
+          ...(body.barcode !== undefined && { barcode: body.barcode }),
+          ...(body.unit !== undefined && { unit: body.unit }),
+          ...(body.description !== undefined && { description: body.description }),
+          ...(body.cost !== undefined && { cost: body.cost }),
+          ...(body.reorderPoint !== undefined && { reorderPoint: body.reorderPoint }),
+          ...(body.categoryId !== undefined && { categoryId: body.categoryId }),
+          ...(body.supplierId !== undefined && { supplierId: body.supplierId }),
+          ...(body.lotTracking !== undefined && { lotTracking: body.lotTracking }),
           ...(customerIds !== undefined && {
             customers: {
               deleteMany: {},
-              create: customerIds.map((customerId: string) => ({
-                customerId: customerId,
-                quantity: 0,
-              })),
+              create: customerIds.map((customerId) => ({ customerId, quantity: 0 })),
             },
           }),
         },
-        include: {
-          category: true,
-          supplier: true,
-          customers: {
-            include: {
-              customer: true,
-            },
-          },
-          locations: {
-            include: {
-              location: true,
-            },
-          },
-        },
       });
 
-      // If locations are being updated, handle ItemLocation records
-      if (locationsToUpdate !== undefined) {
-        // Get current quantities from lots across all locations
-        const lots = await prisma.lot.findMany({
-          where: { itemId: id },
-          include: { locations: true },
-        });
+      if (desiredLocations !== undefined) await setItemLocations(tx, id, desiredLocations);
 
-        const locationQuantities = new Map<string, number>();
-        lots.forEach((lot) => {
-          lot.locations.forEach((lotLoc) => {
-            const current = locationQuantities.get(lotLoc.locationId) || 0;
-            locationQuantities.set(
-              lotLoc.locationId,
-              current + lotLoc.quantity,
-            );
-          });
-        });
-
-        // Remove old ItemLocation records
-        await prisma.itemLocation.deleteMany({
-          where: { itemId: id },
-        });
-
-        // Create ItemLocation records for all requested locations
-        for (const locationId of locationsToUpdate) {
-          await prisma.itemLocation.create({
-            data: {
-              itemId: id,
-              locationId,
-              quantity: locationQuantities.get(locationId) || 0,
-              minStock: 0,
-              maxStock: 0,
-            },
-          });
-        }
-      }
-
-      // Recalculate status based on total quantity from lots
-      const newOnHand = await calculateOnHandFromLots(id);
-      const newStatus = determineStatus(newOnHand);
-
-      // Update status if it changed
-      if (newStatus !== updatedItem.status) {
-        await prisma.item.update({
-          where: { id },
-          data: { status: newStatus },
-        });
-        updatedItem.status = newStatus;
-      }
-
-      // Ensure SYSTEM lot exists for this item (only if lot tracking is disabled)
-      if (!updatedItem.lotTracking) {
-        await getOrCreateSystemLot(id, item.workspaceId, userId);
-      }
-
-      // Add calculated onHand to response
-      const itemWithOnHand = await addOnHandToItem(updatedItem);
-
-      return res.status(200).json({
-        status: "success",
-        message: "Item updated successfully",
-        data: { item: itemWithOnHand },
-      });
-    } catch (error) {
-      console.error("Update item error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to update item",
-      });
-    }
-  },
-
-  // Delete an item
-  deleteItem: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      const item = await prisma.item.findUnique({
-        where: { id },
-      });
-
-      if (!item) {
-        return res.status(404).json({
-          status: "error",
-          message: "Item not found",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-          role: { in: ["OWNER", "ADMIN"] },
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have permission to delete this item",
-        });
-      }
-
-      // Delete cascades to lots, lot locations, transactions, etc.
-      await prisma.item.delete({
-        where: { id },
-      });
-
-      return res.status(200).json({
-        status: "success",
-        message: "Item deleted successfully",
-      });
-    } catch (error) {
-      console.error("Delete item error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to delete item",
-      });
-    }
-  },
-
-  // Adjust stock (add or remove) - NOW USES LOTLOCATION AS SOURCE OF TRUTH
-  adjustStock: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { quantity, type, reason, locationId } = req.body;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!quantity || !type || !reason) {
-        return res.status(400).json({
-          status: "error",
-          message: "Quantity, type, and reason are required",
-        });
-      }
-
-      if (!["INPUT", "OUTPUT"].includes(type)) {
-        return res.status(400).json({
-          status: "error",
-          message: "Type must be INPUT or OUTPUT",
-        });
-      }
-
-      if (!locationId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Location ID is required",
-        });
-      }
-
-      const item = await prisma.item.findUnique({
-        where: { id },
-        include: {
-          locations: true,
-        },
-      });
-
-      if (!item) {
-        return res.status(404).json({
-          status: "error",
-          message: "Item not found",
-        });
-      }
-
-      // Verify user has access to this workspace
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this item",
-        });
-      }
-
-      // If item has lot tracking enabled, require lot-specific adjustments
-      if (item.lotTracking) {
-        return res.status(400).json({
-          status: "error",
-          message:
-            "This item uses lot tracking. Please use the lot adjustment endpoint to modify stock for specific lots.",
-        });
-      }
-
-      // Get or create SYSTEM lot for this item
-      const systemLot = await getOrCreateSystemLot(
-        id,
-        item.workspaceId,
-        userId,
-      );
-
-      // Calculate previous total stock from LotLocation (SOURCE OF TRUTH)
-      const previousStock = await calculateOnHandFromLots(id);
-
-      // Get or create LotLocation for SYSTEM lot at this location
-      let lotLocation = await prisma.lotLocation.findUnique({
-        where: {
-          lotId_locationId: {
-            lotId: systemLot.id,
-            locationId: locationId,
-          },
-        },
-      });
-
-      if (!lotLocation) {
-        lotLocation = await prisma.lotLocation.create({
-          data: {
-            lotId: systemLot.id,
-            locationId: locationId,
-            quantity: 0,
-          },
-        });
-      }
-
-      // Calculate new quantity for this location
-      const previousLocationStock = lotLocation.quantity;
-      const newLocationStock =
-        type === "INPUT"
-          ? previousLocationStock + quantity
-          : previousLocationStock - quantity;
-
-      if (newLocationStock < 0) {
-        return res.status(400).json({
-          status: "error",
-          message: "Insufficient stock at this location",
-        });
-      }
-
-      // UPDATE SOURCE OF TRUTH: LotLocation.quantity
-      await prisma.lotLocation.update({
-        where: {
-          lotId_locationId: {
-            lotId: systemLot.id,
-            locationId: locationId,
-          },
-        },
-        data: {
-          quantity: newLocationStock,
-        },
-      });
-
-      // Update CACHED values: Lot.quantity
-      await recalculateLotQuantity(systemLot.id);
-
-      // Update CACHED values: ItemLocation.quantity
-      await recalculateItemLocationQuantity(id, locationId);
-
-      // Calculate new total stock from LotLocation
-      const newStock = await calculateOnHandFromLots(id);
-
-      if (newStock < 0) {
-        return res.status(400).json({
-          status: "error",
-          message: "Insufficient stock",
-        });
-      }
-
-      // Determine new status based on total quantity
-      const newStatus = determineStatus(newStock);
-
-      // Update item status
-      const updatedItem = await prisma.item.update({
-        where: { id },
-        data: {
-          status: newStatus,
-        },
-        include: {
-          locations: {
-            include: {
-              location: true,
-            },
-          },
-          category: true,
-          supplier: true,
-          customers: {
-            include: {
-              customer: true,
-            },
-          },
-        },
-      });
-
-      // Create stock transaction (now ALWAYS references a lotId)
-      await prisma.stockTransaction.create({
-        data: {
-          type,
-          quantity,
-          previousStock,
-          newStock,
-          reason,
-          lotId: systemLot.id, // ALWAYS reference lot (SYSTEM for non-lotted items)
-          itemId: id,
-          workspaceId: item.workspaceId,
-          userId: userId,
-        },
-      });
-
-      // Add calculated onHand to response
-      const itemWithOnHand = await addOnHandToItem(updatedItem);
-
-      return res.status(200).json({
-        status: "success",
-        message: "Stock adjusted successfully",
-        data: { item: itemWithOnHand },
-      });
-    } catch (error) {
-      console.error("Adjust stock error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to adjust stock",
-      });
-    }
-  },
-
-  // Transfer stock between locations
-  transferStock: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { quantity, fromLocationId, toLocationId, reason, lotId } =
-        req.body;
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          status: "error",
-          message: "Unauthorized",
-        });
-      }
-
-      if (!quantity || !fromLocationId || !toLocationId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Quantity, from location, and to location are required",
-        });
-      }
-
-      if (fromLocationId === toLocationId) {
-        return res.status(400).json({
-          status: "error",
-          message: "Cannot transfer to the same location",
-        });
-      }
-
-      const item = await prisma.item.findUnique({
-        where: { id },
-      });
-
-      if (!item) {
-        return res.status(404).json({
-          status: "error",
-          message: "Item not found",
-        });
-      }
-
-      // Verify user has access
-      const workspaceMember = await prisma.workspaceMember.findFirst({
-        where: {
-          userId: userId,
-          workspaceId: item.workspaceId,
-        },
-      });
-
-      if (!workspaceMember) {
-        return res.status(403).json({
-          status: "error",
-          message: "You don't have access to this item",
-        });
-      }
-
-      // Fetch location details for better transaction reason
-      const fromLocation = await prisma.location.findUnique({
-        where: { id: fromLocationId },
-        select: { code: true },
-      });
-
-      const toLocation = await prisma.location.findUnique({
-        where: { id: toLocationId },
-        select: { code: true },
-      });
-
-      if (!fromLocation || !toLocation) {
-        return res.status(404).json({
-          status: "error",
-          message: "One or both locations not found",
-        });
-      }
-
-      // Determine which lot to use
-      let targetLotId = lotId;
-
-      if (!targetLotId) {
-        // Get SYSTEM lot for non-lotted items
-        const systemLot = await getOrCreateSystemLot(
-          id,
-          item.workspaceId,
-          userId,
-        );
-        targetLotId = systemLot.id;
-      }
-
-      // Get source LotLocation
-      const sourceLotLocation = await prisma.lotLocation.findUnique({
-        where: {
-          lotId_locationId: {
-            lotId: targetLotId,
-            locationId: fromLocationId,
-          },
-        },
-      });
-
-      if (!sourceLotLocation || sourceLotLocation.quantity < quantity) {
-        return res.status(400).json({
-          status: "error",
-          message: "Insufficient stock at source location",
-        });
-      }
-
-      const previousStock = await calculateOnHandFromLots(id);
-
-      // Perform transfer in transaction
-      await prisma.$transaction(async (tx) => {
-        // Remove from source
-        await tx.lotLocation.update({
-          where: {
-            lotId_locationId: {
-              lotId: targetLotId,
-              locationId: fromLocationId,
-            },
-          },
-          data: {
-            quantity: sourceLotLocation.quantity - quantity,
-          },
-        });
-
-        // Add to destination (create if doesn't exist)
-        await tx.lotLocation.upsert({
-          where: {
-            lotId_locationId: {
-              lotId: targetLotId,
-              locationId: toLocationId,
-            },
-          },
-          update: {
-            quantity: {
-              increment: quantity,
-            },
-          },
-          create: {
-            lotId: targetLotId,
-            locationId: toLocationId,
-            quantity: quantity,
-          },
-        });
-
-        // Ensure ItemLocation exists for destination
+      for (const s of body.locationSettings ?? []) {
+        const data = {
+          ...(s.minStock !== undefined && { minStock: s.minStock }),
+          ...(s.maxStock !== undefined && { maxStock: s.maxStock }),
+          ...(s.notes !== undefined && { notes: s.notes }),
+        };
         await tx.itemLocation.upsert({
-          where: {
-            itemId_locationId: {
-              itemId: id,
-              locationId: toLocationId,
-            },
-          },
-          update: {},
-          create: {
-            itemId: id,
-            locationId: toLocationId,
-            quantity: 0,
-            minStock: 0,
-            maxStock: 0,
-          },
+          where: { itemId_locationId: { itemId: id, locationId: s.locationId } },
+          update: data,
+          create: { itemId: id, locationId: s.locationId, quantity: 0, ...data },
         });
+      }
 
-        // Create SINGLE transfer transaction with location tracking
-        await tx.stockTransaction.create({
-          data: {
-            type: "TRANSFER",
-            quantity: quantity,
-            previousStock: previousStock,
-            newStock: previousStock, // Total doesn't change in transfer
-            reason:
-              reason || `Transfer: ${fromLocation.code} → ${toLocation.code}`,
-            lotId: targetLotId,
-            itemId: id,
-            workspaceId: item.workspaceId,
-            userId: userId,
-            fromLocationId: fromLocationId, // NEW: Track source
-            toLocationId: toLocationId, // NEW: Track destination
-          },
-        });
+      const lotTracking = body.lotTracking ?? locked.lotTracking;
+      if (!lotTracking) await getOrCreateSystemLot(tx, id, locked.workspaceId, userId);
+
+      await recomputeItemCaches(tx, id);
+    });
+
+    return sendSuccess(res, { item: await itemResponse(id) }, "Item updated successfully");
+  },
+
+  // DELETE /api/items/:id (ADMIN+). Cascades lots, stock and history of the item.
+  deleteItem: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const { item } = await loadItemForUser(
+      userId,
+      req.params.id,
+      PERMISSIONS.delete,
+      "You don't have permission to delete this item"
+    );
+    await prisma.item.delete({ where: { id: item.id } });
+    return sendSuccess(res, {}, "Item deleted successfully");
+  },
+
+  // POST /api/items/:id/adjust-stock  { type, quantity, reason, locationId }
+  adjustStock: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const body = parseBody(adjustStockSchema, req);
+    const { item } = await loadItemForUser(userId, req.params.id, PERMISSIONS.stockOperation);
+
+    const lotTrackedMessage =
+      "This item uses lot tracking. Please use the lot adjustment endpoint to modify stock for specific lots.";
+    if (item.lotTracking) throw badRequest(lotTrackedMessage);
+    await assertInWorkspace("location", body.locationId, item.workspaceId);
+
+    await withStockTransaction(async (tx) => {
+      const locked = await lockItem(tx, item.id);
+      if (locked.lotTracking) throw badRequest(lotTrackedMessage);
+      const systemLot = await getOrCreateSystemLot(tx, item.id, item.workspaceId, userId);
+      await applyAdjustment(tx, {
+        type: body.type,
+        itemId: item.id,
+        workspaceId: item.workspaceId,
+        lotId: systemLot.id,
+        locationId: body.locationId,
+        quantity: body.quantity,
+        reason: body.reason,
+        userId,
       });
+    });
 
-      // Recalculate caches
-      await recalculateItemLocationQuantity(id, fromLocationId);
-      await recalculateItemLocationQuantity(id, toLocationId);
-      await recalculateLotQuantity(targetLotId);
+    return sendSuccess(res, { item: await itemResponse(item.id) }, "Stock adjusted successfully");
+  },
 
-      const updatedItem = await prisma.item.findUnique({
-        where: { id },
-        include: {
-          locations: {
-            include: {
-              location: true,
-            },
-          },
-          category: true,
-          supplier: true,
-        },
-      });
+  // POST /api/items/:id/transfer-stock  { quantity, fromLocationId, toLocationId, lotId?, reason? }
+  transferStock: async (req: Request, res: Response) => {
+    const userId = requireUserId(req);
+    const body = parseBody(transferStockSchema, req);
+    const { item } = await loadItemForUser(userId, req.params.id, PERMISSIONS.stockOperation);
 
-      const itemWithOnHand = await addOnHandToItem(updatedItem!);
-
-      return res.status(200).json({
-        status: "success",
-        message: "Stock transferred successfully",
-        data: { item: itemWithOnHand },
-      });
-    } catch (error) {
-      console.error("Transfer stock error:", error);
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to transfer stock",
-      });
+    const locations = await prisma.location.findMany({
+      where: {
+        id: { in: [body.fromLocationId, body.toLocationId] },
+        workspaceId: item.workspaceId,
+      },
+      select: { id: true, code: true },
+    });
+    const code = (id: string) => locations.find((l) => l.id === id)?.code;
+    if (!code(body.fromLocationId) || !code(body.toLocationId)) {
+      throw notFound("One or both locations not found");
     }
+
+    await withStockTransaction(async (tx) => {
+      const locked = await lockItem(tx, item.id);
+
+      let lotId: string;
+      if (body.lotId) {
+        const lot = await tx.lot.findFirst({
+          where: { id: body.lotId, itemId: item.id, workspaceId: item.workspaceId },
+          select: { id: true },
+        });
+        if (!lot) throw notFound("Lot not found for this item");
+        lotId = lot.id;
+      } else if (locked.lotTracking) {
+        throw badRequest("This item uses lot tracking. Choose which lot to transfer (lotId).");
+      } else {
+        lotId = (await getOrCreateSystemLot(tx, item.id, item.workspaceId, userId)).id;
+      }
+
+      await applyTransfer(tx, {
+        itemId: item.id,
+        workspaceId: item.workspaceId,
+        lotId,
+        fromLocationId: body.fromLocationId,
+        toLocationId: body.toLocationId,
+        quantity: body.quantity,
+        reason:
+          body.reason || `Transfer: ${code(body.fromLocationId)} → ${code(body.toLocationId)}`,
+        userId,
+      });
+    });
+
+    return sendSuccess(res, { item: await itemResponse(item.id) }, "Stock transferred successfully");
   },
 };
 
