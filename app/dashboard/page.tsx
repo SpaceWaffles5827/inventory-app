@@ -1,599 +1,340 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { TransferStockWizard } from "@/components/transferStockWizard"
-import { DeleteItemDialog } from "@/components/deleteItemDialog"
-import { AddItemDialog } from "@/components/addItemDialog"
-import { StockAdjustmentWizard } from "@/components/stockAdjustmentWizard"
-import { MobileHeader } from "@/components/mobileHeader"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
+import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import {
-  Package,
-  Plus,
-  Search,
-  AlertCircle,
+  AlertTriangle,
+  ArrowRight,
+  Boxes,
+  CheckCircle2,
+  Circle,
   DollarSign,
-  X,
-  SlidersHorizontal,
+  History,
+  MapPin,
+  PackagePlus,
+  Package,
+  ScanLine,
+  UserPlus,
 } from "lucide-react"
-import { getCategoriesApi } from "@/lib/api/categories.api"
-import { getLocationsApi } from "@/lib/api/locations.api"
-import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
-import { getItemsApi, type ItemWithRelations } from "@/lib/api/items.api"
-import { CategoryWithCount } from "@/lib/api/categories.api"
-import { LocationWithCount } from "@/lib/api/locations.api"
-import { ItemTableView } from "@/components/itemTableview"
-import { ItemGridView } from "@/components/itemgridview"
-import { ItemListView } from "@/components/itemListView"
-import { ItemMobileView } from "@/components/itemMobileview"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card"
+import { PageContainer, PageHeader } from "@/components/common/page"
+import { StatCard } from "@/components/common/stat-card"
+import { EmptyState } from "@/components/common/empty-state"
+import { ErrorState, ListSkeleton, StatsSkeleton } from "@/components/common/states"
+import { TransactionRow } from "@/components/activity/transaction-row"
+import { useScanner } from "@/components/app-shell/scan-provider"
+import { useWorkspace } from "@/lib/workspace-context"
+import { getDashboardSummaryApi, type DashboardSummary } from "@/lib/api/transactions.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { formatCurrencyCompact, formatNumber, formatNumberCompact } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
-export default function DashboardPage() {
-  const [inventory, setInventory] = useState<ItemWithRelations[]>([])
+function greeting() {
+  const h = new Date().getHours()
+  if (h < 12) return "Good morning"
+  if (h < 18) return "Good afternoon"
+  return "Good evening"
+}
+
+export default function OverviewPage() {
+  const { workspaceId, workspace, user, isAdmin } = useWorkspace()
+  const { openScanner } = useScanner()
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [loading, setLoading] = useState(true)
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState("")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState<string>("all")
-  const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [supplierFilter, setSupplierFilter] = useState<string>("all")
-  const [sortBy, setSortBy] = useState<string>("name")
-  const [showFilters, setShowFilters] = useState(false)
-  const [viewMode, setViewMode] = useState<"table" | "grid" | "list">(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("inventoryViewMode")
-      return (saved as "table" | "grid" | "list") || "table"
-    }
-    return "table"
-  })
-  const [isAddItemOpen, setIsAddItemOpen] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [deleteDialogItem, setDeleteDialogItem] = useState<ItemWithRelations | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const [categories, setCategories] = useState<CategoryWithCount[]>([])
-  const [locations, setLocations] = useState<LocationWithCount[]>([])
-  const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
-
-  const [transferDialogOpen, setTransferDialogOpen] = useState(false)
-  const [transferDialogItem, setTransferDialogItem] = useState<ItemWithRelations | null>(null)
-
-  const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false)
-  const [adjustmentDialogItem, setAdjustmentDialogItem] = useState<ItemWithRelations | null>(null)
-
-  // Save view mode preference
-  useEffect(() => {
-    localStorage.setItem("inventoryViewMode", viewMode)
-  }, [viewMode])
-
-  // Load workspace ID and items on mount
-  useEffect(() => {
-    const workspaceId = localStorage.getItem("currentWorkspaceId")
-    if (workspaceId) {
-      setCurrentWorkspaceId(workspaceId)
-      loadItems(workspaceId)
-      loadCategories(workspaceId)
-      loadLocations(workspaceId)
-      loadSuppliers(workspaceId)
-    } else {
-      setLoading(false)
-    }
-  }, [])
-
-  // Add a second useEffect to reload items when workspace changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const workspaceId = localStorage.getItem("currentWorkspaceId")
-      if (workspaceId && workspaceId !== currentWorkspaceId) {
-        setCurrentWorkspaceId(workspaceId)
-        loadItems(workspaceId)
-        loadCategories(workspaceId)
-        loadLocations(workspaceId)
-        loadSuppliers(workspaceId)
-      }
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-    return () => window.removeEventListener('storage', handleStorageChange)
-  }, [currentWorkspaceId])
-
-  const loadCategories = async (workspaceId: string) => {
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const response = await getCategoriesApi(workspaceId)
-      if (response.data?.categories) {
-        setCategories(response.data.categories)
-      }
+      const res = await getDashboardSummaryApi(workspaceId)
+      setSummary(res.data)
     } catch (err) {
-      console.error("Failed to load categories:", err)
-    }
-  }
-
-  const loadLocations = async (workspaceId: string) => {
-    try {
-      const response = await getLocationsApi(workspaceId)
-      if (response.data?.locations) {
-        setLocations(response.data.locations)
-      }
-    } catch (err) {
-      console.error("Failed to load locations:", err)
-    }
-  }
-
-  const loadSuppliers = async (workspaceId: string) => {
-    try {
-      const response = await getSuppliersApi(workspaceId)
-      if (response.data?.suppliers) {
-        setSuppliers(response.data.suppliers)
-      }
-    } catch (err) {
-      console.error("Failed to load suppliers:", err)
-    }
-  }
-
-  const openTransferDialog = (item: ItemWithRelations) => {
-    setTransferDialogItem(item)
-    setTransferDialogOpen(true)
-  }
-
-  const loadItems = async (workspaceId: string) => {
-    try {
-      setLoading(true)
-      const response = await getItemsApi(workspaceId)
-
-      if (response.data?.items) {
-        setInventory(response.data.items)
-      }
-    } catch (err) {
-      console.error("Failed to load items:", err)
+      setError(getErrorMessage(err, "Couldn't load the overview"))
     } finally {
       setLoading(false)
     }
-  }
+  }, [workspaceId])
 
-  const openDeleteDialog = (item: ItemWithRelations) => {
-    setDeleteDialogItem(item)
-    setDeleteDialogOpen(true)
-  }
+  useEffect(() => {
+    load()
+  }, [load])
 
-  const openAdjustmentDialog = (item: ItemWithRelations) => {
-    setAdjustmentDialogItem(item)
-    setAdjustmentDialogOpen(true)
-  }
+  // Stock changed from the global scanner (or another dialog) — refresh the numbers
+  useEffect(() => {
+    const onChange = () => load()
+    window.addEventListener("stockflow:stock-changed", onChange)
+    return () => window.removeEventListener("stockflow:stock-changed", onChange)
+  }, [load])
 
-  const filteredInventory = inventory
-    .filter((item) => {
-      const matchesSearch =
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.itemNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.barcode || "").includes(searchQuery) ||
-        (item.category?.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.supplier?.name || "").toLowerCase().includes(searchQuery.toLowerCase())
-
-      const matchesCategory = categoryFilter === "all" || item.category?.name === categoryFilter
-      const matchesStatus = statusFilter === "all" || item.status === statusFilter
-      const matchesSupplier = supplierFilter === "all" || item.supplier?.name === supplierFilter
-
-      return matchesSearch && matchesCategory && matchesStatus && matchesSupplier
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case "name":
-          return a.name.localeCompare(b.name)
-        case "itemNumber":
-          return a.itemNumber.localeCompare(b.itemNumber)
-        case "onHand-asc":
-          return a.onHand - b.onHand
-        case "onHand-desc":
-          return b.onHand - a.onHand
-        case "cost-asc":
-          return a.cost - b.cost
-        case "cost-desc":
-          return b.cost - a.cost
-        default:
-          return 0
-      }
-    })
-
-  const inventoryCategories = Array.from(
-    new Set(
-      inventory
-        .map((item) => item.category?.name)
-        .filter((name): name is string => name !== null && name !== undefined)
-    )
-  )
-
-  const inventorySuppliers = Array.from(
-    new Set(
-      inventory
-        .map((item) => item.supplier?.name)
-        .filter((name): name is string => name !== null && name !== undefined)
-    )
-  )
-  const statuses = Array.from(new Set(inventory.map((item) => item.status)))
-
-  const hasActiveFilters = categoryFilter !== "all" || statusFilter !== "all" || supplierFilter !== "all"
-
-  const clearFilters = () => {
-    setCategoryFilter("all")
-    setStatusFilter("all")
-    setSupplierFilter("all")
-    setSearchQuery("")
-  }
-
-  const totalItems = inventory.reduce((sum, item) => sum + item.onHand, 0)
-  const lowStockItems = inventory.filter((item) => item.status === "LOW_STOCK" || item.status === "OUT_OF_STOCK").length
-  const totalValue = inventory.reduce((sum, item) => sum + item.onHand * item.cost, 0)
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading inventory...</p>
-        </div>
-      </div>
-    )
-  }
+  const firstName = user?.name?.split(" ")[0]
+  const attention = (summary?.lowStockCount ?? 0) + (summary?.outOfStockCount ?? 0)
+  const isEmpty = summary !== null && summary.totalSkus === 0
 
   return (
-    <>
-      {/* Mobile Header with Search */}
-      <MobileHeader
-        title="Inventory"
-        showAddButton={true}
-        onAddClick={() => setIsAddItemOpen(true)}
-        showSearch={true}
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search items..."
+    <PageContainer>
+      <PageHeader
+        title={firstName ? `${greeting()}, ${firstName}` : greeting()}
+        description={`Here's what's happening in ${workspace?.name ?? "your workspace"}.`}
+        actions={
+          <>
+            <Button variant="outline" onClick={openScanner}>
+              <ScanLine /> Scan
+            </Button>
+            <Button asChild>
+              <Link href="/dashboard/items?new=1">
+                <PackagePlus /> Add item
+              </Link>
+            </Button>
+          </>
+        }
       />
 
-      <div className="min-h-screen bg-background pt-14 lg:pt-0">
-        <div className="px-0 lg:px-6 lg:py-6">
-          {/* Stats Cards - Mobile Compact / Desktop Cards */}
-          <div className="grid grid-cols-3 gap-0 border-b lg:border-0 lg:grid-cols-3 lg:gap-6 mb-0 lg:mb-8">
-            {/* Mobile: Compact Stats */}
-            <div className="lg:hidden p-4 border-r">
-              <div className="text-xs text-muted-foreground mb-1">Items</div>
-              <div className="text-xl font-bold">{totalItems}</div>
-            </div>
-            <div className="lg:hidden p-4 border-r">
-              <div className="text-xs text-muted-foreground mb-1">Low Stock</div>
-              <div className="text-xl font-bold text-destructive">{lowStockItems}</div>
-            </div>
-            <div className="lg:hidden p-3">
-              <div className="text-xs text-muted-foreground mb-1">Value</div>
-              <div className="text-xl font-bold">${(totalValue / 1000).toFixed(1)}k</div>
-            </div>
-
-            {/* Desktop: Full Cards */}
-            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <Package className="h-4 w-4 text-accent" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{totalItems}</div>
-                <p className="text-xs text-muted-foreground mt-1">Across {inventory.length} products</p>
-              </CardContent>
-            </Card>
-
-            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Low Stock Alerts</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
-                  <AlertCircle className="h-4 w-4 text-destructive" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{lowStockItems}</div>
-                <p className="text-xs text-muted-foreground mt-1">Items need restocking</p>
-              </CardContent>
-            </Card>
-
-            <Card className="hidden lg:block border-border/50 bg-linear-to-br from-card to-card/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Value</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <DollarSign className="h-4 w-4 text-accent" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">
-                  ${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Current inventory value</p>
-              </CardContent>
-            </Card>
+      {error ? (
+        <ErrorState message={error} onRetry={load} />
+      ) : loading || !summary ? (
+        <div className="space-y-6">
+          <StatsSkeleton />
+          <div className="grid gap-6 lg:grid-cols-3">
+            <ListSkeleton className="lg:col-span-2" rows={5} />
+            <ListSkeleton rows={4} />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+            <StatCard
+              label="SKUs"
+              value={formatNumber(summary.totalSkus)}
+              icon={Package}
+              tone="primary"
+              hint={`${formatNumber(summary.locationsCount)} locations`}
+              href="/dashboard/items"
+              data-testid="stat-skus"
+            />
+            <StatCard
+              label="Units on hand"
+              value={formatNumberCompact(summary.totalUnits)}
+              icon={Boxes}
+              tone="info"
+              hint="Across all locations"
+            />
+            <StatCard
+              label="Inventory value"
+              value={formatCurrencyCompact(summary.inventoryValue)}
+              icon={DollarSign}
+              tone="success"
+              hint="At cost"
+              href="/dashboard/analytics"
+            />
+            <StatCard
+              label="Needs attention"
+              value={formatNumber(attention)}
+              icon={AlertTriangle}
+              tone={attention > 0 ? "warning" : "default"}
+              hint={
+                attention > 0
+                  ? `${formatNumber(summary.outOfStockCount)} out · ${formatNumber(summary.lowStockCount)} low`
+                  : "Everything is stocked"
+              }
+              href="/dashboard/items?status=LOW_STOCK"
+            />
           </div>
 
-          {/* Main Inventory Card - Contains everything except stats */}
-          <div className="border-b lg:border lg:rounded-lg bg-card mb-0">
-            <div className="p-0 lg:p-4">
-              {/* Header Section - Desktop Only */}
-              <div className="hidden lg:flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2 lg:gap-3 mb-4">
-                <div>
-                  <h1 className="text-lg lg:text-3xl font-bold">Inventory</h1>
-                  <p className="text-xs lg:text-sm text-muted-foreground hidden lg:block">
-                    Manage your products and stock levels
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Select value={viewMode} onValueChange={(value: "table" | "grid" | "list") => setViewMode(value)}>
-                    <SelectTrigger className="w-[120px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="list">List</SelectItem>
-                      <SelectItem value="grid">Grid</SelectItem>
-                      <SelectItem value="table">Table</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    onClick={() => setIsAddItemOpen(true)}
-                    size="sm"
-                    className="shadow-lg shadow-accent/20"
-                    data-testid="add-item-button-desktop"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Item
+          {isEmpty && <GettingStarted locations={summary.locationsCount} isAdmin={isAdmin} />}
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <Card className="gap-0 py-0 lg:col-span-2">
+              <CardHeader className="border-b py-4 [.border-b]:pb-4">
+                <CardTitle className="text-base">Recent activity</CardTitle>
+                <CardAction>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link href="/dashboard/activity">
+                      View all <ArrowRight />
+                    </Link>
                   </Button>
-                </div>
-              </div>
-
-              {/* Filters Section */}
-              <div className="flex flex-col gap-3 mb-0 lg:mb-4">
-                {/* Search Bar with Filter Button - DESKTOP ONLY (moved to mobile header on mobile) */}
-                <div className="hidden lg:flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search items..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 h-9 lg:h-9 text-sm"
-                      data-testid="search-items-input"
-                    />
-                  </div>
-
-                  {/* Filter Toggle Button - Desktop Only */}
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => setShowFilters(!showFilters)}
-                      className={showFilters ? "bg-accent/10 border-accent/20" : ""}
-                    >
-                      <SlidersHorizontal className="h-4 w-4" />
-                    </Button>
-
-                    {hasActiveFilters && (
-                      <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-2">
-                        <X className="h-4 w-4" />
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Desktop Advanced Filters - HIDDEN ON MOBILE */}
-                {showFilters && (
-                  <div className="hidden lg:grid grid-cols-1 md:grid-cols-4 gap-3 p-3 rounded-lg border border-border/50 bg-muted/30">
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Category</Label>
-                      <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="All Categories" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Categories</SelectItem>
-                          {inventoryCategories.map((category) => (
-                            <SelectItem key={category} value={category}>
-                              {category}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Status</Label>
-                      <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="All Status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Status</SelectItem>
-                          {statuses.map((status) => (
-                            <SelectItem key={status} value={status}>
-                              {status === "IN_STOCK" ? "In Stock" : status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Supplier</Label>
-                      <Select value={supplierFilter} onValueChange={setSupplierFilter}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="All Suppliers" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Suppliers</SelectItem>
-                          {inventorySuppliers.map((supplier) => (
-                            <SelectItem key={supplier} value={supplier}>
-                              {supplier}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs font-medium text-muted-foreground">Sort By</Label>
-                      <Select value={sortBy} onValueChange={setSortBy}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Sort by..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="name">Name (A-Z)</SelectItem>
-                          <SelectItem value="itemNumber">Item Number</SelectItem>
-                          <SelectItem value="onHand-asc">Stock (Low to High)</SelectItem>
-                          <SelectItem value="onHand-desc">Stock (High to Low)</SelectItem>
-                          <SelectItem value="cost-asc">Cost (Low to High)</SelectItem>
-                          <SelectItem value="cost-desc">Cost (High to Low)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                )}
-
-                {/* Active Filters Badges - DESKTOP ONLY */}
-                {hasActiveFilters && (
-                  <div className="hidden lg:flex items-center gap-2 flex-wrap">
-                    <span className="text-sm text-muted-foreground">Active filters:</span>
-                    {categoryFilter !== "all" && (
-                      <Badge variant="secondary" className="gap-1">
-                        Category: {categoryFilter}
-                        <X
-                          className="h-3 w-3 cursor-pointer hover:text-destructive"
-                          onClick={() => setCategoryFilter("all")}
-                        />
-                      </Badge>
-                    )}
-                    {statusFilter !== "all" && (
-                      <Badge variant="secondary" className="gap-1">
-                        Status: {statusFilter === "IN_STOCK" ? "In Stock" : statusFilter === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                        <X
-                          className="h-3 w-3 cursor-pointer hover:text-destructive"
-                          onClick={() => setStatusFilter("all")}
-                        />
-                      </Badge>
-                    )}
-                    {supplierFilter !== "all" && (
-                      <Badge variant="secondary" className="gap-1">
-                        Supplier: {supplierFilter}
-                        <X
-                          className="h-3 w-3 cursor-pointer hover:text-destructive"
-                          onClick={() => setSupplierFilter("all")}
-                        />
-                      </Badge>
-                    )}
-                  </div>
-                )}
-
-                {/* Item Count - DESKTOP ONLY */}
-                <div className="hidden lg:block text-sm text-muted-foreground" data-testid="item-count">
-                  Showing {filteredInventory.length} of {inventory.length} items
-                </div>
-              </div>
-
-              {/* Inventory Display - Mobile uses dedicated ItemMobileView */}
-              {/* Mobile View - Always show ItemMobileView */}
-              <div className="lg:hidden">
-                <ItemMobileView
-                  items={filteredInventory}
-                  onAdjustmentClick={openAdjustmentDialog}
-                  onTransferClick={openTransferDialog}
-                  onDeleteClick={openDeleteDialog}
+                </CardAction>
+              </CardHeader>
+              {summary.recentTransactions.length === 0 ? (
+                <EmptyState
+                  bare
+                  icon={History}
+                  title="No stock movements yet"
+                  description="Adjustments, transfers and received stock will show up here."
                 />
-              </div>
+              ) : (
+                <div className="divide-y">
+                  {summary.recentTransactions.map((tx) => (
+                    <TransactionRow key={tx.id} tx={tx} />
+                  ))}
+                </div>
+              )}
+            </Card>
 
-              {/* Desktop Views - Hidden on mobile */}
-              <div className="hidden lg:block">
-                {viewMode === "table" && (
-                  <ItemTableView
-                    items={filteredInventory}
-                    onAdjustmentClick={openAdjustmentDialog}
-                    onTransferClick={openTransferDialog}
-                    onDeleteClick={openDeleteDialog}
-                  />
+            <div className="space-y-6">
+              <Card className="gap-0 py-0">
+                <CardHeader className="border-b py-4 [.border-b]:pb-4">
+                  <CardTitle className="text-base">Needs restocking</CardTitle>
+                  {summary.lowStockItems.length > 0 && (
+                    <CardAction>
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link href="/dashboard/items?status=LOW_STOCK">
+                          All <ArrowRight />
+                        </Link>
+                      </Button>
+                    </CardAction>
+                  )}
+                </CardHeader>
+                {summary.lowStockItems.length === 0 ? (
+                  <div className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
+                    <CheckCircle2 className="size-5 text-success" />
+                    All items are above their reorder point.
+                  </div>
+                ) : (
+                  <ul className="divide-y">
+                    {summary.lowStockItems.map((item) => {
+                      const pct =
+                        item.reorderPoint > 0 ? Math.min(100, Math.round((item.onHand / item.reorderPoint) * 100)) : 0
+                      const out = item.onHand <= 0
+                      return (
+                        <li key={item.id}>
+                          <Link
+                            href={`/dashboard/items/${item.id}`}
+                            className="block px-4 py-3 transition-colors hover:bg-accent/50"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium">{item.name}</div>
+                                <div className="font-mono text-xs text-muted-foreground">{item.itemNumber}</div>
+                              </div>
+                              <div className="shrink-0 text-right text-sm">
+                                <span className={cn("font-semibold tabular-nums", out ? "text-destructive" : "text-warning-foreground dark:text-warning")}>
+                                  {formatNumber(item.onHand)}
+                                </span>
+                                <span className="text-muted-foreground"> / {formatNumber(item.reorderPoint)}</span>
+                              </div>
+                            </div>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className={cn("h-full rounded-full", out ? "bg-destructive" : "bg-warning")}
+                                style={{ width: `${Math.max(pct, out ? 0 : 4)}%` }}
+                              />
+                            </div>
+                          </Link>
+                        </li>
+                      )
+                    })}
+                  </ul>
                 )}
+              </Card>
 
-                {viewMode === "grid" && (
-                  <ItemGridView
-                    items={filteredInventory}
-                    onAdjustmentClick={openAdjustmentDialog}
-                    onDeleteClick={openDeleteDialog}
-                  />
-                )}
-
-                {viewMode === "list" && (
-                  <ItemListView
-                    items={filteredInventory}
-                    onAdjustmentClick={openAdjustmentDialog}
-                    onDeleteClick={openDeleteDialog}
-                  />
-                )}
-              </div>
+              <Card className="gap-3 py-4">
+                <CardHeader className="pb-0">
+                  <CardTitle className="text-base">Quick actions</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 gap-2">
+                  <QuickAction icon={ScanLine} label="Scan barcode" onClick={openScanner} />
+                  <QuickAction icon={PackagePlus} label="Add item" href="/dashboard/items?new=1" />
+                  <QuickAction icon={MapPin} label="Locations" href="/dashboard/locations" />
+                  <QuickAction icon={UserPlus} label="Invite team" href="/dashboard/members" />
+                </CardContent>
+              </Card>
             </div>
           </div>
         </div>
-      </div>
+      )}
+    </PageContainer>
+  )
+}
 
-      {/* Stock Adjustment Wizard */}
-      <StockAdjustmentWizard
-        item={adjustmentDialogItem}
-        open={adjustmentDialogOpen}
-        onClose={() => {
-          setAdjustmentDialogOpen(false)
-          setAdjustmentDialogItem(null)
-        }}
-        onSuccess={() => {
-          if (currentWorkspaceId) {
-            loadItems(currentWorkspaceId)
-          }
-        }}
-      />
-
-      {/* Delete Item Dialog */}
-      <DeleteItemDialog
-        item={deleteDialogItem}
-        open={deleteDialogOpen}
-        onOpenChange={(open) => {
-          setDeleteDialogOpen(open)
-          if (!open) {
-            setDeleteDialogItem(null)
-          }
-        }}
-        onSuccess={() => {
-          if (currentWorkspaceId) {
-            loadItems(currentWorkspaceId)
-          }
-        }}
-      />
-
-      <AddItemDialog
-        open={isAddItemOpen}
-        onOpenChange={setIsAddItemOpen}
-        workspaceId={currentWorkspaceId}
-        onSuccess={() => {
-          if (currentWorkspaceId) {
-            loadItems(currentWorkspaceId)
-          }
-        }}
-      />
-
-      {/* Transfer Stock Wizard */}
-      <TransferStockWizard
-        item={transferDialogItem}
-        open={transferDialogOpen}
-        onClose={() => {
-          setTransferDialogOpen(false)
-          setTransferDialogItem(null)
-        }}
-        onSuccess={() => {
-          if (currentWorkspaceId) {
-            loadItems(currentWorkspaceId)
-          }
-        }}
-        locations={locations}
-      />
+function QuickAction({
+  icon: Icon,
+  label,
+  href,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  href?: string
+  onClick?: () => void
+}) {
+  const className =
+    "flex flex-col items-start gap-2 rounded-lg border p-3 text-sm font-medium transition-colors hover:border-primary/40 hover:bg-accent/50"
+  const content = (
+    <>
+      <Icon className="size-5 text-primary" />
+      {label}
     </>
+  )
+  return href ? (
+    <Link href={href} className={className}>
+      {content}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} className={cn(className, "text-left")}>
+      {content}
+    </button>
+  )
+}
+
+function GettingStarted({ locations, isAdmin }: { locations: number; isAdmin: boolean }) {
+  const steps = [
+    {
+      done: locations > 0,
+      title: "Set up your locations",
+      description: "Define zones, aisles, shelves or bins so every unit has a home.",
+      href: "/dashboard/locations",
+      cta: "Add locations",
+    },
+    {
+      done: false,
+      title: "Add your first item",
+      description: "Create items with SKUs, barcodes, costs and reorder points.",
+      href: "/dashboard/items?new=1",
+      cta: "Add item",
+    },
+    ...(isAdmin
+      ? [
+          {
+            done: false,
+            title: "Invite your team",
+            description: "Give warehouse staff access to scan, receive and move stock.",
+            href: "/dashboard/members",
+            cta: "Invite",
+          },
+        ]
+      : []),
+  ]
+
+  return (
+    <Card className="gap-4 border-primary/20 bg-primary/[0.03] py-5">
+      <CardHeader>
+        <CardTitle>Get started</CardTitle>
+        <p className="text-sm text-muted-foreground">A few steps to get your warehouse running in StockFlow.</p>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-3">
+        {steps.map((step) => (
+          <div key={step.title} className="flex flex-col rounded-lg border bg-card p-4">
+            <div className="flex items-center gap-2 font-medium">
+              {step.done ? (
+                <CheckCircle2 className="size-5 text-success" />
+              ) : (
+                <Circle className="size-5 text-muted-foreground" />
+              )}
+              {step.title}
+            </div>
+            <p className="mt-1 flex-1 text-sm text-muted-foreground">{step.description}</p>
+            {!step.done && (
+              <Button asChild variant="outline" size="sm" className="mt-3 self-start">
+                <Link href={step.href}>
+                  {step.cta} <ArrowRight />
+                </Link>
+              </Button>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   )
 }

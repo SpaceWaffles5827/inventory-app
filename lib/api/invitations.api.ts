@@ -1,6 +1,7 @@
 // Client-side API helper functions for invitations
 import type { Invitation, Workspace } from "@prisma/client";
 import type { ApiResponse } from "./types";
+import { apiRequest } from "./client";
 
 // ============================================
 // Use Prisma's generated types directly
@@ -43,25 +44,11 @@ export type InvitationApiResponse = ApiResponse<{
 export async function verifyInvitationApi(
   data: VerifyInvitationRequest
 ): Promise<InvitationApiResponse> {
-  const params = new URLSearchParams({
-    token: data.token,
-    email: data.email,
+  return apiRequest<InvitationApiResponse>("/api/invitations/verify", {
+    query: { token: data.token, email: data.email },
+    errorMessage: "Failed to verify invitation",
+    redirectOnUnauthorized: false,
   });
-
-  const response = await fetch(`/api/invitations/verify?${params}`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to verify invitation");
-  }
-
-  return result;
 }
 
 /**
@@ -70,19 +57,10 @@ export async function verifyInvitationApi(
 export async function acceptInvitationApi(
   data: AcceptInvitationRequest
 ): Promise<InvitationApiResponse> {
-  const response = await fetch("/api/invitations/accept", {
+  return apiRequest<InvitationApiResponse>("/api/invitations/accept", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to accept invitation",
+    redirectOnUnauthorized: false,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to accept invitation");
-  }
-
-  return result;
 }

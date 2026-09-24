@@ -1,267 +1,193 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, type FormEvent } from "react"
+import { ArrowRight, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import { Plus, Minus, AlertCircle } from "lucide-react"
-import { toast } from "sonner"
+import { Field, invalidProps } from "@/components/items/form-field"
 import { adjustLotQuantityApi } from "@/lib/api/lots.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { formatNumber, formatQuantity } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 interface AdjustingLocation {
-    locationId: string
-    locationCode: string
-    currentQuantity: number
+  locationId: string
+  locationCode: string
+  currentQuantity: number
 }
 
 interface AdjustLocationDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    lotId: string
-    adjustingLocation: AdjustingLocation | null
-    onSuccess: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  lotId: string
+  adjustingLocation: AdjustingLocation | null
+  onSuccess: () => void
+  unit?: string | null
 }
 
-export function AdjustLocationDialog({
-    open,
-    onOpenChange,
-    lotId,
-    adjustingLocation,
-    onSuccess,
-}: AdjustLocationDialogProps) {
-    const [adjustmentQuantity, setAdjustmentQuantity] = useState("")
-    const [adjustmentNote, setAdjustmentNote] = useState("")
-    const [isSubmitting, setIsSubmitting] = useState(false)
+type Mode = "add" | "remove" | "set"
 
-    // Reset form when dialog opens with new location
-    useEffect(() => {
-        if (open && adjustingLocation) {
-            setAdjustmentQuantity("")
-            setAdjustmentNote("")
-        }
-    }, [open, adjustingLocation])
+const MODES: { value: Mode; label: string }[] = [
+  { value: "add", label: "Add" },
+  { value: "remove", label: "Remove" },
+  { value: "set", label: "Set count" },
+]
 
-    const handleClose = () => {
-        setAdjustmentQuantity("")
-        setAdjustmentNote("")
-        onOpenChange(false)
+/** Adjust how much of one lot sits in one location */
+export function AdjustLocationDialog({ open, onOpenChange, adjustingLocation, ...props }: AdjustLocationDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        {adjustingLocation && (
+          <AdjustForm {...props} location={adjustingLocation} onClose={() => onOpenChange(false)} />
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AdjustForm({
+  lotId,
+  location,
+  onSuccess,
+  unit,
+  onClose,
+}: Omit<AdjustLocationDialogProps, "open" | "onOpenChange" | "adjustingLocation"> & {
+  location: AdjustingLocation
+  onClose: () => void
+}) {
+  const [mode, setMode] = useState<Mode>("add")
+  const [amount, setAmount] = useState("")
+  const [reason, setReason] = useState("")
+  const [submitted, setSubmitted] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const current = location.currentQuantity
+  const valid = /^\d+$/.test(amount.trim())
+  const n = valid ? Number(amount) : 0
+  const next = mode === "add" ? current + n : mode === "remove" ? current - n : n
+  const delta = next - current
+
+  let error: string | undefined
+  if (!valid) error = amount.trim() === "" ? "Enter a quantity" : "Use a whole number"
+  else if (mode === "remove" && n > current) error = `Only ${formatQuantity(current, unit)} here`
+  else if (delta === 0) error = mode === "set" ? "That's the current count" : "Enter a quantity above 0"
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+    if (error) return
+    setSaving(true)
+    try {
+      await adjustLotQuantityApi(lotId, {
+        type: delta > 0 ? "INPUT" : "OUTPUT",
+        quantity: Math.abs(delta),
+        reason: reason.trim() || (mode === "set" ? "Stock count" : "Stock adjustment"),
+        locationId: location.locationId,
+      })
+      toast.success("Stock adjusted successfully", {
+        description: `${location.locationCode}: ${formatNumber(current)} → ${formatQuantity(next, unit)}`,
+      })
+      onSuccess()
+      onClose()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't adjust stock"))
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const handleAdjustLocation = async () => {
-        if (!adjustingLocation || !adjustmentQuantity) {
-            return
-        }
+  const shownError = submitted ? error : undefined
 
-        // Handle special cases
-        if (adjustmentQuantity === "0" || adjustmentQuantity === "+" || adjustmentQuantity === "-") {
-            toast.error("Please enter an adjustment amount")
-            return
-        }
+  return (
+    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <DialogHeader>
+        <DialogTitle>Adjust stock</DialogTitle>
+        <DialogDescription>
+          This lot at <span className="font-mono font-medium text-foreground">{location.locationCode}</span> ·{" "}
+          {formatQuantity(current, unit)} now
+        </DialogDescription>
+      </DialogHeader>
 
-        const quantity = parseInt(adjustmentQuantity)
-        if (isNaN(quantity) || quantity === 0) {
-            toast.error("Adjustment quantity cannot be zero")
-            return
-        }
+      <div role="radiogroup" aria-label="Adjustment type" className="grid grid-cols-3 gap-1 rounded-lg border bg-muted/50 p-1">
+        {MODES.map((m) => (
+          <button
+            key={m.value}
+            type="button"
+            role="radio"
+            aria-checked={mode === m.value}
+            onClick={() => setMode(m.value)}
+            className={cn(
+              "h-9 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              mode === m.value && "bg-background text-foreground shadow-xs"
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
 
-        const isInput = quantity > 0
-        const newQuantity = adjustingLocation.currentQuantity + quantity
+      <Field
+        label={mode === "set" ? "Counted quantity" : mode === "add" ? "Quantity to add" : "Quantity to remove"}
+        htmlFor="lot-adjust-amount"
+        required
+        error={shownError}
+      >
+        <Input
+          {...invalidProps("lot-adjust-amount", shownError)}
+          type="number"
+          min={0}
+          step={1}
+          inputMode="numeric"
+          placeholder="0"
+          className="text-lg tabular-nums"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+      </Field>
 
-        if (newQuantity < 0) {
-            toast.error(`Cannot remove ${Math.abs(quantity)} units. Only ${adjustingLocation.currentQuantity} available.`)
-            return
-        }
+      <div className="flex items-center justify-between rounded-lg border bg-muted/40 px-3 py-2.5 text-sm">
+        <span className="text-muted-foreground">Result</span>
+        <span className="flex items-center gap-2 tabular-nums">
+          {formatNumber(current)}
+          <ArrowRight className="size-3.5 text-muted-foreground" />
+          <span className={cn("font-semibold", next < 0 && "text-destructive")}>{formatQuantity(Math.max(next, 0), unit)}</span>
+          {valid && delta !== 0 && (
+            <span className={cn("text-xs font-medium", delta > 0 ? "text-success" : "text-destructive")}>
+              ({delta > 0 ? "+" : "−"}
+              {formatNumber(Math.abs(delta))})
+            </span>
+          )}
+        </span>
+      </div>
 
-        setIsSubmitting(true)
-        try {
-            await adjustLotQuantityApi(lotId, {
-                type: isInput ? "INPUT" : "OUTPUT",
-                quantity: Math.abs(quantity),
-                reason: adjustmentNote || "Stock adjustment",
-                locationId: adjustingLocation.locationId,
-            })
+      <Field label="Reason" htmlFor="lot-adjust-reason" hint="Optional — shown in the history">
+        <Input
+          {...invalidProps("lot-adjust-reason")}
+          placeholder={mode === "set" ? "e.g. Cycle count" : "e.g. Damaged in storage"}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </Field>
 
-            toast.success("Stock adjusted successfully")
-            onSuccess()
-            handleClose()
-        } catch (error) {
-            console.error("Failed to adjust stock:", error)
-            toast.error(error instanceof Error ? error.message : "Failed to adjust stock")
-        } finally {
-            setIsSubmitting(false)
-        }
-    }
-
-    const calculateNewQuantity = () => {
-        if (!adjustingLocation) return 0
-        if (adjustmentQuantity === "" || adjustmentQuantity === "+" || adjustmentQuantity === "-") {
-            return adjustingLocation.currentQuantity
-        }
-        return adjustingLocation.currentQuantity + parseInt(adjustmentQuantity)
-    }
-
-    const newQuantity = calculateNewQuantity()
-    const isInvalidQuantity = newQuantity < 0
-    const isDisabled =
-        !adjustmentQuantity ||
-        adjustmentQuantity === "0" ||
-        adjustmentQuantity === "+" ||
-        adjustmentQuantity === "-" ||
-        isInvalidQuantity ||
-        isSubmitting
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[480px]">
-                <DialogHeader>
-                    <DialogTitle className="text-base">
-                        Adjust Stock at {adjustingLocation?.locationCode}
-                    </DialogTitle>
-                    <DialogDescription className="text-xs">
-                        Update the quantity for this lot at the selected location.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-3 py-3">
-                    {/* Current Quantity Display */}
-                    <div className="flex items-center justify-between p-2.5 bg-muted/50 rounded-lg border">
-                        <span className="text-xs text-muted-foreground">Current Quantity</span>
-                        <span className="text-base font-bold">{adjustingLocation?.currentQuantity || 0}</span>
-                    </div>
-
-                    {/* Adjustment Amount with +/- Buttons */}
-                    <div className="space-y-1">
-                        <Label className="text-xs">Adjustment Amount</Label>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                onClick={() => {
-                                    const current = parseInt(adjustmentQuantity) || 0
-                                    setAdjustmentQuantity(String(current - 1))
-                                }}
-                                className="flex-shrink-0 h-9 w-9"
-                                disabled={isSubmitting}
-                            >
-                                <Minus className="h-3.5 w-3.5" />
-                            </Button>
-
-                            <Input
-                                type="text"
-                                value={adjustmentQuantity > 0 ? `+${adjustmentQuantity}` : adjustmentQuantity === 0 ? "0" : `${adjustmentQuantity}`}
-                                onChange={(e) => {
-                                    const val = e.target.value
-                                    if (val === "") {
-                                        setAdjustmentQuantity("")
-                                        return
-                                    }
-                                    if (val === "-" || val === "+") {
-                                        setAdjustmentQuantity(val)
-                                        return
-                                    }
-                                    const cleaned = val.replace(/[^0-9-+]/g, "")
-                                    const hasSign = cleaned.startsWith("-") || cleaned.startsWith("+")
-                                    const numbers = cleaned.replace(/[-+]/g, "")
-                                    const finalValue = hasSign ? cleaned.charAt(0) + numbers : numbers
-                                    if (finalValue === "-" || finalValue === "+") {
-                                        setAdjustmentQuantity(finalValue)
-                                    } else {
-                                        const num = parseInt(finalValue)
-                                        if (!isNaN(num)) {
-                                            setAdjustmentQuantity(String(num))
-                                        }
-                                    }
-                                }}
-                                className="text-center font-semibold flex-1 min-w-0 h-9 text-sm"
-                                placeholder="0"
-                                disabled={isSubmitting}
-                            />
-
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                onClick={() => {
-                                    const current = parseInt(adjustmentQuantity) || 0
-                                    setAdjustmentQuantity(String(current + 1))
-                                }}
-                                className="flex-shrink-0 h-9 w-9"
-                                disabled={isSubmitting}
-                            >
-                                <Plus className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                    </div>
-
-                    {/* New Quantity Display */}
-                    <div className="space-y-1">
-                        <Label htmlFor="newStock" className="text-xs">New Quantity</Label>
-                        <Input
-                            id="newStock"
-                            type="number"
-                            min="0"
-                            value={newQuantity}
-                            onChange={(e) => {
-                                const newValue = parseInt(e.target.value)
-                                if (!isNaN(newValue)) {
-                                    const adjustment = newValue - (adjustingLocation?.currentQuantity || 0)
-                                    setAdjustmentQuantity(String(adjustment))
-                                }
-                            }}
-                            className="font-semibold h-9 text-sm"
-                            disabled={isSubmitting}
-                        />
-                        {isInvalidQuantity && (
-                            <Alert variant="destructive" className="py-1.5">
-                                <AlertCircle className="h-3 w-3" />
-                                <AlertDescription className="text-xs">Stock quantity cannot be negative.</AlertDescription>
-                            </Alert>
-                        )}
-                    </div>
-
-                    {/* Adjustment Note */}
-                    <div className="space-y-1">
-                        <Label htmlFor="note" className="text-xs">Note (Optional)</Label>
-                        <Textarea
-                            id="note"
-                            placeholder="Reason for adjustment..."
-                            value={adjustmentNote}
-                            onChange={(e) => setAdjustmentNote(e.target.value)}
-                            className="min-h-14 resize-none text-xs"
-                            disabled={isSubmitting}
-                        />
-                    </div>
-                </div>
-
-                <DialogFooter>
-                    <Button
-                        variant="outline"
-                        onClick={handleClose}
-                        size="sm"
-                        disabled={isSubmitting}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleAdjustLocation}
-                        disabled={isDisabled}
-                        size="sm"
-                    >
-                        {isSubmitting ? "Updating..." : "Update Stock"}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={saving}>
+          {saving && <Loader2 className="animate-spin" />}
+          {saving ? "Saving…" : "Save adjustment"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
 }

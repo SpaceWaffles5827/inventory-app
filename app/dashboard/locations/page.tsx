@@ -1,392 +1,680 @@
-// app/dashboard/locations/page.tsx
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Pencil, Trash2, MapPin, Warehouse, Settings2, Search, MoreVertical } from "lucide-react"
 import {
-  getLocationsApi,
-  deleteLocationApi,
-  getWorkspaceStructureApi,
-  LocationStructure,
-  LocationWithCount,
-  LocationTemplate,
-} from "@/lib/api/locations.api"
+  ArrowUpDown,
+  Boxes,
+  Layers,
+  Loader2,
+  MapPin,
+  PackageOpen,
+  Pencil,
+  Plus,
+  Printer,
+  SearchX,
+  Settings2,
+  Trash2,
+  Warehouse,
+} from "lucide-react"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { PageContainer, PageHeader } from "@/components/common/page"
+import { StatCard } from "@/components/common/stat-card"
+import { EmptyState } from "@/components/common/empty-state"
+import { ErrorState, ListSkeleton, StatsSkeleton } from "@/components/common/states"
+import { SearchInput } from "@/components/common/search-input"
+import { useConfirm } from "@/components/common/confirm-provider"
 import { AddLocationDialog } from "@/components/addLocationDialog"
 import { EditLocationDialog } from "@/components/editLocationDilog"
 import { ConfigureStructureDialog } from "@/components/configureStructuredDialog"
-import { MobileHeader } from "@/components/mobileHeader"
+import { LocationLabelGenerator } from "@/components/locationLabelGenerator"
 import { LocationMobileView } from "@/components/locationMobileView"
+import { UtilisationBar } from "@/components/locations/location-ui"
+import {
+  toLocationRow,
+  type LocationListEntry,
+  type LocationRow,
+} from "@/components/locations/types"
+import {
+  compareCodes,
+  formatStructurePath,
+  parseLocationStructure,
+  parseLocationTemplate,
+} from "@/components/locations/structure"
+import {
+  deleteLocationApi,
+  getLocationsApi,
+  getWorkspaceStructureApi,
+  type LocationTemplate,
+  type LocationWithCount,
+} from "@/lib/api/locations.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { formatNumber } from "@/lib/format"
+import { useWorkspace } from "@/lib/workspace-context"
+import { cn } from "@/lib/utils"
+
+type StockFilter = "all" | "in-use" | "empty"
+type SortKey = "code" | "code-desc" | "units" | "fullest" | "newest"
+
+const SORT_LABELS: Record<SortKey, string> = {
+  code: "Code A–Z",
+  "code-desc": "Code Z–A",
+  units: "Most stock",
+  fullest: "Fullest",
+  newest: "Newest",
+}
+
+const time = (value: Date | string) => new Date(value).getTime()
+
+/** "zone" → "zones", "shelf" → "shelves", "bay" → "bays", "box" → "boxes" */
+function plural(word: string): string {
+  const w = word.toLowerCase()
+  if (/(s|x|z|ch|sh)$/.test(w)) return `${w}es`
+  if (/[^aeiou]y$/.test(w)) return `${w.slice(0, -1)}ies`
+  if (/[^f]f$/.test(w)) return `${w.slice(0, -1)}ves`
+  return `${w}s`
+}
+
+function sortRows(rows: LocationRow[], sort: SortKey): LocationRow[] {
+  const byCode = (a: LocationRow, b: LocationRow) => compareCodes(a.location.code, b.location.code)
+  const sorted = [...rows]
+  switch (sort) {
+    case "code-desc":
+      return sorted.sort((a, b) => byCode(b, a))
+    case "units":
+      return sorted.sort((a, b) => (b.units ?? b.items) - (a.units ?? a.items) || byCode(a, b))
+    case "fullest":
+      return sorted.sort((a, b) => (b.utilisation ?? -1) - (a.utilisation ?? -1) || byCode(a, b))
+    case "newest":
+      return sorted.sort((a, b) => time(b.location.createdAt) - time(a.location.createdAt) || byCode(a, b))
+    default:
+      return sorted.sort(byCode)
+  }
+}
 
 export default function LocationsPage() {
   const router = useRouter()
-  const [locations, setLocations] = useState<LocationWithCount[]>([])
-  const [searchQuery, setSearchQuery] = useState("")
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [isEditOpen, setIsEditOpen] = useState(false)
-  const [editingLocation, setEditingLocation] = useState<LocationWithCount | null>(null)
-  const [isConfigureStructureOpen, setIsConfigureStructureOpen] = useState(false)
-  const [defaultStructure, setDefaultStructure] = useState<LocationTemplate | null>(null)
+  const confirm = useConfirm()
+  const { workspaceId, isAdmin } = useWorkspace()
 
-  const workspaceId = typeof window !== 'undefined' ? localStorage.getItem("currentWorkspaceId") || "" : ""
+  const [locations, setLocations] = useState<LocationListEntry[]>([])
+  const [template, setTemplate] = useState<LocationTemplate | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Load default structure from database
-  useEffect(() => {
-    if (!workspaceId) return
+  const [query, setQuery] = useState("")
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all")
+  const [sort, setSort] = useState<SortKey>("code")
+  const [zone, setZone] = useState<string | null>(null)
 
-    const fetchWorkspaceStructure = async () => {
-      try {
-        const response = await getWorkspaceStructureApi(workspaceId)
-        if (response.data?.structure) {
-          setDefaultStructure(response.data.structure)
-        }
-      } catch (error) {
-        console.error("Failed to fetch workspace structure:", error)
-      }
+  const [addOpen, setAddOpen] = useState(false)
+  const [editing, setEditing] = useState<LocationListEntry | null>(null)
+  const [structureOpen, setStructureOpen] = useState(false)
+  const [labelTargets, setLabelTargets] = useState<LocationListEntry[] | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setError(null)
+    try {
+      const [locationsRes, structureRes] = await Promise.allSettled([
+        getLocationsApi(workspaceId),
+        getWorkspaceStructureApi(workspaceId),
+      ])
+      if (locationsRes.status === "rejected") throw locationsRes.reason
+      setLocations((locationsRes.value.data?.locations ?? []) as LocationListEntry[])
+      if (structureRes.status === "fulfilled") setTemplate(parseLocationTemplate(structureRes.value.data?.structure))
+    } catch (err) {
+      setError(getErrorMessage(err, "Couldn't load locations"))
+    } finally {
+      setLoading(false)
     }
-
-    fetchWorkspaceStructure()
   }, [workspaceId])
 
-  // Fetch locations when workspaceId is available
   useEffect(() => {
-    if (!workspaceId) return
+    load()
+  }, [load])
 
-    const fetchLocations = async () => {
-      try {
-        const response = await getLocationsApi(workspaceId)
-        if (response.data?.locations) {
-          setLocations(response.data.locations)
-        }
-      } catch (error) {
-        console.error("Failed to fetch locations:", error)
-      }
-    }
-
-    fetchLocations()
-  }, [workspaceId])
-
-  const filteredLocations = locations.filter(
-    (location) =>
-      location.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (location.structure as LocationStructure).some(s => s.value.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (location.description || "").toLowerCase().includes(searchQuery.toLowerCase()),
+  const rows = useMemo(
+    () => locations.map((location) => toLocationRow(location, parseLocationStructure(location.structure))),
+    [locations]
   )
+  const existingCodes = useMemo(() => locations.map((l) => l.code), [locations])
 
-  const handleCreateSuccess = (location: LocationWithCount) => {
-    setLocations([...locations, location])
+  // Group by the first structure level ("Zone A", "Zone B") when that actually groups things
+  const zones = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const row of rows) {
+      const value = row.structure[0]?.value
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => compareCodes(a[0], b[0]))
+  }, [rows])
+  const showZones = zones.length >= 2 && zones.length <= 40 && zones.length < rows.length
+  const zoneLabel = template?.levels[0]?.label || rows.find((r) => r.structure[0]?.label)?.structure[0]?.label || "Zone"
+  const activeZone = showZones && zone && zones.some(([z]) => z === zone) ? zone : null
+
+  const q = query.trim().toLowerCase()
+  const filtered = useMemo(() => {
+    const matches = rows.filter((row) => {
+      if (activeZone && row.structure[0]?.value !== activeZone) return false
+      if (stockFilter === "in-use" && !row.inUse) return false
+      if (stockFilter === "empty" && row.inUse) return false
+      if (!q) return true
+      const { code, description, barcode } = row.location
+      return (
+        code.toLowerCase().includes(q) ||
+        (description ?? "").toLowerCase().includes(q) ||
+        (barcode ?? "").toLowerCase().includes(q)
+      )
+    })
+    return sortRows(matches, sort)
+  }, [rows, activeZone, stockFilter, q, sort])
+
+  const stats = useMemo(() => {
+    const inUse = rows.filter((r) => r.inUse).length
+    const unitsKnown = rows.every((r) => r.units !== null)
+    const units = rows.reduce((sum, r) => sum + (r.units ?? 0), 0)
+    const capacity = rows.reduce((sum, r) => sum + (r.location.capacity ?? 0), 0)
+    return { total: rows.length, inUse, empty: rows.length - inUse, units: unitsKnown ? units : null, capacity }
+  }, [rows])
+
+  const isFiltered = Boolean(q) || stockFilter !== "all" || activeZone !== null
+  const clearFilters = () => {
+    setQuery("")
+    setStockFilter("all")
+    setZone(null)
   }
 
-  const handleEditSuccess = (updatedLocation: LocationWithCount) => {
-    setLocations(locations.map((loc) => (loc.id === updatedLocation.id ? updatedLocation : loc)))
+  const handleCreated = (location: LocationWithCount) => {
+    setLocations((prev) => [...prev, { ...location, totalUnits: 0 }])
   }
 
-  const handleStructureUpdate = (structure: LocationTemplate) => {
-    setDefaultStructure(structure)
+  const handleUpdated = (updated: LocationWithCount) => {
+    setLocations((prev) => prev.map((l) => (l.id === updated.id ? { ...updated, totalUnits: l.totalUnits } : l)))
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this location? This action cannot be undone.")) {
+  const handleDelete = async (row: LocationRow) => {
+    const { location } = row
+    if (row.units !== null && row.units > 0) {
+      toast.error(`${location.code} still holds stock`, {
+        description: `Move or remove its ${formatNumber(row.units)} units before deleting it.`,
+        action: { label: "View", onClick: () => router.push(`/dashboard/locations/${location.id}`) },
+      })
       return
     }
+    const ok = await confirm({
+      title: `Delete location ${location.code}?`,
+      description:
+        "This permanently removes the location and any printed labels for it will stop scanning. Locations that still hold stock can't be deleted.",
+      confirmLabel: "Delete location",
+      destructive: true,
+    })
+    if (!ok) return
 
+    setDeletingId(location.id)
     try {
-      await deleteLocationApi(id, workspaceId)
-      setLocations(locations.filter((loc) => loc.id !== id))
-    } catch (error) {
-      console.error("Failed to delete location:", error)
-      alert(error instanceof Error ? error.message : "Failed to delete location")
+      await deleteLocationApi(location.id, workspaceId)
+      setLocations((prev) => prev.filter((l) => l.id !== location.id))
+      toast.success(`Location ${location.code} deleted`)
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't delete the location"))
+    } finally {
+      setDeletingId(null)
     }
   }
 
-  const openEditDialog = (location: LocationWithCount) => {
-    setEditingLocation(location)
-    setIsEditOpen(true)
-  }
-
-  const totalCapacity = locations.reduce((sum, loc) => sum + loc.capacity, 0)
-  const totalItems = locations.reduce((sum, loc) => sum + (loc._count?.items || 0), 0)
-  const utilizationRate = totalCapacity > 0 ? Math.round((totalItems / totalCapacity) * 100) : 0
-
-  const getLocationStructure = (location: LocationWithCount) => {
-    return (location.structure as LocationStructure) || []
-  }
+  const structurePath = template?.levels.map((l) => l.label).join(" › ")
 
   return (
-    <>
-      {/* Mobile Header with Search */}
-      <MobileHeader
+    <PageContainer>
+      <PageHeader
         title="Locations"
-        showAddButton={true}
-        onAddClick={() => setIsCreateOpen(true)}
-        showSearch={true}
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search locations..."
+        description="Zones, shelves and bins where your stock lives. Print a label for each one and scan it to find what's inside."
+        meta={
+          structurePath ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Layers className="size-3.5" />
+              Structure: <span className="font-medium text-foreground">{structurePath}</span>
+            </span>
+          ) : isAdmin && !loading ? (
+            <span className="text-xs text-muted-foreground">
+              No location structure yet —{" "}
+              <button
+                type="button"
+                className="font-medium text-primary underline-offset-4 hover:underline"
+                onClick={() => setStructureOpen(true)}
+              >
+                set one up
+              </button>{" "}
+              so every code follows the same pattern.
+            </span>
+          ) : undefined
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setLabelTargets(filtered.map((r) => r.location))}
+              disabled={loading || filtered.length === 0}
+              aria-label="Print labels"
+              data-testid="print-location-labels-button"
+            >
+              <Printer />
+              <span className="hidden sm:inline">Print labels</span>
+            </Button>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                onClick={() => setStructureOpen(true)}
+                aria-label="Configure structure"
+                data-testid="configure-structure-button"
+              >
+                <Settings2 />
+                <span className="hidden sm:inline">Structure</span>
+              </Button>
+            )}
+            <Button onClick={() => setAddOpen(true)} data-testid="add-location-button-desktop">
+              <Plus /> Add location
+            </Button>
+          </>
+        }
       />
 
-      <div className="min-h-screen bg-background pt-14 lg:pt-0">
-        <div className="px-0 lg:px-6 lg:py-6">
-          {/* Stats Cards - Mobile Compact / Desktop Cards */}
-          <div className="grid grid-cols-4 gap-0 border-b lg:border-0 lg:grid-cols-4 lg:gap-6 mb-0 lg:mb-8">
-            {/* Mobile: Compact Stats */}
-            <div className="lg:hidden p-3 border-r">
-              <div className="text-xs text-muted-foreground mb-1">Locations</div>
-              <div className="text-xl font-bold">{locations.length}</div>
-            </div>
-            <div className="lg:hidden p-3 border-r">
-              <div className="text-xs text-muted-foreground mb-1">Capacity</div>
-              <div className="text-xl font-bold">{totalCapacity}</div>
-            </div>
-            <div className="lg:hidden p-3 border-r">
-              <div className="text-xs text-muted-foreground mb-1">Items</div>
-              <div className="text-xl font-bold">{totalItems}</div>
-            </div>
-            <div className="lg:hidden p-3">
-              <div className="text-xs text-muted-foreground mb-1">Usage</div>
-              <div className="text-xl font-bold">{utilizationRate}%</div>
-            </div>
-
-            {/* Desktop: Full Cards */}
-            <Card className="hidden lg:block border-border/50 bg-card">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Locations</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <MapPin className="h-4 w-4 text-accent" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{locations.length}</div>
-                <p className="text-xs text-muted-foreground mt-1">Active storage locations</p>
-              </CardContent>
-            </Card>
-
-            <Card className="hidden lg:block border-border/50 bg-card">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Capacity</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Warehouse className="h-4 w-4 text-primary" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{totalCapacity}</div>
-                <p className="text-xs text-muted-foreground mt-1">Total storage capacity</p>
-              </CardContent>
-            </Card>
-
-            <Card className="hidden lg:block border-border/50 bg-card">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Items Stored</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <MapPin className="h-4 w-4 text-accent" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{totalItems}</div>
-                <p className="text-xs text-muted-foreground mt-1">Items across all locations</p>
-              </CardContent>
-            </Card>
-
-            <Card className="hidden lg:block border-border/50 bg-card">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Utilization Rate</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Warehouse className="h-4 w-4 text-primary" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{utilizationRate}%</div>
-                <p className="text-xs text-muted-foreground mt-1">Storage utilization</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Main Locations Card */}
-          <div className="border-b lg:border lg:rounded-lg bg-card mb-0">
-            <div className="p-0 lg:p-4">
-              {/* Header Section - Desktop Only */}
-              <div className="hidden lg:flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4 border-b border-border/50 pb-4">
-                <div className="space-y-2">
-                  <h1 className="text-2xl font-bold tracking-tight text-foreground">Storage Locations</h1>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    Manage warehouse storage locations and track capacity
-                    {defaultStructure && (
-                      <span className="block mt-1.5 text-xs font-medium text-primary">
-                        Active structure: {defaultStructure.levels.map((l) => l.label).join(" → ")}
-                      </span>
-                    )}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search locations..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9 h-9 sm:h-10 bg-background border-border/50 focus:border-primary/50 transition-colors"
-                      data-testid="search-locations-input"
-                    />
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsConfigureStructureOpen(true)}
-                    className="shadow-sm hover:bg-accent/10 hover:border-accent/50 transition-all bg-transparent h-9 sm:h-10"
-                    data-testid="configure-structure-button"
-                  >
-                    <Settings2 className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Configure</span>
+      <div className="space-y-6">
+        {loading ? (
+          <>
+            <StatsSkeleton count={4} />
+            <ListSkeleton rows={6} />
+          </>
+        ) : error && rows.length === 0 ? (
+          <ErrorState
+            title="Couldn't load locations"
+            message={error}
+            onRetry={() => {
+              setLoading(true)
+              load()
+            }}
+          />
+        ) : rows.length === 0 ? (
+          <EmptyState
+            icon={MapPin}
+            title="No locations yet"
+            description={
+              <>
+                A location is anywhere stock sits — a zone, aisle, shelf or bin. Each gets a code like{" "}
+                <span className="font-mono text-foreground">A-01-03</span> that you can print on a label and scan.
+              </>
+            }
+            action={
+              <>
+                <Button onClick={() => setAddOpen(true)}>
+                  <Plus /> Add your first location
+                </Button>
+                {isAdmin && !template && (
+                  <Button variant="outline" onClick={() => setStructureOpen(true)}>
+                    <Settings2 /> Set up structure
                   </Button>
+                )}
+              </>
+            }
+          />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+              <StatCard
+                label="Locations"
+                value={formatNumber(stats.total)}
+                icon={MapPin}
+                tone="primary"
+                hint={showZones ? `Across ${zones.length} ${plural(zoneLabel)}` : undefined}
+              />
+              <StatCard
+                label="In use"
+                value={formatNumber(stats.inUse)}
+                icon={Warehouse}
+                tone="success"
+                hint={stats.total ? `${Math.round((stats.inUse / stats.total) * 100)}% hold stock` : undefined}
+              />
+              <StatCard
+                label="Empty"
+                value={formatNumber(stats.empty)}
+                icon={PackageOpen}
+                tone="default"
+                hint="Ready for new stock"
+              />
+              <StatCard
+                label="Units stored"
+                value={stats.units === null ? "—" : formatNumber(stats.units)}
+                icon={Boxes}
+                tone="info"
+                hint={
+                  stats.units !== null && stats.capacity > 0
+                    ? `${Math.round((stats.units / stats.capacity) * 100)}% of ${formatNumber(stats.capacity)} capacity`
+                    : undefined
+                }
+              />
+            </div>
 
-                  <Button
-                    className="shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90 h-9 sm:h-10 text-white"
-                    onClick={() => setIsCreateOpen(true)}
-                    data-testid="add-location-button-desktop"
-                  >
-                    <Plus className="h-4 w-4 sm:mr-2" />
-                    <span className="hidden sm:inline">Add Location</span>
-                  </Button>
-                </div>
-              </div>
-
-              {/* Mobile View */}
-              <div className="lg:hidden">
-                <LocationMobileView
-                  locations={filteredLocations}
-                  onEditClick={openEditDialog}
-                  onDeleteClick={handleDelete}
+            <div className="space-y-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <SearchInput
+                  value={query}
+                  onValueChange={setQuery}
+                  placeholder="Search code, description or barcode…"
+                  aria-label="Search locations"
+                  className="md:max-w-sm md:flex-1"
+                  data-testid="search-locations-input"
                 />
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 md:flex">
+                  <Tabs value={stockFilter} onValueChange={(v) => setStockFilter(v as StockFilter)}>
+                    <TabsList className="grid h-10 w-full grid-cols-3 md:h-9 md:w-auto" aria-label="Filter by stock">
+                      <TabsTrigger value="all">All</TabsTrigger>
+                      <TabsTrigger value="in-use">In use</TabsTrigger>
+                      <TabsTrigger value="empty">Empty</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+                    <SelectTrigger className="h-10 w-[8.75rem] gap-2 md:h-9" aria-label="Sort locations">
+                      <ArrowUpDown className="size-4 shrink-0 text-muted-foreground" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                        <SelectItem key={key} value={key}>
+                          {SORT_LABELS[key]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              {/* Desktop Table View */}
-              <div className="hidden lg:block rounded-lg border border-border/50 overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold">Location Code</TableHead>
-                      <TableHead className="font-semibold">Structure</TableHead>
-                      <TableHead className="text-center font-semibold">Capacity</TableHead>
-                      <TableHead className="text-center font-semibold">Items</TableHead>
-                      <TableHead className="text-center font-semibold">Utilization</TableHead>
-                      <TableHead className="text-right font-semibold">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredLocations.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          No locations found. Create your first location to get started.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredLocations.map((location) => {
-                        const currentItems = location._count?.items || 0
-                        const utilization = Math.round((currentItems / location.capacity) * 100)
-                        const isNearCapacity = utilization >= 80
+              {showZones && (
+                <div
+                  className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden"
+                  role="group"
+                  aria-label={`Filter by ${zoneLabel.toLowerCase()}`}
+                >
+                  <ZoneChip active={activeZone === null} onClick={() => setZone(null)}>
+                    All {plural(zoneLabel)}
+                  </ZoneChip>
+                  {zones.map(([value, count]) => (
+                    <ZoneChip key={value} active={activeZone === value} onClick={() => setZone(value)}>
+                      {zoneLabel} <span className="font-mono">{value}</span>
+                      <span className="tabular-nums opacity-70">{count}</span>
+                    </ZoneChip>
+                  ))}
+                </div>
+              )}
 
-                        return (
-                          <TableRow
-                            key={location.id}
-                            className="hover:bg-muted/30 transition-colors cursor-pointer"
-                            onClick={() => router.push(`/dashboard/locations/${location.id}`)}
-                            data-testid={`location-row-${location.id}`}
-                          >
-                            <TableCell className="font-mono font-semibold text-accent">{location.code}</TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {getLocationStructure(location).map((part, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground"
-                                  >
-                                    {part.label}: {part.value}
-                                  </span>
-                                ))}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center text-muted-foreground">{location.capacity}</TableCell>
-                            <TableCell className="text-center text-muted-foreground">{currentItems}</TableCell>
-                            <TableCell className="text-center">
-                              <span
-                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${isNearCapacity
-                                  ? "bg-destructive/10 text-destructive ring-1 ring-destructive/20"
-                                  : "bg-accent/10 text-accent ring-1 ring-accent/20"
-                                  }`}
-                              >
-                                {utilization}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="hover:bg-accent/10 hover:text-accent"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    openEditDialog(location)
-                                  }}
-                                  data-testid={`edit-location-button-${location.id}`}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="hover:bg-destructive/10 hover:text-destructive"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    handleDelete(location.id)
-                                  }}
-                                  data-testid={`delete-location-button-${location.id}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+              {isFiltered && (
+                <p className="text-sm text-muted-foreground" aria-live="polite">
+                  Showing {formatNumber(filtered.length)} of {formatNumber(rows.length)} locations ·{" "}
+                  <button type="button" className="font-medium text-primary hover:underline" onClick={clearFilters}>
+                    Clear filters
+                  </button>
+                </p>
+              )}
             </div>
-          </div>
-        </div>
+
+            {filtered.length === 0 ? (
+              <EmptyState
+                icon={SearchX}
+                title="No matching locations"
+                description={q ? `Nothing matches “${query.trim()}” with the current filters.` : "No locations match these filters."}
+                action={
+                  <Button variant="outline" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <>
+                <div className="md:hidden">
+                  <LocationMobileView
+                    rows={filtered}
+                    canDelete={isAdmin}
+                    deletingId={deletingId}
+                    onEdit={setEditing}
+                    onPrint={(location) => setLabelTargets([location])}
+                    onDelete={handleDelete}
+                  />
+                </div>
+
+                <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+                  <Table>
+                    <TableHeader className="bg-muted/40">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="pl-4">Code</TableHead>
+                        <TableHead className="hidden xl:table-cell">Description</TableHead>
+                        <TableHead className="text-right">Items</TableHead>
+                        <TableHead className="text-right">Units</TableHead>
+                        <TableHead className="w-44">Capacity</TableHead>
+                        <TableHead className="hidden xl:table-cell">Barcode</TableHead>
+                        <TableHead className="w-px pr-4 text-right">
+                          <span className="sr-only">Actions</span>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filtered.map((row) => (
+                        <LocationTableRow
+                          key={row.location.id}
+                          row={row}
+                          canDelete={isAdmin}
+                          deleting={deletingId === row.location.id}
+                          onOpen={() => router.push(`/dashboard/locations/${row.location.id}`)}
+                          onEdit={() => setEditing(row.location)}
+                          onPrint={() => setLabelTargets([row.location])}
+                          onDelete={() => handleDelete(row)}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Dialogs */}
       <AddLocationDialog
-        open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
+        open={addOpen}
+        onOpenChange={setAddOpen}
         workspaceId={workspaceId}
-        defaultStructure={defaultStructure}
-        onSuccess={handleCreateSuccess}
-        onStructureUpdate={handleStructureUpdate}
+        defaultStructure={template}
+        onSuccess={handleCreated}
+        onStructureUpdate={setTemplate}
+        existingCodes={existingCodes}
+        allowAddAnother
       />
 
       <EditLocationDialog
-        open={isEditOpen}
-        onOpenChange={setIsEditOpen}
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
         workspaceId={workspaceId}
-        location={editingLocation}
-        onSuccess={handleEditSuccess}
+        location={editing}
+        onSuccess={handleUpdated}
+        existingCodes={existingCodes}
       />
 
-      <ConfigureStructureDialog
-        open={isConfigureStructureOpen}
-        onOpenChange={setIsConfigureStructureOpen}
-        workspaceId={workspaceId}
-        defaultStructure={defaultStructure}
-        onSuccess={handleStructureUpdate}
+      {isAdmin && (
+        <ConfigureStructureDialog
+          open={structureOpen}
+          onOpenChange={setStructureOpen}
+          workspaceId={workspaceId}
+          defaultStructure={template}
+          onSuccess={setTemplate}
+        />
+      )}
+
+      <LocationLabelGenerator
+        open={labelTargets !== null}
+        onOpenChange={(open) => !open && setLabelTargets(null)}
+        locations={labelTargets ?? []}
       />
-    </>
+    </PageContainer>
+  )
+}
+
+function ZoneChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors sm:h-8",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "bg-card text-foreground hover:bg-accent hover:text-accent-foreground"
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function LocationTableRow({
+  row,
+  canDelete,
+  deleting,
+  onOpen,
+  onEdit,
+  onPrint,
+  onDelete,
+}: {
+  row: LocationRow
+  canDelete: boolean
+  deleting: boolean
+  onOpen: () => void
+  onEdit: () => void
+  onPrint: () => void
+  onDelete: () => void
+}) {
+  const { location, structure, units } = row
+  const path = formatStructurePath(structure)
+  const subtitle = location.description || path
+
+  return (
+    <TableRow className="cursor-pointer" onClick={onOpen} data-testid={`location-row-${location.id}`}>
+      <TableCell className="max-w-[18rem] py-3 pl-4">
+        <Link
+          href={`/dashboard/locations/${location.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="break-all font-mono font-semibold hover:text-primary hover:underline"
+        >
+          {location.code}
+        </Link>
+        {subtitle && <p className="truncate text-xs text-muted-foreground xl:hidden">{subtitle}</p>}
+        {path && <p className="hidden truncate text-xs text-muted-foreground xl:block">{path}</p>}
+      </TableCell>
+      <TableCell className="hidden max-w-[16rem] whitespace-normal xl:table-cell">
+        <span className={cn("line-clamp-2 text-sm", !location.description && "text-muted-foreground")}>
+          {location.description || "—"}
+        </span>
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        <span className={cn(row.items === 0 && "text-muted-foreground")}>{formatNumber(row.items)}</span>
+      </TableCell>
+      <TableCell className="text-right tabular-nums">
+        {units === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <span className={cn("font-medium", units === 0 && "font-normal text-muted-foreground")}>
+            {formatNumber(units)}
+          </span>
+        )}
+      </TableCell>
+      <TableCell>
+        {units !== null && location.capacity > 0 ? (
+          <UtilisationBar units={units} capacity={location.capacity} />
+        ) : (
+          <span className="text-sm tabular-nums text-muted-foreground">{formatNumber(location.capacity)}</span>
+        )}
+      </TableCell>
+      <TableCell className="hidden max-w-[12rem] xl:table-cell">
+        <span className="block truncate font-mono text-xs text-muted-foreground">{location.barcode || "—"}</span>
+      </TableCell>
+      <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-0.5">
+          <RowAction label={`Print label for ${location.code}`} tooltip="Print label" onClick={onPrint}>
+            <Printer />
+          </RowAction>
+          <RowAction
+            label={`Edit ${location.code}`}
+            tooltip="Edit"
+            onClick={onEdit}
+            data-testid={`edit-location-button-${location.id}`}
+          >
+            <Pencil />
+          </RowAction>
+          {canDelete && (
+            <RowAction
+              label={`Delete ${location.code}`}
+              tooltip="Delete"
+              onClick={onDelete}
+              disabled={deleting}
+              destructive
+              data-testid={`delete-location-button-${location.id}`}
+            >
+              {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            </RowAction>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
+function RowAction({
+  label,
+  tooltip,
+  onClick,
+  disabled,
+  destructive,
+  children,
+  ...rest
+}: {
+  label: string
+  tooltip: string
+  onClick: () => void
+  disabled?: boolean
+  destructive?: boolean
+  children: React.ReactNode
+  "data-testid"?: string
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={label}
+          className={cn("text-muted-foreground", destructive ? "hover:text-destructive" : "hover:text-foreground")}
+          data-testid={rest["data-testid"]}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   )
 }

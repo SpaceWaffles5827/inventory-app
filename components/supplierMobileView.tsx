@@ -1,138 +1,93 @@
-// components/supplierMobileView.tsx
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { MoreVertical, Users, Mail, Phone } from "lucide-react"
-import { SupplierWithCount } from "@/lib/api/suppliers.api"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Pencil, Power, Trash2 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { ActiveBadge, ContactLinks } from "@/components/partners/contact-details"
+import { RowActions } from "@/components/partners/row-actions"
+import type { SupplierWithCount } from "@/lib/api/suppliers.api"
+import { formatNumber, getInitials } from "@/lib/format"
 
 interface SupplierMobileViewProps {
     suppliers: SupplierWithCount[]
     onEditClick: (supplier: SupplierWithCount) => void
-    onDeleteClick: (id: string) => void
-    onToggleStatus: (supplier: SupplierWithCount) => void
+    /** Omit to hide the delete action (non-admins) */
+    onDeleteClick?: (supplier: SupplierWithCount) => void
+    onToggleStatus: (supplier: SupplierWithCount, active: boolean) => void
+    /** Suppliers whose active toggle is being saved */
+    pendingIds?: ReadonlySet<string>
 }
 
+/** Stacked card list of suppliers for phones (the page shows a table from `md` up). */
 export function SupplierMobileView({
     suppliers,
     onEditClick,
     onDeleteClick,
-    onToggleStatus
+    onToggleStatus,
+    pendingIds,
 }: SupplierMobileViewProps) {
-    if (suppliers.length === 0) {
-        return (
-            <div className="text-center py-12 px-4 text-muted-foreground">
-                No suppliers found. Create your first supplier to get started.
-            </div>
-        )
-    }
-
     return (
-        <div className="divide-y divide-border">
-            {suppliers.map((supplier) => (
-                <div
-                    key={supplier.id}
-                    className="flex items-start gap-3 p-4 active:bg-muted/50 transition-colors"
-                >
-                    {/* Supplier Icon */}
-                    <div className="w-12 h-12 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center flex-shrink-0">
-                        <Users className="h-5 w-5 text-accent" />
-                    </div>
-
-                    {/* Supplier Info */}
-                    <div className="flex-1 min-w-0">
-                        {/* Supplier Name & Status */}
-                        <div className="flex items-start justify-between gap-2 mb-1">
-                            <h3 className="font-semibold text-base leading-tight">
-                                {supplier.name}
-                            </h3>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onToggleStatus(supplier)
-                                }}
-                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ring-1 transition-colors flex-shrink-0 ${supplier.isActive
-                                    ? "bg-primary/10 text-primary ring-primary/20"
-                                    : "bg-muted text-muted-foreground ring-border"
-                                    }`}
-                            >
-                                {supplier.isActive ? "Active" : "Inactive"}
-                            </button>
-                        </div>
-
-                        {/* Contact Person */}
-                        {supplier.contactPerson && (
-                            <p className="text-sm text-muted-foreground mb-2">
-                                {supplier.contactPerson}
-                            </p>
-                        )}
-
-                        {/* Contact Info */}
-                        <div className="space-y-1 mb-2">
-                            {supplier.email && (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <Mail className="h-3.5 w-3.5 flex-shrink-0" />
-                                    <span className="truncate">{supplier.email}</span>
+        <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+            {suppliers.map((supplier) => {
+                const items = supplier._count?.items ?? 0
+                const switchId = `supplier-active-mobile-${supplier.id}`
+                return (
+                    <li key={supplier.id} className="p-4" data-testid={`supplier-row-${supplier.id}`}>
+                        <div className="flex items-start gap-3">
+                            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
+                                {getInitials(supplier.name)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 items-center gap-2">
+                                    <p className="min-w-0 truncate font-medium">{supplier.name}</p>
+                                    {!supplier.isActive && <ActiveBadge active={false} />}
                                 </div>
-                            )}
-                            {supplier.phone && (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <Phone className="h-3.5 w-3.5 flex-shrink-0" />
-                                    <span>{supplier.phone}</span>
-                                </div>
-                            )}
+                                {supplier.contactPerson && (
+                                    <p className="truncate text-sm text-muted-foreground">{supplier.contactPerson}</p>
+                                )}
+                                <ContactLinks email={supplier.email} phone={supplier.phone} className="mt-1.5" />
+                            </div>
+                            <RowActions
+                                className="-mr-2 -mt-2"
+                                label={`Actions for ${supplier.name}`}
+                                actions={[
+                                    { label: "Edit", icon: Pencil, onSelect: () => onEditClick(supplier) },
+                                    {
+                                        label: supplier.isActive ? "Mark as inactive" : "Mark as active",
+                                        icon: Power,
+                                        onSelect: () => onToggleStatus(supplier, !supplier.isActive),
+                                    },
+                                    {
+                                        label: "Delete",
+                                        icon: Trash2,
+                                        destructive: true,
+                                        separated: true,
+                                        hidden: !onDeleteClick,
+                                        onSelect: () => onDeleteClick?.(supplier),
+                                    },
+                                ]}
+                            />
                         </div>
-
-                        {/* Items Count */}
-                        <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-accent/10 text-accent ring-1 ring-accent/20">
-                                {supplier._count?.items || 0} items
+                        <div className="mt-3 flex items-center justify-between gap-3 pl-[52px]">
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                                {formatNumber(items)} {items === 1 ? "item" : "items"} supplied
                             </span>
+                            <label
+                                htmlFor={switchId}
+                                className="-my-2 flex cursor-pointer items-center gap-2 py-2 text-sm text-muted-foreground"
+                            >
+                                Active
+                                <Switch
+                                    id={switchId}
+                                    checked={supplier.isActive}
+                                    onCheckedChange={(checked) => onToggleStatus(supplier, checked)}
+                                    disabled={pendingIds?.has(supplier.id)}
+                                    aria-label={`${supplier.name} is active`}
+                                />
+                            </label>
                         </div>
-                    </div>
-
-                    {/* Actions Menu */}
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="flex-shrink-0 h-10 w-10"
-                            >
-                                <MoreVertical className="h-5 w-5" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => {
-                                e.stopPropagation()
-                                onEditClick(supplier)
-                            }}>
-                                Edit Supplier
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => {
-                                e.stopPropagation()
-                                onToggleStatus(supplier)
-                            }}>
-                                {supplier.isActive ? "Deactivate" : "Activate"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onDeleteClick(supplier.id)
-                                }}
-                            >
-                                Delete Supplier
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-            ))}
-        </div>
+                    </li>
+                )
+            })}
+        </ul>
     )
 }

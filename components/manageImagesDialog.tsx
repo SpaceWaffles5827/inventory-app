@@ -1,254 +1,256 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import { ImageIcon, Upload, Plus, Star, Trash2, Loader2 } from "lucide-react"
-import {
-    smartUploadImageApi,
-    setPrimaryImageApi,
-    deleteItemImageApi,
-    getItemImagesApi,
-    type ItemImage as APIItemImage
-} from "@/lib/api/itemImages.api"
+import { useRef, useState, type DragEvent } from "react"
+import Image from "next/image"
+import { ImagePlus, Loader2, Star, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { useConfirm } from "@/components/common/confirm-provider"
+import { invalidateItemImage, itemImageUrl } from "@/components/imageItem"
+import {
+  deleteItemImageApi,
+  getItemImagesApi,
+  setPrimaryImageApi,
+  smartUploadImageApi,
+  type ItemImage as APIItemImage,
+} from "@/lib/api/itemImages.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { cn } from "@/lib/utils"
+
+const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
 
 interface ManageImagesDialogProps {
-    isOpen: boolean
-    onClose: () => void
-    itemId: string
-    images: APIItemImage[]
-    onImagesChange: (images: APIItemImage[]) => void
-    onImageClick: (imageUrl: string) => void
+  isOpen: boolean
+  onClose: () => void
+  itemId: string
+  images: APIItemImage[]
+  onImagesChange: (images: APIItemImage[]) => void
+  onImageClick: (imageUrl: string) => void
+  /** Deleting photos is admin-only */
+  canDelete?: boolean
 }
 
+/** Upload, reorder primary and delete an item's photos */
 export function ManageImagesDialog({
-    isOpen,
-    onClose,
-    itemId,
-    images,
-    onImagesChange,
-    onImageClick,
+  isOpen,
+  onClose,
+  itemId,
+  images,
+  onImagesChange,
+  onImageClick,
+  canDelete = true,
 }: ManageImagesDialogProps) {
-    const [isUploadingImage, setIsUploadingImage] = useState(false)
-    const [uploadProgress, setUploadProgress] = useState(0)
+  const confirm = useConfirm()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [busyImageId, setBusyImageId] = useState<string | null>(null)
 
-    const handleSetPrimaryImage = async (imageId: string) => {
+  const uploading = uploadProgress !== null
+
+  const refresh = async () => {
+    const res = await getItemImagesApi(itemId)
+    onImagesChange((res.data?.images ?? []) as APIItemImage[])
+    invalidateItemImage(itemId)
+  }
+
+  const upload = async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList).filter((f) => ACCEPTED_TYPES.includes(f.type))
+    const skipped = fileList.length - files.length
+    if (skipped > 0) toast.error(`${skipped} ${skipped === 1 ? "file was" : "files were"} skipped`, { description: "Use JPG, PNG, GIF or WebP images." })
+    if (files.length === 0) return
+
+    setUploadProgress(0)
+    let uploaded = 0
+    try {
+      for (let i = 0; i < files.length; i++) {
+        await smartUploadImageApi(itemId, files[i], images.length === 0 && i === 0, (progress) =>
+          setUploadProgress(Math.round(((i + progress / 100) / files.length) * 100))
+        )
+        uploaded++
+      }
+      toast.success(uploaded === 1 ? "Photo uploaded" : `${uploaded} photos uploaded`)
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Upload failed"), {
+        description: uploaded > 0 ? `${uploaded} of ${files.length} photos were uploaded.` : undefined,
+      })
+    } finally {
+      await refresh().catch(() => undefined)
+      setUploadProgress(null)
+      if (inputRef.current) inputRef.current.value = ""
+    }
+  }
+
+  const makePrimary = async (image: APIItemImage) => {
+    setBusyImageId(image.id)
+    try {
+      await setPrimaryImageApi(image.id)
+      onImagesChange(images.map((img) => ({ ...img, isPrimary: img.id === image.id })))
+      invalidateItemImage(itemId)
+      toast.success("Primary photo updated")
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't update the primary photo"))
+    } finally {
+      setBusyImageId(null)
+    }
+  }
+
+  const remove = async (image: APIItemImage) => {
+    const deleted = await confirm({
+      title: "Delete this photo?",
+      description: image.isPrimary
+        ? "This is the item's primary photo. Another photo will need to be chosen as primary."
+        : "The photo will be removed from this item.",
+      destructive: true,
+      confirmLabel: "Delete photo",
+      action: async () => {
         try {
-            await setPrimaryImageApi(imageId)
-            onImagesChange(
-                images.map((img) => ({
-                    ...img,
-                    isPrimary: img.id === imageId,
-                }))
-            )
-            toast.success("Primary image updated")
-        } catch (error) {
-            console.error("Failed to set primary image:", error)
-            toast.error("Failed to set primary image")
+          await deleteItemImageApi(image.id)
+        } catch (err) {
+          toast.error(getErrorMessage(err, "Couldn't delete the photo"))
+          throw err
         }
-    }
+      },
+    })
+    if (!deleted) return
+    onImagesChange(images.filter((img) => img.id !== image.id))
+    toast.success("Photo deleted")
+    refresh().catch(() => undefined)
+  }
 
-    const handleDeleteImage = async (imageId: string) => {
-        try {
-            await deleteItemImageApi(imageId)
-            onImagesChange(images.filter((img) => img.id !== imageId))
-            toast.success("Image deleted")
-        } catch (error) {
-            console.error("Failed to delete image:", error)
-            toast.error("Failed to delete image")
-        }
-    }
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    if (!uploading && e.dataTransfer.files.length > 0) upload(e.dataTransfer.files)
+  }
 
-    const handleUploadImages = () => {
-        const input = document.createElement("input")
-        input.type = "file"
-        input.accept = "image/jpeg,image/png,image/gif,image/webp"
-        input.multiple = true
-        input.onchange = async (e) => {
-            const files = (e.target as HTMLInputElement).files
-            if (!files || files.length === 0) return
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && !uploading && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Photos</DialogTitle>
+          <DialogDescription>The primary photo is shown in lists and on labels.</DialogDescription>
+        </DialogHeader>
 
-            setIsUploadingImage(true)
-            setUploadProgress(0)
+        <div
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={cn(
+            "flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
+            dragging ? "border-primary bg-primary/5" : "border-border"
+          )}
+        >
+          {uploading ? (
+            <div className="w-full max-w-xs space-y-2">
+              <p className="flex items-center justify-center gap-2 text-sm font-medium">
+                <Loader2 className="size-4 animate-spin text-primary" /> Uploading… {uploadProgress}%
+              </p>
+              <Progress value={uploadProgress ?? 0} />
+            </div>
+          ) : (
+            <>
+              <span className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Upload className="size-5" />
+              </span>
+              <div>
+                <p className="text-sm font-medium">Drop photos here</p>
+                <p className="text-xs text-muted-foreground">JPG, PNG, GIF or WebP</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => inputRef.current?.click()} data-testid="upload-images-button">
+                <ImagePlus /> Choose photos
+              </Button>
+            </>
+          )}
+          <input
+            ref={inputRef}
+            type="file"
+            accept={ACCEPTED_TYPES.join(",")}
+            multiple
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden
+            onChange={(e) => e.target.files && upload(e.target.files)}
+          />
+        </div>
 
-            try {
-                const isPrimary = images.length === 0
-
-                for (let i = 0; i < files.length; i++) {
-                    const file = files[i]
-                    const isFirst = i === 0
-
-                    await smartUploadImageApi(
-                        itemId,
-                        file,
-                        isPrimary && isFirst,
-                        (progress) => {
-                            setUploadProgress(Math.round(((i + progress / 100) / files.length) * 100))
-                        }
-                    )
-                }
-
-                // Reload images
-                const response = await getItemImagesApi(itemId)
-                if (response.data?.images) {
-                    onImagesChange(response.data.images as APIItemImage[])
-                }
-
-                toast.success(`${files.length} image(s) uploaded successfully`)
-            } catch (error) {
-                console.error("Failed to upload images:", error)
-                toast.error("Failed to upload images")
-            } finally {
-                setIsUploadingImage(false)
-                setUploadProgress(0)
-            }
-        }
-        input.click()
-    }
-
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[650px]">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2.5">
-                        <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
-                            <ImageIcon className="h-4 w-4 text-primary" />
-                        </div>
-                        Product Images
-                    </DialogTitle>
-                    <DialogDescription className="text-xs">
-                        Upload and manage photos. The primary image appears on the item card.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-3 py-3">
-                    <div className="flex flex-col items-center justify-center p-3 border-2 border-dashed rounded-xl hover:border-primary/50 hover:bg-muted/30 transition-all">
-                        <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center mb-1.5">
-                            <Upload className="h-4 w-4 text-primary" />
-                        </div>
-                        <p className="text-xs text-muted-foreground mb-2 text-center">
-                            Drag and drop images or click to browse
-                        </p>
-                        <Button
-                            onClick={handleUploadImages}
-                            variant="outline"
-                            size="sm"
-                            className="gap-1.5 h-7"
-                            disabled={isUploadingImage}
-                        >
-                            {isUploadingImage ? (
-                                <>
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Uploading... {uploadProgress}%
-                                </>
-                            ) : (
-                                <>
-                                    <Plus className="h-3.5 w-3.5" />
-                                    Select Images
-                                </>
-                            )}
-                        </Button>
-                    </div>
-
-                    {images.length === 0 ? (
-                        <div className="text-center py-6 text-muted-foreground">
-                            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center mx-auto mb-2">
-                                <ImageIcon className="h-5 w-5 opacity-30" />
-                            </div>
-                            <p className="text-xs font-medium">No images yet</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">Upload your first product image</p>
-                        </div>
+        {images.length === 0 ? (
+          <p className="py-2 text-center text-sm text-muted-foreground">No photos yet.</p>
+        ) : (
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {images.map((image) => {
+              const url = itemImageUrl(image.id)
+              const busy = busyImageId === image.id
+              return (
+                <li key={image.id} className="overflow-hidden rounded-lg border bg-card">
+                  <button
+                    type="button"
+                    onClick={() => onImageClick(url)}
+                    className="relative block aspect-square w-full bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    aria-label="View photo"
+                  >
+                    <Image src={url} alt="" fill unoptimized sizes="(min-width: 640px) 200px, 50vw" className="object-cover" />
+                    {image.isPrimary && (
+                      <Badge className="absolute left-2 top-2 gap-1 shadow-sm">
+                        <Star className="fill-current" /> Primary
+                      </Badge>
+                    )}
+                  </button>
+                  <div className="flex items-center gap-1 p-1.5">
+                    {image.isPrimary ? (
+                      <span className="flex-1 px-1.5 text-xs text-muted-foreground">Shown in lists</span>
                     ) : (
-                        <div>
-                            <div className="flex items-center justify-between mb-2">
-                                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                    Gallery ({images.length})
-                                </h3>
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 max-h-[280px] overflow-y-auto pr-1">
-                                {images.map((image) => (
-                                    <div
-                                        key={image.id}
-                                        className="relative group aspect-square rounded-lg overflow-hidden border-2 hover:border-primary/50 transition-all bg-muted cursor-pointer"
-                                        onClick={() => onImageClick(`/api/items/images/image/${image.id}`)}
-                                    >
-                                        <img
-                                            src={`/api/items/images/image/${image.id}`}
-                                            alt="Product"
-                                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                                        />
-
-                                        {image.isPrimary && (
-                                            <div className="absolute top-1.5 left-1.5">
-                                                <Badge className="bg-yellow-500 hover:bg-yellow-500 text-white shadow-lg border-0 text-xs py-0 px-1">
-                                                    <Star className="h-2 w-2 mr-0.5 fill-current" />
-                                                    Primary
-                                                </Badge>
-                                            </div>
-                                        )}
-
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-200">
-                                            <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between gap-1">
-                                                {!image.isPrimary ? (
-                                                    <Button
-                                                        size="sm"
-                                                        variant="secondary"
-                                                        className="flex-1 bg-white/90 hover:bg-white backdrop-blur-sm h-6 text-xs"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            handleSetPrimaryImage(image.id)
-                                                        }}
-                                                    >
-                                                        <Star className="h-2.5 w-2.5 mr-0.5" />
-                                                        Set Primary
-                                                    </Button>
-                                                ) : (
-                                                    <div className="flex-1" />
-                                                )}
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="shadow-lg h-6 w-6 p-0"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleDeleteImage(image.id)
-                                                    }}
-                                                >
-                                                    <Trash2 className="h-2.5 w-2.5" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 justify-start text-xs"
+                        disabled={busy || uploading}
+                        onClick={() => makePrimary(image)}
+                      >
+                        {busy ? <Loader2 className="animate-spin" /> : <Star />}
+                        Make primary
+                      </Button>
                     )}
-
-                    {images.length > 0 && (
-                        <div className="bg-muted/50 rounded-lg p-2.5">
-                            <p className="text-xs text-muted-foreground">
-                                <span className="font-medium text-foreground">Tip:</span> Click to preview • Hover to set primary or delete
-                            </p>
-                        </div>
+                    {canDelete && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-muted-foreground hover:text-destructive"
+                        disabled={busy || uploading}
+                        onClick={() => remove(image)}
+                        aria-label="Delete photo"
+                      >
+                        <Trash2 />
+                      </Button>
                     )}
-                </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
 
-                <DialogFooter>
-                    <Button onClick={onClose} className="w-full sm:w-auto" size="sm">
-                        Done
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+        <DialogFooter>
+          <Button onClick={onClose} disabled={uploading}>
+            Done
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }

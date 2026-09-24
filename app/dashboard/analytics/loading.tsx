@@ -1,45 +1,27 @@
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { StatsSkeleton } from "@/components/common/states"
 
-export default function AnalyticsLoading() {
+export default function ReportsLoading() {
   return (
-    <div className="min-h-screen">
-      <div className="container mx-auto px-8 py-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-          <div>
-            <Skeleton className="h-10 w-48 mb-2" />
-            <Skeleton className="h-4 w-64" />
-          </div>
-          <Skeleton className="h-10 w-[180px]" />
+    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="h-4 w-72 max-w-full" />
         </div>
-
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          {[...Array(4)].map((_, i) => (
-            <Card key={i} className="border-border/50">
-              <CardHeader>
-                <Skeleton className="h-4 w-24" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-32 mb-2" />
-                <Skeleton className="h-3 w-40" />
-              </CardContent>
-            </Card>
-          ))}
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-[170px]" />
+          <Skeleton className="h-9 w-28" />
         </div>
-
-        <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          {[...Array(2)].map((_, i) => (
-            <Card key={i} className="border-border/50">
-              <CardHeader>
-                <Skeleton className="h-6 w-48 mb-2" />
-                <Skeleton className="h-4 w-64" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-[300px] w-full" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      </div>
+      <StatsSkeleton />
+      <div className="grid gap-6 xl:grid-cols-5">
+        <Skeleton className="h-96 rounded-xl xl:col-span-3" />
+        <Skeleton className="h-96 rounded-xl xl:col-span-2" />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-5">
+        <Skeleton className="h-80 rounded-xl xl:col-span-3" />
+        <Skeleton className="h-80 rounded-xl xl:col-span-2" />
       </div>
     </div>
   )

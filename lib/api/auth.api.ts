@@ -1,4 +1,5 @@
 // Client-side API helper functions for authentication
+import { apiRequest } from "./client";
 
 export interface RegisterRequest {
   firstName: string;
@@ -48,22 +49,12 @@ export interface AuthApiResponse {
 export async function registerUserApi(
   data: RegisterRequest
 ): Promise<AuthApiResponse> {
-  const response = await fetch("/api/auth/register", {
+  return apiRequest<AuthApiResponse>("/api/auth/register", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create account",
+    redirectOnUnauthorized: false,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create account");
-  }
-
-  return result;
 }
 
 /**
@@ -72,43 +63,22 @@ export async function registerUserApi(
 export async function loginUserApi(
   data: LoginRequest
 ): Promise<AuthApiResponse> {
-  const response = await fetch("/api/auth/login", {
+  return apiRequest<AuthApiResponse>("/api/auth/login", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to login",
+    redirectOnUnauthorized: false,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to login");
-  }
-
-  return result;
 }
 
 /**
  * Get current user profile
  */
 export async function getUserProfileApi(): Promise<UserProfileResponse> {
-  const response = await fetch("/api/auth/profile", {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<UserProfileResponse>("/api/auth/profile", {
+    errorMessage: "Failed to fetch user profile",
+    redirectOnUnauthorized: false,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch user profile");
-  }
-
-  return result;
 }
 
 /**
@@ -117,43 +87,21 @@ export async function getUserProfileApi(): Promise<UserProfileResponse> {
 export async function updateUserProfileApi(
   data: UpdateProfileRequest
 ): Promise<AuthApiResponse> {
-  const response = await fetch("/api/auth/profile", {
+  return apiRequest<AuthApiResponse>("/api/auth/profile", {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update profile",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update profile");
-  }
-
-  return result;
 }
 
 /**
  * Logout current user
  */
 export async function logoutUserApi(): Promise<AuthApiResponse> {
-  const response = await fetch("/api/auth/logout", {
+  return apiRequest<AuthApiResponse>("/api/auth/logout", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    errorMessage: "Failed to logout",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to logout");
-  }
-
-  return result;
 }
 
 /**
@@ -162,21 +110,12 @@ export async function logoutUserApi(): Promise<AuthApiResponse> {
 export async function forgotPasswordApi(
   email: string
 ): Promise<AuthApiResponse> {
-  const response = await fetch("/api/auth/password-change-request", {
+  return apiRequest<AuthApiResponse>("/api/auth/password-change-request", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ email }),
+    body: { email },
+    errorMessage: "Failed to send reset email",
+    redirectOnUnauthorized: false,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to send reset email");
-  }
-
-  return result;
 }
 
 /**
@@ -187,21 +126,12 @@ export async function resetPasswordApi(
   newPassword: string,
   confirmPassword: string
 ): Promise<AuthApiResponse> {
-  const response = await fetch(`/api/auth/password-reset/${token}`, {
+  return apiRequest<AuthApiResponse>(`/api/auth/password-reset/${token}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ newPassword, confirmPassword }),
+    body: { newPassword, confirmPassword },
+    errorMessage: "Failed to reset password",
+    redirectOnUnauthorized: false,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to reset password");
-  }
-
-  return result;
 }
 
 /**
@@ -212,20 +142,10 @@ export async function changePasswordApi(
   newPassword: string,
   confirmNewPassword: string
 ): Promise<AuthApiResponse> {
-  const response = await fetch("/api/auth/password", {
+  return apiRequest<AuthApiResponse>("/api/auth/password", {
     method: "PUT",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ currentPassword, newPassword, confirmNewPassword }),
+    body: { currentPassword, newPassword, confirmNewPassword },
+    errorMessage: "Failed to change password",
+    redirectOnUnauthorized: false,
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to change password");
-  }
-
-  return result;
 }

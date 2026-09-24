@@ -1,135 +1,132 @@
-// components/locationMobileView.tsx
 "use client"
 
-import { useRouter } from "next/navigation"
+import Link from "next/link"
+import { Eye, Loader2, MapPin, MoreVertical, Pencil, Printer, Trash2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MoreVertical, MapPin } from "lucide-react"
-import { LocationWithCount, LocationStructure } from "@/lib/api/locations.api"
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { formatNumber } from "@/lib/format"
+import { StructureChips, UtilisationBar } from "@/components/locations/location-ui"
+import type { LocationListEntry, LocationRow } from "@/components/locations/types"
 
 interface LocationMobileViewProps {
-    locations: LocationWithCount[]
-    onEditClick: (location: LocationWithCount) => void
-    onDeleteClick: (id: string) => void
+  rows: LocationRow[]
+  canDelete: boolean
+  deletingId?: string | null
+  onEdit: (location: LocationListEntry) => void
+  onPrint: (location: LocationListEntry) => void
+  onDelete: (row: LocationRow) => void
 }
 
-export function LocationMobileView({
-    locations,
-    onEditClick,
-    onDeleteClick
-}: LocationMobileViewProps) {
-    const router = useRouter()
+/** Card list of locations for phones (the table takes over from `md`) */
+export function LocationMobileView({ rows, canDelete, deletingId, onEdit, onPrint, onDelete }: LocationMobileViewProps) {
+  return (
+    <ul className="space-y-2" aria-label="Locations">
+      {rows.map((row) => {
+        const { location } = row
+        const href = `/dashboard/locations/${location.id}`
+        const deleting = deletingId === location.id
 
-    const getLocationStructure = (location: LocationWithCount) => {
-        return (location.structure as LocationStructure) || []
-    }
-
-    if (locations.length === 0) {
         return (
-            <div className="text-center py-12 px-4 text-muted-foreground">
-                No locations found. Create your first location to get started.
+          <li
+            key={location.id}
+            className="relative rounded-xl border bg-card p-4 transition-colors active:bg-accent/40"
+            data-testid={`location-row-${location.id}`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <MapPin className="size-5" />
+              </div>
+
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="min-w-0">
+                  {/* Stretched link: the whole card opens the location */}
+                  <Link
+                    href={href}
+                    className="break-all font-mono text-base font-semibold leading-tight outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
+                  >
+                    {location.code}
+                  </Link>
+                  {location.description && (
+                    <p className="truncate text-sm text-muted-foreground">{location.description}</p>
+                  )}
+                </div>
+
+                <StructureChips structure={row.structure} max={3} />
+
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm tabular-nums">
+                  {row.inUse ? (
+                    <>
+                      <span>
+                        <span className="font-medium">{formatNumber(row.items)}</span>{" "}
+                        <span className="text-muted-foreground">{row.items === 1 ? "item" : "items"}</span>
+                      </span>
+                      {row.units !== null && (
+                        <span>
+                          <span className="font-medium">{formatNumber(row.units)}</span>{" "}
+                          <span className="text-muted-foreground">units</span>
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <Badge variant="muted">Empty</Badge>
+                  )}
+                </div>
+
+                {row.units !== null && row.units > 0 && location.capacity > 0 && (
+                  <UtilisationBar units={row.units} capacity={location.capacity} showLabel={false} className="pt-1" />
+                )}
+              </div>
+
+              {/* Non-modal so the dialogs these items open get focus cleanly */}
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="relative z-10 -mr-2 -mt-1 size-10 shrink-0"
+                    aria-label={`Actions for ${location.code}`}
+                    disabled={deleting}
+                  >
+                    {deleting ? <Loader2 className="animate-spin" /> : <MoreVertical />}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem asChild>
+                    <Link href={href}>
+                      <Eye /> View
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onEdit(location)} data-testid={`edit-location-button-${location.id}`}>
+                    <Pencil /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onPrint(location)}>
+                    <Printer /> Print label
+                  </DropdownMenuItem>
+                  {canDelete && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => onDelete(row)}
+                        data-testid={`delete-location-button-${location.id}`}
+                      >
+                        <Trash2 /> Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
+          </li>
         )
-    }
-
-    return (
-        <div className="divide-y divide-border">
-            {locations.map((location) => {
-                const currentItems = location._count?.items || 0
-                const utilization = Math.round((currentItems / location.capacity) * 100)
-                const isNearCapacity = utilization >= 80
-
-                return (
-                    <div
-                        key={location.id}
-                        className="flex items-center gap-3 p-4 active:bg-muted/50 transition-colors"
-                        onClick={() => router.push(`/dashboard/locations/${location.id}`)}
-                        data-testid={`location-row-${location.id}`}
-                    >
-                        {/* Location Icon */}
-                        <div className="w-12 h-12 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center flex-shrink-0">
-                            <MapPin className="h-5 w-5 text-accent" />
-                        </div>
-
-                        {/* Location Info */}
-                        <div className="flex-1 min-w-0">
-                            {/* Location Code */}
-                            <h3 className="font-mono font-bold text-base leading-tight mb-1">
-                                {location.code}
-                            </h3>
-
-                            {/* Structure Tags */}
-                            <div className="flex flex-wrap gap-1 mb-2">
-                                {getLocationStructure(location).slice(0, 2).map((part, idx) => (
-                                    <span
-                                        key={idx}
-                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground"
-                                    >
-                                        {part.label}: {part.value}
-                                    </span>
-                                ))}
-                                {getLocationStructure(location).length > 2 && (
-                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground">
-                                        +{getLocationStructure(location).length - 2} more
-                                    </span>
-                                )}
-                            </div>
-
-                            {/* Stats Row */}
-                            <div className="flex items-center gap-3 text-sm">
-                                <span className="text-muted-foreground">
-                                    {currentItems}/{location.capacity}
-                                </span>
-                                <span className="text-muted-foreground">|</span>
-                                <span
-                                    className={`font-medium ${isNearCapacity ? "text-destructive" : "text-accent"
-                                        }`}
-                                >
-                                    {utilization}% used
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Actions Menu */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="flex-shrink-0 h-10 w-10"
-                                >
-                                    <MoreVertical className="h-5 w-5" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => router.push(`/dashboard/locations/${location.id}`)}>
-                                    View Details
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={(e) => {
-                                    e.stopPropagation()
-                                    onEditClick(location)
-                                }}>
-                                    Edit Location
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                    className="text-destructive"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        onDeleteClick(location.id)
-                                    }}
-                                >
-                                    Delete Location
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                )
-            })}
-        </div>
-    )
+      })}
+    </ul>
+  )
 }

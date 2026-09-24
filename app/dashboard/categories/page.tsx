@@ -1,296 +1,407 @@
-// app/dashboard/categories/page.tsx
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { AlertTriangle, DollarSign, Eye, FolderTree, Package, Pencil, Plus, SearchX, Trash2 } from "lucide-react"
+import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Pencil, Trash2, FolderOpen, Search } from "lucide-react"
-import {
-  getCategoriesApi,
-  deleteCategoryApi,
-  type CategoryWithCount,
-} from "@/lib/api/categories.api"
+import { PageContainer, PageHeader } from "@/components/common/page"
+import { StatCard } from "@/components/common/stat-card"
+import { EmptyState } from "@/components/common/empty-state"
+import { ErrorState, ListSkeleton, StatsSkeleton } from "@/components/common/states"
+import { SearchInput } from "@/components/common/search-input"
+import { useConfirm } from "@/components/common/confirm-provider"
+import { ListToolbar, OptionSelect, type Option } from "@/components/partners/list-toolbar"
+import { RowActions } from "@/components/partners/row-actions"
+import type { CategoryRow } from "@/components/catalog/category-row"
 import { AddCategoryDialog } from "@/components/addCategoryDialog"
 import { EditCategoryDialog } from "@/components/editCategoryDialog"
-import { MobileHeader } from "@/components/mobileHeader"
 import { CategoryMobileView } from "@/components/categoryMobileView"
+import { deleteCategoryApi, getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
+import { getItemsApi, type ItemWithRelations } from "@/lib/api/items.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
+import { formatCurrency, formatCurrencyCompact, formatDate, formatNumber } from "@/lib/format"
+
+type SortKey = "name-asc" | "name-desc" | "items-desc" | "value-desc" | "newest"
+type UsageFilter = "all" | "in-use" | "empty"
+
+const SORT_OPTIONS: Option<SortKey>[] = [
+  { value: "name-asc", label: "Name (A–Z)" },
+  { value: "name-desc", label: "Name (Z–A)" },
+  { value: "items-desc", label: "Most items" },
+  { value: "value-desc", label: "Highest value" },
+  { value: "newest", label: "Newest first" },
+]
+
+const USAGE_OPTIONS: Option<UsageFilter>[] = [
+  { value: "all", label: "All categories" },
+  { value: "in-use", label: "With items" },
+  { value: "empty", label: "Empty" },
+]
+
+function isLow(item: ItemWithRelations) {
+  return item.status === "LOW_STOCK" || item.status === "OUT_OF_STOCK"
+}
 
 export default function CategoriesPage() {
   const router = useRouter()
+  const confirm = useConfirm()
+  const { workspaceId, isAdmin } = useWorkspace()
+
   const [categories, setCategories] = useState<CategoryWithCount[]>([])
-  const [searchQuery, setSearchQuery] = useState("")
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [isEditOpen, setIsEditOpen] = useState(false)
-  const [editingCategory, setEditingCategory] = useState<CategoryWithCount | null>(null)
-  const [workspaceId] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem("currentWorkspaceId") || ""
+  /** null when items couldn't be loaded — stock figures then show as unavailable */
+  const [items, setItems] = useState<ItemWithRelations[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const [query, setQuery] = useState("")
+  const [usage, setUsage] = useState<UsageFilter>("all")
+  const [sort, setSort] = useState<SortKey>("name-asc")
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editing, setEditing] = useState<CategoryWithCount | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [categoriesRes, itemsRes] = await Promise.all([
+        getCategoriesApi(workspaceId),
+        // items only feed the stock columns — if they fail the list still works
+        getItemsApi(workspaceId).catch(() => null),
+      ])
+      setCategories(categoriesRes.data?.categories ?? [])
+      setItems(itemsRes ? (itemsRes.data?.items ?? []) : null)
+    } catch (err) {
+      setError(getErrorMessage(err, "Couldn't load categories"))
+    } finally {
+      setLoading(false)
     }
-    return ""
-  })
-
-  // Fetch categories when workspaceId is available
-  useEffect(() => {
-    if (!workspaceId) return
-
-    const fetchCategories = async () => {
-      try {
-        const response = await getCategoriesApi(workspaceId)
-        if (response.data?.categories) {
-          setCategories(response.data.categories)
-        }
-      } catch (error) {
-        console.error("Failed to fetch categories:", error)
-      }
-    }
-
-    fetchCategories()
   }, [workspaceId])
 
-  const filteredCategories = categories.filter(
-    (category) =>
-      category.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (category.description || "").toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  useEffect(() => {
+    load()
+  }, [load])
 
-  const handleCreateSuccess = (category: CategoryWithCount) => {
-    setCategories([...categories, category])
+  const rows = useMemo<CategoryRow[]>(() => {
+    const stock = new Map<string, { units: number; value: number; lowStock: number }>()
+    for (const item of items ?? []) {
+      if (!item.categoryId) continue
+      const entry = stock.get(item.categoryId) ?? { units: 0, value: 0, lowStock: 0 }
+      entry.units += item.onHand
+      entry.value += item.onHand * item.cost
+      if (isLow(item)) entry.lowStock += 1
+      stock.set(item.categoryId, entry)
+    }
+    return categories.map((category) => {
+      const s = stock.get(category.id)
+      return {
+        ...category,
+        units: items ? (s?.units ?? 0) : null,
+        value: items ? (s?.value ?? 0) : null,
+        lowStock: items ? (s?.lowStock ?? 0) : null,
+      }
+    })
+  }, [categories, items])
+
+  const totals = useMemo(() => {
+    const categorised = categories.reduce((sum, c) => sum + c.itemCount, 0)
+    const empty = categories.filter((c) => c.itemCount === 0).length
+    const uncategorised = items ? items.filter((i) => !i.categoryId).length : null
+    const value = items ? items.reduce((sum, i) => (i.categoryId ? sum + i.onHand * i.cost : sum), 0) : null
+    return { categorised, empty, uncategorised, value }
+  }, [categories, items])
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const filtered = rows.filter((c) => {
+      if (usage === "in-use" && c.itemCount === 0) return false
+      if (usage === "empty" && c.itemCount > 0) return false
+      if (!q) return true
+      return c.name.toLowerCase().includes(q) || (c.description ?? "").toLowerCase().includes(q)
+    })
+    return filtered.sort((a, b) => {
+      switch (sort) {
+        case "name-desc":
+          return b.name.localeCompare(a.name)
+        case "items-desc":
+          return b.itemCount - a.itemCount || a.name.localeCompare(b.name)
+        case "value-desc":
+          return (b.value ?? 0) - (a.value ?? 0) || a.name.localeCompare(b.name)
+        case "newest":
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        default:
+          return a.name.localeCompare(b.name)
+      }
+    })
+  }, [rows, query, usage, sort])
+
+  const clearFilters = () => {
+    setQuery("")
+    setUsage("all")
   }
 
-  const handleEditSuccess = (updatedCategory: CategoryWithCount) => {
-    setCategories(
-      categories.map((cat) => (cat.id === updatedCategory.id ? updatedCategory : cat)),
-    )
+  const openEdit = (category: CategoryWithCount) => {
+    setEditing(category)
+    setEditOpen(true)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this category? This action cannot be undone.")) {
+  const handleDelete = async (category: CategoryRow) => {
+    if (category.itemCount > 0) {
+      toast.error(`Can't delete “${category.name}”`, {
+        description: `${formatNumber(category.itemCount)} ${category.itemCount === 1 ? "item is" : "items are"} still in this category. Move them to another category or delete them first.`,
+      })
       return
     }
-
-    try {
-      await deleteCategoryApi(id, workspaceId)
-      setCategories(categories.filter((cat) => cat.id !== id))
-    } catch (error) {
-      console.error("Failed to delete category:", error)
-      alert(error instanceof Error ? error.message : "Failed to delete category")
+    const deleted = await confirm({
+      title: `Delete “${category.name}”?`,
+      description: "This category has no items, so nothing else changes. The category is removed permanently and can't be restored.",
+      destructive: true,
+      confirmLabel: "Delete category",
+      action: async () => {
+        try {
+          await deleteCategoryApi(category.id, workspaceId)
+        } catch (err) {
+          toast.error(getErrorMessage(err, "Couldn't delete category"))
+          throw err
+        }
+      },
+    })
+    if (deleted) {
+      setCategories((prev) => prev.filter((c) => c.id !== category.id))
+      toast.success(`Category “${category.name}” deleted`)
     }
   }
 
-  const openEditDialog = (category: CategoryWithCount) => {
-    setEditingCategory(category)
-    setIsEditOpen(true)
-  }
-
-  const totalItems = categories.reduce((sum, cat) => sum + cat.itemCount, 0)
-  const avgItems = categories.length > 0 ? Math.round(totalItems / categories.length) : 0
+  const hasFilters = query.trim() !== "" || usage !== "all"
 
   return (
-    <>
-      {/* Mobile Header with Search */}
-      <MobileHeader
+    <PageContainer>
+      <PageHeader
         title="Categories"
-        showAddButton={true}
-        onAddClick={() => setIsCreateOpen(true)}
-        showSearch={true}
-        searchValue={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchPlaceholder="Search categories..."
+        description="Group similar items so they're easier to find, filter and report on."
+        actions={
+          <Button onClick={() => setCreateOpen(true)} data-testid="add-category-button-desktop">
+            <Plus /> Add category
+          </Button>
+        }
       />
 
-      {/* Mobile: Fixed height container with proper scrolling */}
-      <div className="lg:hidden fixed inset-0 top-14 flex flex-col overflow-hidden">
-        {/* Stats Bar - Fixed at top */}
-        <div className="grid grid-cols-3 gap-0 border-b flex-shrink-0">
-          <div className="p-4 border-r">
-            <div className="text-xs text-muted-foreground mb-1">Categories</div>
-            <div className="text-xl font-bold">{categories.length}</div>
-          </div>
-          <div className="p-4 border-r">
-            <div className="text-xs text-muted-foreground mb-1">Items</div>
-            <div className="text-xl font-bold">{totalItems}</div>
-          </div>
-          <div className="p-4">
-            <div className="text-xs text-muted-foreground mb-1">Avg/Cat</div>
-            <div className="text-xl font-bold">{avgItems}</div>
-          </div>
-        </div>
+      <div className="space-y-6">
+        {error ? (
+          <ErrorState title="Couldn't load categories" message={error} onRetry={load} />
+        ) : loading ? (
+          <>
+            <StatsSkeleton count={4} />
+            <ListSkeleton rows={6} />
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+              <StatCard
+                label="Categories"
+                value={formatNumber(categories.length)}
+                icon={FolderTree}
+                tone="primary"
+                hint={totals.empty > 0 ? `${formatNumber(totals.empty)} without items` : "All in use"}
+              />
+              <StatCard
+                label="Categorised items"
+                value={formatNumber(totals.categorised)}
+                icon={Package}
+                hint={items ? `of ${formatNumber(items.length)} items in total` : "Across all categories"}
+              />
+              <StatCard
+                label="Uncategorised"
+                value={totals.uncategorised === null ? "—" : formatNumber(totals.uncategorised)}
+                icon={AlertTriangle}
+                tone={totals.uncategorised ? "warning" : "default"}
+                hint={
+                  totals.uncategorised === null
+                    ? "Item data unavailable"
+                    : totals.uncategorised > 0
+                      ? "Items without a category"
+                      : "Every item has a category"
+                }
+              />
+              <StatCard
+                label="Stock value"
+                value={totals.value === null ? "—" : formatCurrencyCompact(totals.value)}
+                icon={DollarSign}
+                tone="success"
+                hint={totals.value === null ? "Item data unavailable" : "On hand in categorised items"}
+              />
+            </div>
 
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
-          <CategoryMobileView
-            categories={filteredCategories}
-            onEditClick={openEditDialog}
-            onDeleteClick={handleDelete}
-          />
-        </div>
-      </div>
-
-      {/* Desktop View */}
-      <div className="hidden lg:block min-h-screen bg-background">
-        <div className="px-6 py-6">
-          {/* Stats Cards - Desktop */}
-          <div className="grid grid-cols-3 gap-6 mb-8">
-            <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Categories</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <FolderOpen className="h-4 w-4 text-accent" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{categories.length}</div>
-                <p className="text-xs text-muted-foreground mt-1">Active categories</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <FolderOpen className="h-4 w-4 text-primary" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{totalItems}</div>
-                <p className="text-xs text-muted-foreground mt-1">Across all categories</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Avg Items per Category</CardTitle>
-                <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <FolderOpen className="h-4 w-4 text-accent" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-card-foreground">{avgItems}</div>
-                <p className="text-xs text-muted-foreground mt-1">Items per category</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Main Categories Card */}
-          <div className="border rounded-lg bg-card">
-            <div className="p-4">
-              {/* Header Section */}
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
-                <div>
-                  <h1 className="text-2xl font-bold">Categories</h1>
-                  <p className="text-sm text-muted-foreground">Organize your inventory with custom categories</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="relative flex-1 md:w-80">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search categories..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
+            {categories.length === 0 ? (
+              <EmptyState
+                icon={FolderTree}
+                title="No categories yet"
+                description="Create categories like “Electronics” or “Packaging” to group your items and see stock and value per group."
+                action={
+                  <Button onClick={() => setCreateOpen(true)}>
+                    <Plus /> Add category
+                  </Button>
+                }
+              />
+            ) : (
+              <section className="space-y-4">
+                <ListToolbar
+                  search={
+                    <SearchInput
+                      value={query}
+                      onValueChange={setQuery}
+                      placeholder="Search categories…"
+                      aria-label="Search categories"
                       data-testid="search-categories-input"
                     />
-                  </div>
+                  }
+                >
+                  <OptionSelect label="Filter categories" value={usage} onValueChange={setUsage} options={USAGE_OPTIONS} />
+                  <OptionSelect label="Sort categories" value={sort} onValueChange={setSort} options={SORT_OPTIONS} />
+                </ListToolbar>
 
-                  <Button
-                    className="shadow-lg shadow-accent/20 text-white"
-                    onClick={() => setIsCreateOpen(true)}
-                    data-testid="add-category-button-desktop"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Category
-                  </Button>
-                </div>
-              </div>
+                {visible.length === 0 ? (
+                  <EmptyState
+                    icon={SearchX}
+                    title="No categories match"
+                    description={
+                      query.trim()
+                        ? `Nothing matches “${query.trim()}”${usage !== "all" ? " with the current filter" : ""}.`
+                        : "No categories match the current filter."
+                    }
+                    action={
+                      hasFilters && (
+                        <Button variant="outline" onClick={clearFilters}>
+                          Clear filters
+                        </Button>
+                      )
+                    }
+                  />
+                ) : (
+                  <>
+                    <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+                      <Table>
+                        <TableHeader className="bg-muted/40">
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="h-11 pl-4 text-muted-foreground">Category</TableHead>
+                            <TableHead className="h-11 text-right text-muted-foreground">Items</TableHead>
+                            <TableHead className="h-11 text-right text-muted-foreground">Units</TableHead>
+                            <TableHead className="h-11 text-right text-muted-foreground">Stock value</TableHead>
+                            <TableHead className="hidden h-11 text-right text-muted-foreground lg:table-cell">
+                              Low stock
+                            </TableHead>
+                            <TableHead className="hidden h-11 text-muted-foreground xl:table-cell">Created</TableHead>
+                            <TableHead className="h-11 w-14 pr-4">
+                              <span className="sr-only">Actions</span>
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {visible.map((category) => {
+                            const href = `/dashboard/categories/${category.id}`
+                            return (
+                              <TableRow
+                                key={category.id}
+                                className="cursor-pointer"
+                                onClick={() => router.push(href)}
+                                data-testid={`category-row-${category.id}`}
+                              >
+                                <TableCell className="w-full max-w-0 py-3 pl-4">
+                                  <div className="flex min-w-0 items-center gap-3">
+                                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                                      <FolderTree className="size-4" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Link
+                                        href={href}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="block truncate font-medium hover:underline"
+                                      >
+                                        {category.name}
+                                      </Link>
+                                      <p className="truncate text-sm text-muted-foreground">
+                                        {category.description || "No description"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">{formatNumber(category.itemCount)}</TableCell>
+                                <TableCell className="text-right tabular-nums">
+                                  {category.units === null ? "—" : formatNumber(category.units)}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">
+                                  {category.value === null ? "—" : formatCurrency(category.value)}
+                                </TableCell>
+                                <TableCell className="hidden text-right lg:table-cell">
+                                  {category.lowStock ? (
+                                    <Badge variant="warning" className="tabular-nums">
+                                      {formatNumber(category.lowStock)}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground">—</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="hidden text-muted-foreground xl:table-cell">
+                                  {formatDate(category.createdAt)}
+                                </TableCell>
+                                <TableCell className="pr-4 text-right">
+                                  <RowActions
+                                    label={`Actions for ${category.name}`}
+                                    actions={[
+                                      { label: "View items", icon: Eye, href },
+                                      { label: "Edit", icon: Pencil, onSelect: () => openEdit(category) },
+                                      {
+                                        label: "Delete",
+                                        icon: Trash2,
+                                        destructive: true,
+                                        separated: true,
+                                        hidden: !isAdmin,
+                                        onSelect: () => handleDelete(category),
+                                      },
+                                    ]}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
 
-              {/* Desktop Table View */}
-              <div className="rounded-lg border border-border/50 overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold">Category Name</TableHead>
-                      <TableHead className="font-semibold">Description</TableHead>
-                      <TableHead className="text-center font-semibold">Items</TableHead>
-                      <TableHead className="font-semibold">Created</TableHead>
-                      <TableHead className="text-right font-semibold">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredCategories.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          No categories found. Create your first category to get started.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredCategories.map((category) => (
-                        <TableRow
-                          key={category.id}
-                          className="hover:bg-muted/30 transition-colors cursor-pointer"
-                          onClick={() => router.push(`/dashboard/categories/${category.id}`)}
-                          data-testid={`category-row-${category.id}`}
-                        >
-                          <TableCell className="font-medium">{category.name}</TableCell>
-                          <TableCell className="text-muted-foreground max-w-md truncate">
-                            {category.description || "No description"}
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-accent/10 text-accent ring-1 ring-accent/20">
-                              {category.itemCount} items
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {new Date(category.createdAt).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="hover:bg-accent/10 hover:text-accent"
-                                onClick={() => openEditDialog(category)}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => handleDelete(category.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          </div>
-        </div>
+                    <div className="md:hidden">
+                      <CategoryMobileView
+                        categories={visible}
+                        onEditClick={openEdit}
+                        onDeleteClick={isAdmin ? handleDelete : undefined}
+                      />
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Dialogs */}
       <AddCategoryDialog
-        open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
+        open={createOpen}
+        onOpenChange={setCreateOpen}
         workspaceId={workspaceId}
-        onSuccess={handleCreateSuccess}
+        onSuccess={(category) => setCategories((prev) => [...prev, category])}
       />
-
       <EditCategoryDialog
-        open={isEditOpen}
-        onOpenChange={setIsEditOpen}
+        open={editOpen}
+        onOpenChange={setEditOpen}
         workspaceId={workspaceId}
-        category={editingCategory}
-        onSuccess={handleEditSuccess}
+        category={editing}
+        onSuccess={(updated) => setCategories((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))}
       />
-    </>
+    </PageContainer>
   )
 }

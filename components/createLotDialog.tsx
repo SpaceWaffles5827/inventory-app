@@ -1,515 +1,377 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
+import { ArrowLeft, ArrowRight, Check, Loader2, MapPin, PackagePlus } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { MapPin, PackageCheck, Loader2 } from "lucide-react"
-import { getItemByIdApi, type ItemWithDetails } from "@/lib/api/items.api"
+import { EntityCombobox } from "@/components/items/entity-combobox"
+import { Field, invalidProps } from "@/components/items/form-field"
+import { testIdSlug, todayInputValue } from "@/components/items/item-utils"
 import { createLotApi } from "@/lib/api/lots.api"
-import { type SupplierWithCount } from "@/lib/api/suppliers.api"
-import { type LocationWithCount } from "@/lib/api/locations.api"
-import { toast } from "sonner"
+import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
+import { formatNumber, formatQuantity } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
-interface CreateLotDialogProps {
-    isOpen: boolean
-    onClose: () => void
-    itemId: string
-    itemLocations: Array<{ locationId: string }>
-    suppliers: SupplierWithCount[]
-    locations: LocationWithCount[]
-    onSuccess: (updatedItem: ItemWithDetails) => void
-    onLotsReload: () => Promise<void>
+interface LotLocationOption {
+  locationId: string
+  quantity?: number | null
+  location?: { code: string } | null
 }
 
-export function CreateLotDialog({
-    isOpen,
-    onClose,
-    itemId,
-    itemLocations,
-    suppliers,
-    locations,
-    onSuccess,
-    onLotsReload,
-}: CreateLotDialogProps) {
-    const [isSaving, setIsSaving] = useState(false)
-    const [isStep2Open, setIsStep2Open] = useState(false)
+interface CreateLotDialogProps {
+  isOpen: boolean
+  onClose: () => void
+  itemId: string
+  /** The item's assigned locations — a new lot can only be received into these */
+  itemLocations: LotLocationOption[]
+  unit?: string | null
+  /** Called after the lot is created (refresh the item and its lots) */
+  onSuccess: () => void | Promise<void>
+}
 
-    const [lotFormData, setLotFormData] = useState({
-        lotNumber: "",
-        quantity: "",
-        receivedDate: new Date().toISOString().split('T')[0],
-        manufactureDate: "",
-        expirationDate: "",
-        supplierId: "",
-        poNumber: "",
-        notes: "",
-    })
+/** Two-step "receive a lot": lot details, then how the quantity is split across locations */
+export function CreateLotDialog({ isOpen, onClose, ...props }: CreateLotDialogProps) {
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        {/* Mounted only while open, so every open starts at step 1 with an empty form */}
+        <CreateLotForm {...props} onClose={onClose} />
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-    const [locationAssignments, setLocationAssignments] = useState<Array<{
-        locationId: string
-        quantity: number
-    }>>([])
+interface LotDetails {
+  lotNumber: string
+  quantity: string
+  receivedDate: string
+  manufactureDate: string
+  expirationDate: string
+  supplierId: string
+  poNumber: string
+  notes: string
+}
 
-    const handleStep1Continue = () => {
-        if (!lotFormData.lotNumber || !lotFormData.quantity) {
-            toast.error("Lot number and quantity are required")
-            return
-        }
+type DetailErrors = Partial<Record<keyof LotDetails | "locations", string>>
 
-        if (!itemLocations || itemLocations.length === 0) {
-            toast.error("Please assign at least one location to this item first", {
-                description: "Go to the Locations tab and add a storage location before creating lots.",
-                duration: 5000,
-            })
-            return
-        }
+function validateDetails(d: LotDetails, hasLocations: boolean): DetailErrors {
+  const errors: DetailErrors = {}
+  if (!d.lotNumber.trim()) errors.lotNumber = "Enter a lot or batch number"
+  if (d.quantity.trim() === "") errors.quantity = "Enter the quantity received"
+  else if (!/^\d+$/.test(d.quantity.trim()) || Number(d.quantity) < 1) errors.quantity = "Use a whole number of at least 1"
+  if (d.manufactureDate && d.expirationDate && d.expirationDate < d.manufactureDate) {
+    errors.expirationDate = "Expiry can't be before the manufacture date"
+  }
+  if (!hasLocations) errors.locations = "Assign a storage location to this item first (Locations tab → Manage)."
+  return errors
+}
 
-        // Initialize location assignments with all item locations set to 0
-        setLocationAssignments(
-            itemLocations.map((loc) => ({
-                locationId: loc.locationId,
-                quantity: 0,
-            }))
-        )
+function CreateLotForm({ onClose, itemId, itemLocations, unit, onSuccess }: Omit<CreateLotDialogProps, "isOpen">) {
+  const { workspaceId } = useWorkspace()
+  const [step, setStep] = useState<1 | 2>(1)
+  const [details, setDetails] = useState<LotDetails>({
+    lotNumber: "",
+    quantity: "",
+    receivedDate: todayInputValue(),
+    manufactureDate: "",
+    expirationDate: "",
+    supplierId: "",
+    poNumber: "",
+    notes: "",
+  })
+  const [submitted, setSubmitted] = useState(false)
+  const [split, setSplit] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
 
-        // Close step 1, open step 2
-        setIsStep2Open(true)
+  useEffect(() => {
+    let cancelled = false
+    getSuppliersApi(workspaceId)
+      .then((res) => {
+        if (!cancelled) setSuppliers(res.data?.suppliers ?? [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
     }
+  }, [workspaceId])
 
-    const handleCreateLot = async () => {
-        // Validate that location assignments match total quantity
-        const totalAssigned = locationAssignments.reduce((sum, loc) => sum + loc.quantity, 0)
-        const totalRequired = parseInt(lotFormData.quantity)
+  const errors = submitted ? validateDetails(details, itemLocations.length > 0) : {}
+  const set = (field: keyof LotDetails, value: string) => setDetails((d) => ({ ...d, [field]: value }))
 
-        if (totalAssigned !== totalRequired) {
-            toast.error(`Location quantities (${totalAssigned}) must equal total quantity (${totalRequired})`)
-            return
-        }
+  const total = Number(details.quantity) || 0
+  const assigned = itemLocations.reduce((sum, l) => sum + (Number(split[l.locationId]) || 0), 0)
+  const remaining = total - assigned
+  const splitValid = remaining === 0 && Object.values(split).every((v) => v === "" || /^\d+$/.test(v))
 
-        // Filter out locations with 0 quantity
-        const finalLocationAssignments = locationAssignments.filter(loc => loc.quantity > 0)
-
-        if (finalLocationAssignments.length === 0) {
-            toast.error("Please assign quantity to at least one location")
-            return
-        }
-
-        setIsSaving(true)
-        try {
-            await createLotApi(itemId, {
-                lotNumber: lotFormData.lotNumber,
-                quantity: parseInt(lotFormData.quantity),
-                receivedDate: lotFormData.receivedDate || undefined,
-                manufactureDate: lotFormData.manufactureDate || undefined,
-                expirationDate: lotFormData.expirationDate || undefined,
-                supplierId: lotFormData.supplierId || undefined,
-                poNumber: lotFormData.poNumber || undefined,
-                notes: lotFormData.notes || undefined,
-                locationAssignments: finalLocationAssignments,
-            })
-
-            // Reload item data to refresh totals
-            const refreshResponse = await getItemByIdApi(itemId)
-            if (refreshResponse.data?.item) {
-                onSuccess(refreshResponse.data.item as ItemWithDetails)
-            }
-
-            // Reload lots
-            await onLotsReload()
-
-            // Reset form
-            setLotFormData({
-                lotNumber: "",
-                quantity: "",
-                receivedDate: new Date().toISOString().split('T')[0],
-                manufactureDate: "",
-                expirationDate: "",
-                supplierId: "",
-                poNumber: "",
-                notes: "",
-            })
-            setLocationAssignments([])
-
-            setIsStep2Open(false)
-            onClose()
-            toast.success("Lot created successfully!")
-        } catch (error) {
-            console.error("Failed to create lot:", error)
-            toast.error(error instanceof Error ? error.message : "Failed to create lot")
-        } finally {
-            setIsSaving(false)
-        }
+  const goToSplit = (e: FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+    const found = validateDetails(details, itemLocations.length > 0)
+    if (Object.keys(found).length > 0) {
+      const first = (["lotNumber", "quantity", "expirationDate"] as const).find((k) => found[k])
+      if (first) document.getElementById(`lot-${first}`)?.focus()
+      return
     }
+    // A single location gets everything; otherwise keep what the user already entered
+    if (itemLocations.length === 1) setSplit({ [itemLocations[0].locationId]: String(total) })
+    setStep(2)
+  }
 
-    const handleClose = () => {
-        if (!isSaving) {
-            setIsStep2Open(false)
-            onClose()
-        }
+  const distributeEvenly = () => {
+    const n = itemLocations.length
+    const base = Math.floor(total / n)
+    const extra = total % n
+    setSplit(Object.fromEntries(itemLocations.map((l, i) => [l.locationId, String(base + (i < extra ? 1 : 0))])))
+  }
+
+  const create = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!splitValid) return
+    setSaving(true)
+    try {
+      await createLotApi(itemId, {
+        lotNumber: details.lotNumber.trim(),
+        quantity: total,
+        receivedDate: details.receivedDate || undefined,
+        manufactureDate: details.manufactureDate || undefined,
+        expirationDate: details.expirationDate || undefined,
+        supplierId: details.supplierId || undefined,
+        poNumber: details.poNumber.trim() || undefined,
+        notes: details.notes.trim() || undefined,
+        locationAssignments: itemLocations
+          .map((l) => ({ locationId: l.locationId, quantity: Number(split[l.locationId]) || 0 }))
+          .filter((a) => a.quantity > 0),
+      })
+      toast.success("Lot created successfully!", { description: `${details.lotNumber.trim()} · ${formatQuantity(total, unit)}` })
+      await onSuccess()
+      onClose()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't create the lot"))
+    } finally {
+      setSaving(false)
     }
+  }
 
+  if (step === 1) {
     return (
-        <>
-            {/* Step 1: Lot Information */}
-            <Dialog open={isOpen && !isStep2Open} onOpenChange={handleClose}>
-                <DialogContent
-                    className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
-                    data-testid="create-lot-dialog-step1"
-                >
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                                <PackageCheck className="h-4 w-4 text-blue-600" />
-                            </div>
-                            Create New Lot (Step 1 of 2)
-                        </DialogTitle>
-                        <DialogDescription className="text-xs">
-                            Enter lot information. You&apos;ll distribute quantities across locations in the next step.
-                        </DialogDescription>
-                    </DialogHeader>
+      <form onSubmit={goToSplit} noValidate className="space-y-5" data-testid="create-lot-dialog-step1">
+        <DialogHeader>
+          <DialogTitle>Receive a lot</DialogTitle>
+          <DialogDescription>Step 1 of 2 · Lot details. Next you&apos;ll choose where the stock goes.</DialogDescription>
+        </DialogHeader>
 
-                    <div className="space-y-3 py-3">
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="lotNumber" className="text-xs font-medium">
-                                    Lot Number <span className="text-red-500">*</span>
-                                </Label>
-                                <Input
-                                    id="lotNumber"
-                                    value={lotFormData.lotNumber}
-                                    onChange={(e) => setLotFormData({ ...lotFormData, lotNumber: e.target.value })}
-                                    placeholder="LOT-2024-001"
-                                    className="h-8"
-                                    data-testid="lot-number-input"
-                                />
-                            </div>
+        {errors.locations && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+            {errors.locations}
+          </p>
+        )}
 
-                            <div className="space-y-1.5">
-                                <Label htmlFor="quantity" className="text-xs font-medium">
-                                    Total Quantity <span className="text-red-500">*</span>
-                                </Label>
-                                <Input
-                                    id="quantity"
-                                    type="number"
-                                    min="1"
-                                    value={lotFormData.quantity}
-                                    onChange={(e) => setLotFormData({ ...lotFormData, quantity: e.target.value })}
-                                    placeholder="1000"
-                                    className="h-8"
-                                    data-testid="lot-quantity-input"
-                                />
-                            </div>
-                        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Lot number" htmlFor="lot-lotNumber" required error={errors.lotNumber}>
+            <Input
+              {...invalidProps("lot-lotNumber", errors.lotNumber)}
+              className="font-mono"
+              placeholder="LOT-2026-001"
+              autoComplete="off"
+              value={details.lotNumber}
+              onChange={(e) => set("lotNumber", e.target.value)}
+              data-testid="lot-number-input"
+            />
+          </Field>
+          <Field label={`Quantity${unit ? ` (${unit})` : ""}`} htmlFor="lot-quantity" required error={errors.quantity}>
+            <Input
+              {...invalidProps("lot-quantity", errors.quantity)}
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              placeholder="100"
+              value={details.quantity}
+              onChange={(e) => set("quantity", e.target.value)}
+              data-testid="lot-quantity-input"
+            />
+          </Field>
+        </div>
 
-                        <div className="grid grid-cols-3 gap-3">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="receivedDate" className="text-xs font-medium">
-                                    Received Date
-                                </Label>
-                                <Input
-                                    id="receivedDate"
-                                    type="date"
-                                    value={lotFormData.receivedDate}
-                                    onChange={(e) => setLotFormData({ ...lotFormData, receivedDate: e.target.value })}
-                                    className="h-8"
-                                    data-testid="lot-received-date-input"
-                                />
-                            </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Received" htmlFor="lot-receivedDate">
+            <Input
+              id="lot-receivedDate"
+              type="date"
+              value={details.receivedDate}
+              onChange={(e) => set("receivedDate", e.target.value)}
+              data-testid="lot-received-date-input"
+            />
+          </Field>
+          <Field label="Manufactured" htmlFor="lot-manufactureDate">
+            <Input
+              id="lot-manufactureDate"
+              type="date"
+              value={details.manufactureDate}
+              onChange={(e) => set("manufactureDate", e.target.value)}
+              data-testid="lot-manufacture-date-input"
+            />
+          </Field>
+          <Field label="Expires" htmlFor="lot-expirationDate" error={errors.expirationDate}>
+            <Input
+              {...invalidProps("lot-expirationDate", errors.expirationDate)}
+              type="date"
+              value={details.expirationDate}
+              onChange={(e) => set("expirationDate", e.target.value)}
+              data-testid="lot-expiration-date-input"
+            />
+          </Field>
+        </div>
 
-                            <div className="space-y-1.5">
-                                <Label htmlFor="manufactureDate" className="text-xs font-medium">
-                                    Manufacture Date
-                                </Label>
-                                <Input
-                                    id="manufactureDate"
-                                    type="date"
-                                    value={lotFormData.manufactureDate}
-                                    onChange={(e) => setLotFormData({ ...lotFormData, manufactureDate: e.target.value })}
-                                    className="h-8"
-                                    data-testid="lot-manufacture-date-input"
-                                />
-                            </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Supplier" htmlFor="lot-supplier">
+            <EntityCombobox
+              id="lot-supplier"
+              value={details.supplierId}
+              onChange={(v) => set("supplierId", v)}
+              options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+              placeholder="Choose a supplier"
+              searchPlaceholder="Search suppliers…"
+              emptyText="No supplier found."
+              clearable
+            />
+          </Field>
+          <Field label="PO number" htmlFor="lot-poNumber">
+            <Input
+              id="lot-poNumber"
+              className="font-mono"
+              placeholder="PO-12345"
+              autoComplete="off"
+              value={details.poNumber}
+              onChange={(e) => set("poNumber", e.target.value)}
+            />
+          </Field>
+        </div>
 
-                            <div className="space-y-1.5">
-                                <Label htmlFor="expirationDate" className="text-xs font-medium">
-                                    Expiration Date
-                                </Label>
-                                <Input
-                                    id="expirationDate"
-                                    type="date"
-                                    value={lotFormData.expirationDate}
-                                    onChange={(e) => setLotFormData({ ...lotFormData, expirationDate: e.target.value })}
-                                    className="h-8"
-                                    data-testid="lot-expiration-date-input"
-                                />
-                            </div>
-                        </div>
+        <Field label="Notes" htmlFor="lot-notes">
+          <Textarea
+            id="lot-notes"
+            rows={2}
+            placeholder="Inspection results, storage instructions…"
+            value={details.notes}
+            onChange={(e) => set("notes", e.target.value)}
+            data-testid="lot-notes-input"
+          />
+        </Field>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="lotSupplier" className="text-xs font-medium">
-                                    Supplier
-                                </Label>
-                                <Select value={lotFormData.supplierId} onValueChange={(value) => setLotFormData({ ...lotFormData, supplierId: value })}>
-                                    <SelectTrigger id="lotSupplier" className="h-8">
-                                        <SelectValue placeholder="Select supplier" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {suppliers.map((supplier) => (
-                                            <SelectItem key={supplier.id} value={supplier.id}>
-                                                {supplier.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="space-y-1.5">
-                                <Label htmlFor="poNumber" className="text-xs font-medium">
-                                    PO Number
-                                </Label>
-                                <Input
-                                    id="poNumber"
-                                    value={lotFormData.poNumber}
-                                    onChange={(e) => setLotFormData({ ...lotFormData, poNumber: e.target.value })}
-                                    placeholder="PO-12345"
-                                    className="h-8"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <Label htmlFor="lotNotes" className="text-xs font-medium">
-                                Notes
-                            </Label>
-                            <Textarea
-                                id="lotNotes"
-                                value={lotFormData.notes}
-                                onChange={(e) => setLotFormData({ ...lotFormData, notes: e.target.value })}
-                                placeholder="Any additional information about this lot..."
-                                className="min-h-16 resize-none text-xs"
-                                data-testid="lot-notes-input"
-                            />
-                        </div>
-                    </div>
-
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={handleClose}
-                            size="sm"
-                            data-testid="lot-cancel-button"
-                        >
-                            Cancel
-                        </Button>
-                        <Button onClick={handleStep1Continue} size="sm" data-testid="lot-step1-next-button">
-                            Next: Distribute Stock →
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Step 2: Location Distribution */}
-            <Dialog open={isStep2Open} onOpenChange={(open) => !isSaving && setIsStep2Open(open)}>
-                <DialogContent
-                    className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto"
-                    data-testid="create-lot-dialog-step2"
-                >
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                                <MapPin className="h-4 w-4 text-blue-600" />
-                            </div>
-                            Distribute Stock (Step 2 of 2)
-                        </DialogTitle>
-                        <DialogDescription className="text-xs">
-                            Assign quantities to storage locations. Total must equal {lotFormData.quantity} units.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="space-y-3 py-3">
-                        {/* Lot Summary */}
-                        <div className="p-3 bg-muted/50 rounded-lg border">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs text-muted-foreground">Lot Number</span>
-                                <span className="font-mono font-semibold text-sm">{lotFormData.lotNumber}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs text-muted-foreground">Total Quantity</span>
-                                <span className="font-bold text-lg text-primary">{lotFormData.quantity} units</span>
-                            </div>
-                        </div>
-
-                        {/* Location Distribution */}
-                        <div className="space-y-2">
-                            <Label className="text-xs font-medium">Distribute Across Locations</Label>
-                            {locationAssignments.map((assignment) => {
-                                const location = locations.find(l => l.id === assignment.locationId)
-                                return (
-                                    <div key={assignment.locationId} className="flex items-center gap-2 p-2 bg-background rounded-lg border">
-                                        <span className="font-mono text-xs font-semibold min-w-[100px]">
-                                            {location?.code || assignment.locationId}
-                                        </span>
-                                        <Input
-                                            type="number"
-                                            min="0"
-                                            value={assignment.quantity}
-                                            onChange={(e) => {
-                                                const newQty = parseInt(e.target.value) || 0
-                                                setLocationAssignments(prev =>
-                                                    prev.map(loc =>
-                                                        loc.locationId === assignment.locationId
-                                                            ? { ...loc, quantity: newQty }
-                                                            : loc
-                                                    )
-                                                )
-                                            }}
-                                            className="h-8 text-sm"
-                                            placeholder="0"
-                                            data-testid={`lot-location-quantity-${(location?.code || assignment.locationId).toLowerCase().replace(/\s+/g, "-")}`}
-                                        />
-                                        <span className="text-xs text-muted-foreground whitespace-nowrap">units</span>
-                                    </div>
-                                )
-                            })}
-                        </div>
-
-                        {/* Quick Distribute Options */}
-                        <div className="flex gap-2">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                    const totalQty = parseInt(lotFormData.quantity) || 0
-                                    const numLocations = locationAssignments.length
-                                    const qtyPerLocation = Math.floor(totalQty / numLocations)
-                                    const remainder = totalQty % numLocations
-
-                                    setLocationAssignments(prev =>
-                                        prev.map((loc, index) => ({
-                                            ...loc,
-                                            quantity: index === 0 ? qtyPerLocation + remainder : qtyPerLocation
-                                        }))
-                                    )
-                                }}
-                                className="flex-1 text-xs"
-                            >
-                                Distribute Evenly
-                            </Button>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                    const totalQty = parseInt(lotFormData.quantity) || 0
-                                    setLocationAssignments(prev =>
-                                        prev.map((loc, index) => ({
-                                            ...loc,
-                                            quantity: index === 0 ? totalQty : 0
-                                        }))
-                                    )
-                                }}
-                                className="flex-1 text-xs"
-                            >
-                                All to First Location
-                            </Button>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                    setLocationAssignments(prev =>
-                                        prev.map(loc => ({ ...loc, quantity: 0 }))
-                                    )
-                                }}
-                                className="flex-1 text-xs"
-                            >
-                                Clear All
-                            </Button>
-                        </div>
-
-                        {/* Total Validation */}
-                        {(() => {
-                            const totalAssigned = locationAssignments.reduce((sum, loc) => sum + loc.quantity, 0)
-                            const totalRequired = parseInt(lotFormData.quantity) || 0
-                            const isValid = totalAssigned === totalRequired
-                            const difference = totalRequired - totalAssigned
-
-                            return (
-                                <div className={`text-xs p-3 rounded-lg font-medium border ${isValid
-                                    ? 'bg-green-50 text-green-700 border-green-200'
-                                    : 'bg-orange-50 text-orange-700 border-orange-200'
-                                    }`}>
-                                    <div className="flex items-center justify-between">
-                                        <span>{isValid ? '✓ Perfect!' : '⚠️ Adjust quantities'}</span>
-                                        <span className="font-bold">
-                                            {totalAssigned} / {totalRequired} units
-                                            {!isValid && difference !== 0 && (
-                                                <span className="ml-2 text-xs">
-                                                    ({difference > 0 ? `${difference} remaining` : `${Math.abs(difference)} over`})
-                                                </span>
-                                            )}
-                                        </span>
-                                    </div>
-                                </div>
-                            )
-                        })()}
-                    </div>
-
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                setIsStep2Open(false)
-                            }}
-                            size="sm"
-                            disabled={isSaving}
-                            data-testid="lot-step2-back-button"
-                        >
-                            ← Back
-                        </Button>
-                        <Button
-                            onClick={handleCreateLot}
-                            disabled={
-                                isSaving ||
-                                locationAssignments.reduce((sum, loc) => sum + loc.quantity, 0) !== parseInt(lotFormData.quantity)
-                            }
-                            size="sm"
-                            data-testid="lot-create-button"
-                        >
-                            {isSaving ? (
-                                <>
-                                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                                    Creating...
-                                </>
-                            ) : (
-                                <>
-                                    <PackageCheck className="h-3.5 w-3.5 mr-1.5" />
-                                    Create Lot
-                                </>
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} data-testid="lot-cancel-button">
+            Cancel
+          </Button>
+          <Button type="submit" data-testid="lot-step1-next-button">
+            Next: choose locations <ArrowRight />
+          </Button>
+        </DialogFooter>
+      </form>
     )
+  }
+
+  return (
+    <form onSubmit={create} className="space-y-5" data-testid="create-lot-dialog-step2">
+      <DialogHeader>
+        <DialogTitle>Where is it stored?</DialogTitle>
+        <DialogDescription>
+          Step 2 of 2 · Split <span className="font-medium text-foreground">{formatQuantity(total, unit)}</span> of lot{" "}
+          <span className="font-mono font-medium text-foreground">{details.lotNumber.trim()}</span> across locations.
+        </DialogDescription>
+      </DialogHeader>
+
+      <ul className="divide-y rounded-lg border">
+        {itemLocations.map((l) => {
+          const code = l.location?.code ?? "Unknown location"
+          const inputId = `lot-split-${l.locationId}`
+          return (
+            <li key={l.locationId} className="flex items-center gap-3 px-3 py-2.5">
+              <MapPin className="size-4 shrink-0 text-muted-foreground" />
+              <label htmlFor={inputId} className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-sm">{code}</span>
+                <span className="text-xs text-muted-foreground">{formatQuantity(l.quantity ?? 0, unit)} there now</span>
+              </label>
+              <Input
+                id={inputId}
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                placeholder="0"
+                className="w-24 text-right tabular-nums"
+                value={split[l.locationId] ?? ""}
+                onChange={(e) => setSplit((s) => ({ ...s, [l.locationId]: e.target.value }))}
+                data-testid={`lot-location-quantity-${testIdSlug(code)}`}
+              />
+            </li>
+          )
+        })}
+      </ul>
+
+      {itemLocations.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={distributeEvenly}>
+            Split evenly
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setSplit({ [itemLocations[0].locationId]: String(total) })}
+          >
+            All in {itemLocations[0].location?.code ?? "first location"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setSplit({})}>
+            Clear
+          </Button>
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-sm",
+          remaining === 0
+            ? "border-success/30 bg-success/10 text-success"
+            : "border-warning/40 bg-warning/10 text-warning-foreground dark:text-warning"
+        )}
+        aria-live="polite"
+      >
+        <span className="flex items-center gap-2 font-medium">
+          {remaining === 0 && <Check className="size-4" />}
+          {remaining === 0
+            ? "All stock placed"
+            : remaining > 0
+              ? `${formatNumber(remaining)} left to place`
+              : `${formatNumber(-remaining)} too many`}
+        </span>
+        <span className="tabular-nums">
+          {formatNumber(assigned)} / {formatNumber(total)}
+        </span>
+      </div>
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => setStep(1)} disabled={saving} data-testid="lot-step2-back-button">
+          <ArrowLeft /> Back
+        </Button>
+        <Button type="submit" disabled={saving || !splitValid} data-testid="lot-create-button">
+          {saving ? <Loader2 className="animate-spin" /> : <PackagePlus />}
+          {saving ? "Creating…" : "Create lot"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
 }

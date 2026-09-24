@@ -8,6 +8,7 @@ import type {
   Role,
 } from "@prisma/client";
 import type { ApiResponse } from "./types";
+import { apiRequest } from "./client";
 
 // ============================================
 // Use Prisma's generated types directly
@@ -103,21 +104,9 @@ export type WorkspaceApiResponse = ApiResponse<{
  * Get all workspaces for the current user
  */
 export async function getWorkspacesApi(): Promise<WorkspaceApiResponse> {
-  const response = await fetch("/api/workspaces", {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<WorkspaceApiResponse>("/api/workspaces", {
+    errorMessage: "Failed to fetch workspaces",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch workspaces");
-  }
-
-  return result;
 }
 
 /**
@@ -126,21 +115,9 @@ export async function getWorkspacesApi(): Promise<WorkspaceApiResponse> {
 export async function getWorkspaceByIdApi(
   id: string
 ): Promise<WorkspaceApiResponse> {
-  const response = await fetch(`/api/workspaces/${id}`, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<WorkspaceApiResponse>(`/api/workspaces/${id}`, {
+    errorMessage: "Failed to fetch workspace",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch workspace");
-  }
-
-  return result;
 }
 
 /**
@@ -149,22 +126,11 @@ export async function getWorkspaceByIdApi(
 export async function createWorkspaceApi(
   data: CreateWorkspaceRequest
 ): Promise<WorkspaceApiResponse> {
-  const response = await fetch("/api/workspaces", {
+  return apiRequest<WorkspaceApiResponse>("/api/workspaces", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create workspace",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create workspace");
-  }
-
-  return result;
 }
 
 /**
@@ -174,22 +140,11 @@ export async function updateWorkspaceApi(
   id: string,
   data: UpdateWorkspaceRequest
 ): Promise<WorkspaceApiResponse> {
-  const response = await fetch(`/api/workspaces/${id}`, {
+  return apiRequest<WorkspaceApiResponse>(`/api/workspaces/${id}`, {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update workspace",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update workspace");
-  }
-
-  return result;
 }
 
 /**
@@ -198,21 +153,10 @@ export async function updateWorkspaceApi(
 export async function deleteWorkspaceApi(
   id: string
 ): Promise<WorkspaceApiResponse> {
-  const response = await fetch(`/api/workspaces/${id}`, {
+  return apiRequest<WorkspaceApiResponse>(`/api/workspaces/${id}`, {
     method: "DELETE",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    errorMessage: "Failed to delete workspace",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to delete workspace");
-  }
-
-  return result;
 }
 
 /**
@@ -222,22 +166,14 @@ export async function inviteUserToWorkspaceApi(
   workspaceId: string,
   data: InviteUserRequest
 ): Promise<WorkspaceApiResponse> {
-  const response = await fetch(`/api/workspaces/${workspaceId}/invite`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to invite user");
-  }
-
-  return result;
+  return apiRequest<WorkspaceApiResponse>(
+    `/api/workspaces/${workspaceId}/invite`,
+    {
+      method: "POST",
+      body: data,
+      errorMessage: "Failed to invite user",
+    }
+  );
 }
 
 /**
@@ -247,24 +183,13 @@ export async function removeMemberFromWorkspaceApi(
   workspaceId: string,
   memberId: string
 ): Promise<WorkspaceApiResponse> {
-  const response = await fetch(
+  return apiRequest<WorkspaceApiResponse>(
     `/api/workspaces/${workspaceId}/members/${memberId}`,
     {
       method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      errorMessage: "Failed to remove member",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to remove member");
-  }
-
-  return result;
 }
 
 /**
@@ -275,23 +200,12 @@ export async function updateMemberRoleApi(
   memberId: string,
   data: UpdateMemberRoleRequest
 ): Promise<WorkspaceApiResponse> {
-  const response = await fetch(
+  return apiRequest<WorkspaceApiResponse>(
     `/api/workspaces/${workspaceId}/members/${memberId}/role`,
     {
       method: "PATCH",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
+      body: data,
+      errorMessage: "Failed to update member role",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update member role");
-  }
-
-  return result;
 }

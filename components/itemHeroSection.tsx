@@ -1,224 +1,257 @@
 "use client"
 
-import { Input } from "@/components/ui/input"
+import Image from "next/image"
+import Link from "next/link"
+import {
+  ArrowRightLeft,
+  Boxes,
+  DollarSign,
+  Diff,
+  ImagePlus,
+  Images,
+  MapPin,
+  MoreHorizontal,
+  PackageCheck,
+  Pencil,
+  Printer,
+  Tag,
+  Target,
+  Trash2,
+  Truck,
+} from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Package, PackageCheck, Upload } from "lucide-react"
-import type { ItemWithDetails } from "@/lib/api/items.api"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { PageHeader } from "@/components/common/page"
+import { StatCard } from "@/components/common/stat-card"
+import { StockStatusBadge } from "@/components/common/status-badge"
+import { itemImageUrl } from "@/components/imageItem"
+import { CopyButton } from "@/components/items/copy-button"
+import {
+  getExpiry,
+  getItemStatus,
+  getItemValue,
+  getReorderPoint,
+  stockedLocations,
+  type InventoryItemDetails,
+} from "@/components/items/item-utils"
 import type { ItemImage as APIItemImage } from "@/lib/api/itemImages.api"
+import { isHiddenLot } from "@/components/items/items-data"
+import type { LotWithRelations } from "@/lib/api/lots.api"
+import { formatCurrency, formatCurrencyCompact, formatNumber, formatQuantity } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 interface ItemHeroSectionProps {
-    item: ItemWithDetails
-    isEditing: boolean
-    formData: {
-        name: string
-    }
-    lotTracking: boolean
-    images: APIItemImage[]
-    totalQuantity: number
-    itemLocationsCount: number
-    onFormDataChange: (formData: any) => void
-    onImageClick: (imageUrl: string | null) => void
-    onManageImagesOpen: () => void
+  item: InventoryItemDetails
+  images: APIItemImage[]
+  lots: LotWithRelations[]
+  /** Delete is admin-only */
+  isAdmin: boolean
+  onAdjust: () => void
+  onTransfer: () => void
+  onEdit: () => void
+  onPrintLabels: () => void
+  onManageImages: () => void
+  onDelete: () => void
+  onImageClick: (imageUrl: string) => void
 }
 
+const STATUS_TONE = { IN_STOCK: "success", LOW_STOCK: "warning", OUT_OF_STOCK: "danger" } as const
+
+/** Item page header (title, badges, actions) plus the key-figure cards */
 export function ItemHeroSection({
-    item,
-    isEditing,
-    formData,
-    lotTracking,
-    images,
-    totalQuantity,
-    itemLocationsCount,
-    onFormDataChange,
-    onImageClick,
-    onManageImagesOpen,
+  item,
+  images,
+  lots,
+  isAdmin,
+  onAdjust,
+  onTransfer,
+  onEdit,
+  onPrintLabels,
+  onManageImages,
+  onDelete,
+  onImageClick,
 }: ItemHeroSectionProps) {
-    const primaryImage = images.find((img) => img.isPrimary)
-    const primaryImageUrl = primaryImage ? `/api/items/images/image/${primaryImage.id}` : null
+  const status = getItemStatus(item)
+  const reorderPoint = getReorderPoint(item)
+  const stocked = stockedLocations(item)
+  const assignedCount = item.locations?.length ?? 0
+  const primary = images.find((img) => img.isPrimary) ?? images[0]
+  const primaryUrl = primary ? itemImageUrl(primary.id) : null
+  const visibleLots = lots.filter((l) => !isHiddenLot(l))
+  const activeLots = visibleLots.filter((l) => l.status === "ACTIVE")
+  const expiringLots = activeLots.filter((l) => {
+    const expiry = getExpiry(l.expirationDate)
+    return expiry !== null && expiry.tone !== "default"
+  })
 
-    return (
-        <div className="bg-card sm:border sm:rounded-lg overflow-hidden">
-            {/* Large Product Image - Mobile Only */}
-            <div
-                className="sm:hidden relative w-full aspect-[35/10] bg-muted cursor-pointer overflow-hidden"
-                onClick={() => {
-                    if (primaryImageUrl) {
-                        onImageClick(primaryImageUrl)
-                    }
-                }}
-            >
-                {primaryImageUrl ? (
-                    <img
-                        src={primaryImageUrl}
-                        alt={item.name}
-                        className="w-full h-full object-cover"
-                    />
-                ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
-                        <Package className="h-16 w-16 text-muted-foreground/50" />
-                    </div>
+  return (
+    <>
+      <PageHeader
+        back={{ href: "/dashboard/items", label: "Inventory" }}
+        title={item.name}
+        description={
+          <span className="inline-flex items-center gap-1">
+            <span className="font-mono text-sm">{item.itemNumber}</span>
+            <CopyButton value={item.itemNumber} label="Copy item number" />
+          </span>
+        }
+        meta={
+          <>
+            <StockStatusBadge status={status} />
+            {item.category && (
+              <Badge variant="outline" asChild>
+                <Link href={`/dashboard/categories/${item.category.id}`}>
+                  <Tag /> {item.category.name}
+                </Link>
+              </Badge>
+            )}
+            {item.supplier && (
+              <Badge variant="outline">
+                <Truck /> {item.supplier.name}
+              </Badge>
+            )}
+            {item.lotTracking && (
+              <Badge variant="info">
+                <PackageCheck /> Lot tracked
+              </Badge>
+            )}
+          </>
+        }
+        actions={
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <Button className="flex-1 sm:flex-none" onClick={onAdjust} data-testid="item-adjust-stock-button">
+              <Diff /> Adjust stock
+            </Button>
+            <Button variant="outline" className="flex-1 sm:flex-none" onClick={onTransfer} data-testid="item-transfer-stock-button">
+              <ArrowRightLeft /> Transfer
+            </Button>
+            <Button variant="outline" onClick={onEdit} aria-label="Edit item" data-testid="edit-item-button">
+              <Pencil />
+              <span className="hidden sm:inline">Edit</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" aria-label="More actions" data-testid="item-more-actions-button">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onSelect={onPrintLabels} data-testid="item-print-labels-button">
+                  <Printer /> Print labels
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onManageImages}>
+                  <Images /> Manage photos
+                </DropdownMenuItem>
+                {isAdmin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onSelect={onDelete} data-testid="item-delete-menu-button">
+                      <Trash2 /> Delete item
+                    </DropdownMenuItem>
+                  </>
                 )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        }
+      />
 
-                {/* Image count badge */}
-                {images.length > 1 && (
-                    <div className="absolute bottom-3 right-3 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
-                        1/{images.length}
-                    </div>
-                )}
+      <div
+        className={cn(
+          "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:gap-4",
+          item.lotTracking ? "xl:grid-cols-6" : "xl:grid-cols-5"
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => (primaryUrl ? onImageClick(primaryUrl) : onManageImages())}
+          className={cn(
+            "relative min-h-28 overflow-hidden rounded-xl border bg-muted text-muted-foreground transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            // fills the empty cell the odd number of stat cards would leave
+            !item.lotTracking && "row-span-2 xl:row-span-1"
+          )}
+          aria-label={primaryUrl ? "View photo" : "Add a photo"}
+        >
+          {primaryUrl ? (
+            <Image src={primaryUrl} alt={item.name} fill unoptimized sizes="(min-width: 1280px) 200px, (min-width: 640px) 33vw, 50vw" className="object-cover" />
+          ) : (
+            <span className="flex size-full flex-col items-center justify-center gap-1.5">
+              <ImagePlus className="size-6" />
+              <span className="text-xs font-medium">Add photo</span>
+            </span>
+          )}
+          {images.length > 1 && (
+            <span className="absolute bottom-2 right-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium text-foreground shadow-sm">
+              {images.length} photos
+            </span>
+          )}
+        </button>
 
-                {/* Status badge overlay */}
-                <div className="absolute top-3 left-3">
-                    <Badge
-                        variant={item.status === "IN_STOCK" ? "default" : item.status === "LOW_STOCK" ? "secondary" : "destructive"}
-                        className="shadow-lg"
-                    >
-                        {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                    </Badge>
-                </div>
-            </div>
-
-            <div className="p-4 sm:p-6 pb-0">
-                <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
-                    {/* Product Image - Desktop Only */}
-                    <div className="hidden sm:block flex-shrink-0">
-                        <div
-                            className={`relative w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden bg-muted flex items-center justify-center ${isEditing
-                                ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all"
-                                : primaryImageUrl
-                                    ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all"
-                                    : ""
-                                }`}
-                            onClick={() => {
-                                if (isEditing) {
-                                    onManageImagesOpen()
-                                } else if (primaryImageUrl) {
-                                    onImageClick(primaryImageUrl)
-                                }
-                            }}
-                        >
-                            {primaryImageUrl ? (
-                                <>
-                                    <img
-                                        src={primaryImageUrl}
-                                        alt={item.name}
-                                        className="w-full h-full object-cover"
-                                    />
-                                    {isEditing && (
-                                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                            <Upload className="h-6 w-6 text-white" />
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                                    <Package className="h-8 w-8" />
-                                    {isEditing && <span className="text-xs">Upload</span>}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Item Info - Desktop */}
-                    <div className="hidden sm:block flex-1 min-w-0">
-                        {isEditing ? (
-                            <Input
-                                value={formData.name}
-                                onChange={(e) => onFormDataChange({ ...formData, name: e.target.value })}
-                                className="text-2xl font-bold h-auto py-2 mb-3 border-dashed"
-                                placeholder="Enter item name"
-                                data-testid="edit-item-name-input"
-                            />
-                        ) : (
-                            <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">{item.name}</h1>
-                        )}
-
-                        <div className="flex flex-wrap gap-2 mb-4">
-                            <Badge
-                                variant={
-                                    item.status === "IN_STOCK" ? "default" : item.status === "LOW_STOCK" ? "secondary" : "destructive"
-                                }
-                            >
-                                {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                            </Badge>
-                            <Badge variant="outline">
-                                {typeof item.category === 'string'
-                                    ? item.category
-                                    : item.category?.name || "Uncategorized"}
-                            </Badge>
-                            {lotTracking && (
-                                <Badge className="bg-blue-500 hover:bg-blue-600">
-                                    <PackageCheck className="h-3 w-3 mr-1" />
-                                    Lot Tracked
-                                </Badge>
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                            <div>
-                                <p className="text-xs text-muted-foreground mb-1">SKU</p>
-                                <p className="text-sm font-semibold">{item.itemNumber}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground mb-1">Barcode</p>
-                                <p className="text-sm font-semibold">{item.barcode || "—"}</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground mb-1">Total Stock</p>
-                                <p className="text-sm font-semibold text-primary">{totalQuantity} units</p>
-                            </div>
-                            <div>
-                                <p className="text-xs text-muted-foreground mb-1">Unit Price</p>
-                                <p className="text-sm font-semibold">${item.cost.toFixed(2)}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Item Info - Mobile */}
-                    <div className="sm:hidden">
-                        {isEditing ? (
-                            <Input
-                                value={formData.name}
-                                onChange={(e) => onFormDataChange({ ...formData, name: e.target.value })}
-                                className="text-lg font-bold h-10 mb-2 border-dashed"
-                                placeholder="Item name"
-                                data-testid="edit-item-name-input"
-                            />
-                        ) : (
-                            <h1 className="text-lg font-bold text-foreground leading-tight">{item.name}</h1>
-                        )}
-
-                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                            <Badge variant="outline" className="text-xs">
-                                {typeof item.category === 'string' ? item.category : item.category?.name || "Uncategorized"}
-                            </Badge>
-                            {lotTracking && (
-                                <Badge variant="secondary" className="text-xs gap-0.5">
-                                    <PackageCheck className="h-2.5 w-2.5" />
-                                    Lot
-                                </Badge>
-                            )}
-                        </div>
-
-                        {/* Stats Row */}
-                        <div className="flex items-center justify-between mt-4 py-3 border-t border-b">
-                            <div className="text-center flex-1">
-                                <p className="text-2xl font-bold text-primary">{totalQuantity}</p>
-                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">In Stock</p>
-                            </div>
-                            <div className="w-px h-10 bg-border" />
-                            <div className="text-center flex-1">
-                                <p className="text-lg font-semibold">${item.cost.toFixed(2)}</p>
-                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Unit Price</p>
-                            </div>
-                            <div className="w-px h-10 bg-border" />
-                            <div className="text-center flex-1">
-                                <p className="text-lg font-semibold">{itemLocationsCount}</p>
-                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Locations</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
+        <StatCard
+          label="On hand"
+          icon={Boxes}
+          tone={STATUS_TONE[status]}
+          value={
+            <>
+              {formatNumber(item.onHand)}
+              {item.unit && <span className="ml-1.5 text-sm font-normal text-muted-foreground">{item.unit}</span>}
+            </>
+          }
+          hint={status === "OUT_OF_STOCK" ? "Out of stock" : status === "LOW_STOCK" ? "At or below reorder point" : "Healthy stock"}
+          data-testid="item-on-hand-stat"
+        />
+        <StatCard
+          label="Value"
+          icon={DollarSign}
+          value={formatCurrencyCompact(getItemValue(item))}
+          hint={`${formatCurrency(item.cost)} each`}
+        />
+        <StatCard
+          label="Locations"
+          icon={MapPin}
+          value={formatNumber(stocked.length)}
+          hint={
+            assignedCount === 0
+              ? "None assigned"
+              : stocked.length === 0
+                ? `${assignedCount} assigned, all empty`
+                : stocked.length === 1
+                  ? `All in ${stocked[0].location.code}`
+                  : `Most in ${stocked[0].location.code}`
+          }
+        />
+        {item.lotTracking && (
+          <StatCard
+            label="Active lots"
+            icon={PackageCheck}
+            tone={expiringLots.length > 0 ? "warning" : "default"}
+            value={formatNumber(activeLots.length)}
+            hint={
+              expiringLots.length > 0
+                ? `${expiringLots.length} expiring or expired`
+                : `${formatNumber(visibleLots.length)} lots in total`
+            }
+          />
+        )}
+        <StatCard
+          label="Reorder point"
+          icon={Target}
+          tone={item.onHand <= reorderPoint ? "warning" : "default"}
+          value={formatNumber(reorderPoint)}
+          hint={
+            item.onHand <= reorderPoint
+              ? "Time to reorder"
+              : `${formatQuantity(item.onHand - reorderPoint, item.unit)} above it`
+          }
+        />
+      </div>
+    </>
+  )
 }

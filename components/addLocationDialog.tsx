@@ -1,392 +1,360 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useRef, useState } from "react"
+import { Loader2, Plus } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import { Plus, Settings2, MapPin, X } from "lucide-react"
 import {
-    createLocationApi,
-    updateWorkspaceStructureApi,
-    LocationStructure,
-    LocationWithCount,
-    LocationTemplate,
+  createLocationApi,
+  updateWorkspaceStructureApi,
+  type LocationTemplate,
+  type LocationWithCount,
 } from "@/lib/api/locations.api"
-import { toast } from "sonner"
+import { ApiError, getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
+import { BarcodeField } from "@/components/locations/barcode-field"
+import { CodePreview, LocationLevelsEditor } from "@/components/locations/location-levels-editor"
+import { useLocationCodes } from "@/components/locations/use-location-codes"
+import { toLocationWithCount } from "@/components/locations/types"
+import {
+  composeLocationCode,
+  draftsFromTemplate,
+  incrementLevelValue,
+  parseCapacity,
+  sameLabels,
+  structureFromDrafts,
+  templateFromDrafts,
+  validateBarcode,
+  validateLocationLevels,
+  validateTemplateLevels,
+  type LevelDraft,
+} from "@/components/locations/structure"
 
-interface LocationLevel {
-    id: string
-    label: string
-    value: string
+export interface AddLocationDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  workspaceId: string
+  /** Workspace location structure; level names become the code's inputs */
+  defaultStructure: LocationTemplate | null
+  onSuccess: (location: LocationWithCount) => void
+  /** Called after an admin saves the dialog's levels as the workspace structure */
+  onStructureUpdate?: (structure: LocationTemplate) => void
+  /** Existing codes for instant duplicate checks; fetched in the background when omitted */
+  existingCodes?: string[]
+  /** Show the "add another" option that keeps the dialog open with the next code prefilled */
+  allowAddAnother?: boolean
 }
 
-interface AddLocationDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    workspaceId: string
-    defaultStructure: LocationTemplate | null
-    onSuccess: (location: LocationWithCount) => void
-    onStructureUpdate: (structure: LocationTemplate) => void
+export function AddLocationDialog(props: AddLocationDialogProps) {
+  const { open, onOpenChange } = props
+  const [saving, setSaving] = useState(false)
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
+      <DialogContent className="sm:max-w-lg" data-testid="add-location-dialog">
+        <DialogHeader>
+          <DialogTitle data-testid="dialog-title">Add location</DialogTitle>
+          <DialogDescription>
+            Fill in each level to build the location&apos;s code. Everything else is optional.
+          </DialogDescription>
+        </DialogHeader>
+        {/* Mounted only while open, so every open starts with a fresh form */}
+        <AddLocationForm {...props} saving={saving} setSaving={setSaving} />
+      </DialogContent>
+    </Dialog>
+  )
 }
 
-export function AddLocationDialog({
-    open,
-    onOpenChange,
-    workspaceId,
-    defaultStructure,
-    onSuccess,
-    onStructureUpdate,
-}: AddLocationDialogProps) {
-    const [locationLevels, setLocationLevels] = useState<LocationLevel[]>([
-        { id: "1", label: "Zone", value: "" },
-        { id: "2", label: "Aisle", value: "" },
-    ])
+function AddLocationForm({
+  onOpenChange,
+  workspaceId,
+  defaultStructure,
+  onSuccess,
+  onStructureUpdate,
+  existingCodes,
+  allowAddAnother = false,
+  saving,
+  setSaving,
+}: AddLocationDialogProps & { saving: boolean; setSaving: (saving: boolean) => void }) {
+  const { isAdmin } = useWorkspace()
+  const formRef = useRef<HTMLFormElement>(null)
 
-    const [formData, setFormData] = useState({
-        name: "",
-        capacity: "",
-        description: "",
+  const [levels, setLevels] = useState<LevelDraft[]>(() => draftsFromTemplate(defaultStructure))
+  const [touched, setTouched] = useState(false)
+  const [seenTemplate, setSeenTemplate] = useState(defaultStructure)
+  const [description, setDescription] = useState("")
+  const [barcode, setBarcode] = useState("")
+  const [capacity, setCapacity] = useState("")
+  const [addAnother, setAddAnother] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [serverError, setServerError] = useState<{ field: "code" | "barcode"; key: string; message: string } | null>(
+    null
+  )
+  const [savingTemplate, setSavingTemplate] = useState(false)
+  const [created, setCreated] = useState<string[]>([])
+
+  // The workspace structure may arrive after the dialog opened; adopt it until the user starts typing.
+  if (defaultStructure !== seenTemplate) {
+    setSeenTemplate(defaultStructure)
+    if (!touched) setLevels(draftsFromTemplate(defaultStructure))
+  }
+
+  const knownCodes = useLocationCodes(workspaceId, existingCodes)
+
+  const code = composeLocationCode(levels.map((l) => l.value))
+  const levelCheck = validateLocationLevels(levels)
+  const isDuplicate = Boolean(code) && (knownCodes?.has(code) || created.includes(code))
+  const codeError =
+    (serverError?.field === "code" && serverError.key === code ? serverError.message : undefined) ??
+    (isDuplicate ? `A location with code ${code} already exists` : undefined) ??
+    (submitted ? levelCheck.form : undefined)
+
+  const capacityCheck = parseCapacity(capacity)
+  const barcodeError =
+    (serverError?.field === "barcode" && serverError.key === barcode.trim() ? serverError.message : undefined) ??
+    validateBarcode(barcode)
+
+  const templateLabels = defaultStructure?.levels.map((l) => l.label) ?? []
+  const levelLabels = levels.map((l) => l.label.trim())
+  const labelsDiffer = !sameLabels(levelLabels, templateLabels)
+
+  const changeLevels = (next: LevelDraft[]) => {
+    setLevels(next)
+    setTouched(true)
+  }
+
+  const focusFirstInvalid = () => {
+    requestAnimationFrame(() => {
+      formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
     })
+  }
 
-    const [isCreating, setIsCreating] = useState(false)
+  const saveLevelsAsStructure = async () => {
+    const check = validateTemplateLevels(levels)
+    if (!check.valid || levels.some((l) => !l.label.trim())) {
+      toast.error("Give every level a unique name before saving it as the structure")
+      return
+    }
+    const template = templateFromDrafts(levels)
+    setSavingTemplate(true)
+    try {
+      await updateWorkspaceStructureApi({ workspaceId, structure: template })
+      onStructureUpdate?.(template)
+      setSeenTemplate(template)
+      setLevels((prev) => prev.map((l) => ({ ...l, label: l.label.trim(), fixed: true })))
+      toast.success("Saved as the workspace location structure", {
+        description: template.levels.map((l) => l.label).join(" › "),
+      })
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't save the location structure"))
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
 
-    // Update location levels when dialog opens or default structure changes
-    useEffect(() => {
-        if (open) {
-            if (defaultStructure && defaultStructure.levels.length > 0) {
-                setLocationLevels(
-                    defaultStructure.levels.map((level, idx) => ({
-                        id: Date.now().toString() + idx,
-                        label: level.label,
-                        value: "",
-                    })),
-                )
-            } else {
-                setLocationLevels([
-                    { id: "1", label: "Zone", value: "" },
-                    { id: "2", label: "Aisle", value: "" },
-                ])
-            }
-        }
-    }, [open, defaultStructure])
-
-    const generateLocationCode = () => {
-        const parts = locationLevels.map((level) => {
-            const value = level.value.trim()
-            if (value) {
-                return value.toUpperCase()
-            }
-            // Use first letter of label as default
-            const label = level.label.trim()
-            return label ? label.charAt(0).toUpperCase() + "0" : "00"
-        })
-        return parts.join("-")
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+    if (!levelCheck.valid || isDuplicate || capacityCheck.error || barcodeError) {
+      focusFirstInvalid()
+      return
     }
 
-    const addLocationLevel = () => {
-        setLocationLevels([...locationLevels, { id: Date.now().toString(), label: "", value: "" }])
+    setSaving(true)
+    try {
+      const res = await createLocationApi({
+        code,
+        structure: structureFromDrafts(levels),
+        barcode: barcode.trim() || undefined,
+        capacity: capacityCheck.value,
+        description: description.trim() || undefined,
+        workspaceId,
+      })
+      const location = res.data?.location
+      if (!location) throw new Error("The server didn't return the new location")
+
+      onSuccess(toLocationWithCount(location))
+      toast.success(`Location ${code} created`)
+      setCreated((prev) => [...prev, code])
+
+      if (allowAddAnother && addAnother) {
+        // Prefill the next code in the sequence (A-01-03 → A-01-04)
+        const lastFilled = levels.reduce((acc, level, i) => (level.value.trim() ? i : acc), -1)
+        setLevels((prev) =>
+          prev.map((level, i) => (i === lastFilled ? { ...level, value: incrementLevelValue(level.value) } : level))
+        )
+        setBarcode("")
+        setSubmitted(false)
+        setServerError(null)
+      } else {
+        onOpenChange(false)
+      }
+    } catch (err) {
+      const message = getErrorMessage(err, "Couldn't create the location")
+      const conflict = err instanceof ApiError && err.status === 409
+      if (/barcode/i.test(message)) {
+        setServerError({ field: "barcode", key: barcode.trim(), message })
+        focusFirstInvalid()
+      } else if (conflict || (/code/i.test(message) && /exist/i.test(message))) {
+        setServerError({ field: "code", key: code, message })
+      } else {
+        toast.error(message)
+      }
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const removeLocationLevel = (id: string) => {
-        if (locationLevels.length > 1) {
-            setLocationLevels(locationLevels.filter((level) => level.id !== id))
-        }
-    }
+  return (
+    <form ref={formRef} onSubmit={handleSubmit} noValidate className="space-y-5">
+      <section className="space-y-3" aria-labelledby="add-location-code-heading">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 id="add-location-code-heading" className="text-sm font-medium">
+            Code
+          </h3>
+          {defaultStructure && (
+            <span className="truncate text-xs text-muted-foreground">
+              {defaultStructure.levels.map((l) => l.label).join(" › ")}
+            </span>
+          )}
+        </div>
 
-    const updateLocationLevel = (id: string, field: "label" | "value", newValue: string) => {
-        setLocationLevels(locationLevels.map((level) => (level.id === id ? { ...level, [field]: newValue } : level)))
-    }
+        <LocationLevelsEditor
+          mode="location"
+          idPrefix="add-location"
+          levels={levels}
+          onChange={changeLevels}
+          errors={submitted ? levelCheck.byId : undefined}
+          disabled={saving}
+          withTestIds
+          autoFocus
+        />
 
-    const saveDefaultStructureFromModal = async () => {
-        const structure: LocationTemplate = {
-            levels: locationLevels.filter((l) => l.label.trim()).map((l) => ({ label: l.label.trim() })),
-        }
+        <CodePreview code={code} error={codeError} data-testid="generated-location-code" />
 
-        if (structure.levels.length === 0) {
-            toast.error("Please add at least one level to your structure")
-            return
-        }
-
-        try {
-            await updateWorkspaceStructureApi({
-                workspaceId,
-                structure,
-            })
-
-            onStructureUpdate(structure)
-
-            // Keep the current locationLevels but clear values
-            setLocationLevels(
-                locationLevels.map((level) => ({
-                    ...level,
-                    value: "",
-                })),
+        {labelsDiffer &&
+          (isAdmin ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-dashed p-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted-foreground">
+                {defaultStructure
+                  ? "These levels differ from your workspace structure."
+                  : "No location structure yet. Save these levels so every new location uses them."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={saveLevelsAsStructure}
+                disabled={saving || savingTemplate}
+                data-testid="save-default-structure-button"
+              >
+                {savingTemplate && <Loader2 className="animate-spin" />}
+                Save as structure
+              </Button>
+            </div>
+          ) : (
+            !defaultStructure && (
+              <p className="text-xs text-muted-foreground">
+                Codes use Zone and Aisle until an admin sets up your location structure.
+              </p>
             )
+          ))}
+      </section>
 
-            toast.success("Default structure saved successfully!")
-        } catch (error) {
-            console.error("Failed to save workspace structure:", error)
-            toast.error("Failed to save structure", {
-                description: error instanceof Error ? error.message : "An unexpected error occurred",
-            })
-        }
-    }
+      <div className="space-y-1.5">
+        <Label htmlFor="add-location-description">
+          Description <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <Textarea
+          id="add-location-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="e.g. Cold storage, top shelf — forklift access only"
+          rows={2}
+          maxLength={191}
+          disabled={saving}
+          className="min-h-16 resize-none"
+          data-testid="location-description-input"
+        />
+      </div>
 
-    const handleCreate = async () => {
-        const code = generateLocationCode()
-        if (!code) return
+      <div className="grid gap-4 sm:grid-cols-2">
+        <BarcodeField
+          id="add-location-barcode"
+          value={barcode}
+          onChange={setBarcode}
+          error={barcodeError}
+          hint={code ? `Leave blank to use LOC-${code}` : "Leave blank to generate one"}
+          disabled={saving}
+          data-testid="location-barcode-input"
+        />
+        <div className="space-y-1.5">
+          <Label htmlFor="add-location-capacity">
+            Capacity <span className="font-normal text-muted-foreground">(optional)</span>
+          </Label>
+          <Input
+            id="add-location-capacity"
+            inputMode="numeric"
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+            placeholder="100"
+            aria-invalid={Boolean(capacityCheck.error) || undefined}
+            aria-describedby="add-location-capacity-help"
+            disabled={saving}
+            className="h-10 tabular-nums"
+            data-testid="location-capacity-input"
+          />
+          <p
+            id="add-location-capacity-help"
+            className={capacityCheck.error ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
+          >
+            {capacityCheck.error ?? "Max units this location holds"}
+          </p>
+        </div>
+      </div>
 
-        setIsCreating(true)
+      {allowAddAnother && (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="add-location-another"
+            checked={addAnother}
+            onCheckedChange={(checked) => setAddAnother(checked === true)}
+            disabled={saving}
+          />
+          <Label htmlFor="add-location-another" className="font-normal">
+            Add another after this one
+          </Label>
+        </div>
+      )}
 
-        try {
-            const structure: LocationStructure = locationLevels
-                .filter((level) => level.value.trim())
-                .map((level) => ({
-                    label: level.label || "Level",
-                    value: level.value.trim().toUpperCase(),
-                }))
-
-            const response = await createLocationApi({
-                code,
-                structure,
-                capacity: Number.parseInt(formData.capacity) || 100,
-                description: formData.description,
-                workspaceId: workspaceId,
-            })
-
-            if (response.data?.location) {
-                onSuccess(response.data.location)
-                // Reset form
-                setFormData({ name: "", capacity: "", description: "" })
-                setLocationLevels([
-                    { id: "1", label: "Zone", value: "" },
-                    { id: "2", label: "Aisle", value: "" },
-                ])
-                onOpenChange(false)
-            }
-        } catch (error) {
-            console.error("Failed to create location:", error)
-            toast.error("Failed to create location", {
-                description: error instanceof Error ? error.message : "An unexpected error occurred",
-            })
-        } finally {
-            setIsCreating(false)
-        }
-    }
-
-    const isFormValid = locationLevels.some((level) => level.value.trim())
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent
-                enableKeyboardAvoidance={true}
-                hideClose={true}
-                className="max-w-5xl max-h-[85vh] flex flex-col p-0 sm:p-6"
-                data-testid="add-location-dialog"
-            >
-                {/* Header */}
-                <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-3 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-b">
-                    {/* Mobile Header with Actions */}
-                    <div className="flex items-center justify-between gap-2 sm:hidden">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onOpenChange(false)}
-                            disabled={isCreating}
-                            className="h-9"
-                            data-testid="cancel-button-mobile"
-                        >
-                            Cancel
-                        </Button>
-                        <DialogTitle className="text-base font-semibold">Create Location</DialogTitle>
-                        <Button
-                            size="sm"
-                            onClick={handleCreate}
-                            disabled={!isFormValid || isCreating}
-                            className="h-9"
-                            data-testid="submit-button-mobile"
-                        >
-                            {isCreating ? "Creating..." : "Create"}
-                        </Button>
-                    </div>
-
-                    {/* Desktop Header */}
-                    <div className="hidden sm:block">
-                        <DialogTitle className="flex items-center gap-2 text-lg" data-testid="dialog-title">
-                            <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                                <Settings2 className="h-4 w-4 text-primary" />
-                            </div>
-                            Create Location
-                        </DialogTitle>
-                        <DialogDescription className="text-sm mt-1">
-                            Build a custom location structure for your warehouse
-                        </DialogDescription>
-                    </div>
-                </DialogHeader>
-
-                <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 min-h-0">
-                    <div className="grid lg:grid-cols-2 gap-6 h-full">
-                        <div className="space-y-3 flex flex-col">
-                            <div className="flex items-center justify-between pb-2 border-b border-border/30">
-                                <div>
-                                    <h3 className="text-sm font-semibold text-foreground">Location Structure</h3>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Define your location hierarchy</p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        variant="outline"
-                                        onClick={saveDefaultStructureFromModal}
-                                        className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
-                                        data-testid="save-default-structure-button"
-                                    >
-                                        <Settings2 className="h-3 w-3 sm:mr-1" />
-                                        <span className="hidden sm:inline">Save Default</span>
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={addLocationLevel}
-                                        className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
-                                        data-testid="add-location-level-button"
-                                    >
-                                        <Plus className="h-3 w-3 mr-1" />
-                                        Add
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2 flex-1 overflow-y-auto" data-testid="location-levels-container">
-                                {locationLevels.map((level, index) => (
-                                    <div
-                                        key={level.id}
-                                        className="group flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all"
-                                        data-testid={`location-level-${index}`}
-                                    >
-                                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-bold text-xs flex-shrink-0">
-                                            {index + 1}
-                                        </div>
-                                        <div className="flex-1 flex gap-2">
-                                            <div className="flex-1">
-                                                <Input
-                                                    placeholder="Level name"
-                                                    value={level.label}
-                                                    onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
-                                                    className="h-8 text-sm bg-background border-border/50 focus:border-primary/50 transition-colors"
-                                                    autoComplete="off"
-                                                    autoCorrect="off"
-                                                    autoCapitalize="off"
-                                                    spellCheck="false"
-                                                    data-testid={`location-level-label-${index}`}
-                                                />
-                                            </div>
-                                            <div className="w-24">
-                                                <Input
-                                                    placeholder="Code"
-                                                    value={level.value}
-                                                    onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
-                                                    maxLength={10}
-                                                    className="h-8 text-sm font-mono bg-background border-border/50 focus:border-primary/50 transition-colors"
-                                                    autoComplete="off"
-                                                    autoCorrect="off"
-                                                    autoCapitalize="off"
-                                                    spellCheck="false"
-                                                    data-testid={`location-level-value-${index}`}
-                                                />
-                                            </div>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => removeLocationLevel(level.id)}
-                                            disabled={locationLevels.length === 1}
-                                            className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
-                                            data-testid={`remove-location-level-${index}`}
-                                        >
-                                            <X className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="relative overflow-hidden rounded-lg border border-primary/30 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent p-2.5 flex-shrink-0">
-                                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-3xl -mr-12 -mt-12" />
-                                <div className="relative flex items-center gap-2">
-                                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 flex-shrink-0">
-                                        <MapPin className="h-4 w-4 text-primary" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-muted-foreground">Generated Code</p>
-                                        <p
-                                            className={`text-base font-mono font-bold truncate ${isFormValid ? 'text-primary' : 'text-muted-foreground/50'}`}
-                                            data-testid="generated-location-code"
-                                        >
-                                            {isFormValid ? generateLocationCode() : locationLevels.map(() => '--').join(' ')}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col space-y-3 min-h-0">
-                            <div className="pb-2 border-b border-border/30 flex-shrink-0">
-                                <h3 className="text-sm font-semibold text-foreground">Description</h3>
-                                <p className="text-xs text-muted-foreground mt-0.5">Add notes or details about this location</p>
-                            </div>
-
-                            <div className="flex flex-col flex-1 space-y-1.5 min-h-0">
-                                <Label htmlFor="description" className="text-xs font-medium text-foreground flex-shrink-0">
-                                    Location Notes <span className="text-muted-foreground font-normal">(Optional)</span>
-                                </Label>
-                                <Textarea
-                                    id="description"
-                                    placeholder="Storage conditions, access restrictions, handling notes..."
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    className="flex-1 resize-none bg-background border-border/50 focus:border-primary/50 transition-colors text-sm min-h-0"
-                                    autoComplete="off"
-                                    autoCorrect="off"
-                                    autoCapitalize="off"
-                                    spellCheck="false"
-                                    data-testid="location-description-input"
-                                />
-                                <p className="text-xs text-muted-foreground flex-shrink-0">
-                                    This information will be visible to all team members with access to this location
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Footer - Desktop Only */}
-                <DialogFooter className="hidden sm:flex flex-shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
-                    <Button
-                        variant="outline"
-                        onClick={() => onOpenChange(false)}
-                        disabled={isCreating}
-                        className="h-9 px-5 hover:bg-accent/10 transition-all"
-                        data-testid="cancel-button-desktop"
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleCreate}
-                        disabled={!isFormValid || isCreating}
-                        className="h-9 px-5 shadow-md hover:shadow-lg transition-all"
-                        data-testid="submit-button-desktop"
-                    >
-                        {isCreating ? "Creating..." : "Create Location"}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+          disabled={saving}
+          data-testid="cancel-button-desktop"
+        >
+          {created.length > 0 && addAnother ? "Done" : "Cancel"}
+        </Button>
+        <Button type="submit" disabled={saving} data-testid="submit-button-desktop">
+          {saving ? <Loader2 className="animate-spin" /> : <Plus />}
+          {saving ? "Creating…" : "Create location"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
 }

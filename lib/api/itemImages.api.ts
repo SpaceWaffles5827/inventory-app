@@ -1,33 +1,30 @@
 // Client-side API helper functions for item images
+import type { Prisma } from "@prisma/client";
 import type { ApiResponse } from "./types";
-import { Prisma } from "@prisma/client";
+import { apiRequest } from "./client";
 
 // ============================================
 // Derive types from Prisma queries
 // ============================================
 
-export const itemImageArgs = Prisma.validator<Prisma.ItemImageDefaultArgs>()({
+export type ItemImageWithRelations = Prisma.ItemImageGetPayload<{
   include: {
     item: {
       select: {
-        id: true,
-        name: true,
-        itemNumber: true,
-      },
-    },
+        id: true;
+        name: true;
+        itemNumber: true;
+      };
+    };
     user: {
       select: {
-        id: true,
-        name: true,
-        email: true,
-      },
-    },
-  },
-});
-
-export type ItemImageWithRelations = Prisma.ItemImageGetPayload<
-  typeof itemImageArgs
->;
+        id: true;
+        name: true;
+        email: true;
+      };
+    };
+  };
+}>;
 
 // Basic ItemImage without relations
 export type ItemImage = {
@@ -107,21 +104,9 @@ export type MultipartPartsListResponse = {
 export async function getItemImagesApi(
   itemId: string
 ): Promise<ItemImagesApiResponse> {
-  const response = await fetch(`/api/items/images/${itemId}`, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<ItemImagesApiResponse>(`/api/items/images/${itemId}`, {
+    errorMessage: "Failed to fetch item images",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to fetch item images");
-  }
-
-  return result;
 }
 
 /**
@@ -154,19 +139,11 @@ export async function uploadItemImageApi(
     formData.append("isPrimary", String(data.isPrimary));
   }
 
-  const response = await fetch(`/api/items/images/${itemId}`, {
+  return apiRequest<ItemImagesApiResponse>(`/api/items/images/${itemId}`, {
     method: "POST",
-    credentials: "include",
     body: formData,
+    errorMessage: "Failed to upload image",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to upload image");
-  }
-
-  return result;
 }
 
 /**
@@ -175,21 +152,13 @@ export async function uploadItemImageApi(
 export async function setPrimaryImageApi(
   imageId: string
 ): Promise<ItemImagesApiResponse> {
-  const response = await fetch(`/api/items/images/${imageId}/primary`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to set primary image");
-  }
-
-  return result;
+  return apiRequest<ItemImagesApiResponse>(
+    `/api/items/images/${imageId}/primary`,
+    {
+      method: "PATCH",
+      errorMessage: "Failed to set primary image",
+    }
+  );
 }
 
 /**
@@ -198,21 +167,10 @@ export async function setPrimaryImageApi(
 export async function deleteItemImageApi(
   imageId: string
 ): Promise<ItemImagesApiResponse> {
-  const response = await fetch(`/api/items/images/${imageId}`, {
+  return apiRequest<ItemImagesApiResponse>(`/api/items/images/${imageId}`, {
     method: "DELETE",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    errorMessage: "Failed to delete image",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to delete image");
-  }
-
-  return result;
 }
 
 // ============================================
@@ -226,22 +184,14 @@ export async function startMultipartUploadApi(
   itemId: string,
   data: MultipartUploadStartRequest
 ): Promise<MultipartStartResponse> {
-  const response = await fetch(`/api/items/images/${itemId}/multipart/start`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to start multipart upload");
-  }
-
-  return result;
+  return apiRequest<MultipartStartResponse>(
+    `/api/items/images/${itemId}/multipart/start`,
+    {
+      method: "POST",
+      body: data,
+      errorMessage: "Failed to start multipart upload",
+    }
+  );
 }
 
 /**
@@ -250,22 +200,14 @@ export async function startMultipartUploadApi(
 export async function getPartUrlApi(
   data: MultipartUploadPartRequest
 ): Promise<MultipartPartUrlResponse> {
-  const response = await fetch(`/api/items/images/multipart/part-url`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to get part URL");
-  }
-
-  return result;
+  return apiRequest<MultipartPartUrlResponse>(
+    "/api/items/images/multipart/part-url",
+    {
+      method: "POST",
+      body: data,
+      errorMessage: "Failed to get part URL",
+    }
+  );
 }
 
 /**
@@ -299,25 +241,14 @@ export async function completeMultipartUploadApi(
   itemId: string,
   data: MultipartUploadCompleteRequest
 ): Promise<ItemImagesApiResponse> {
-  const response = await fetch(
+  return apiRequest<ItemImagesApiResponse>(
     `/api/items/images/${itemId}/multipart/complete`,
     {
       method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
+      body: data,
+      errorMessage: "Failed to complete multipart upload",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to complete multipart upload");
-  }
-
-  return result;
 }
 
 /**
@@ -327,25 +258,13 @@ export async function listPartsApi(
   uploadId: string,
   objectKey: string
 ): Promise<MultipartPartsListResponse> {
-  const params = new URLSearchParams({ uploadId, objectKey });
-  const response = await fetch(
-    `/api/items/images/multipart/list?${params.toString()}`,
+  return apiRequest<MultipartPartsListResponse>(
+    "/api/items/images/multipart/list",
     {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      query: { uploadId, objectKey },
+      errorMessage: "Failed to list parts",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to list parts");
-  }
-
-  return result;
 }
 
 /**
@@ -354,22 +273,11 @@ export async function listPartsApi(
 export async function abortMultipartUploadApi(
   data: MultipartUploadAbortRequest
 ): Promise<{ ok: boolean }> {
-  const response = await fetch(`/api/items/images/multipart/abort`, {
+  return apiRequest<{ ok: boolean }>("/api/items/images/multipart/abort", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to abort multipart upload",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.error || "Failed to abort multipart upload");
-  }
-
-  return result;
 }
 
 // ============================================

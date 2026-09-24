@@ -1,371 +1,383 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
+import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, ChevronDown, DollarSign, Download, Loader2, Package, Plus } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  BarChart3,
-  TrendingUp,
-  TrendingDown,
-  Package,
-  DollarSign,
-  AlertCircle,
-  ArrowUpRight,
-  Calendar,
-  Loader2,
-} from "lucide-react"
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts"
+import { Skeleton } from "@/components/ui/skeleton"
+import { PageContainer, PageHeader } from "@/components/common/page"
+import { StatCard } from "@/components/common/stat-card"
+import { EmptyState } from "@/components/common/empty-state"
+import { ErrorState, StatsSkeleton } from "@/components/common/states"
+import { MovementChart } from "@/components/reports/movement-chart"
+import { CategoryBreakdown } from "@/components/reports/category-breakdown"
+import { TopMovers, formatChange } from "@/components/reports/top-movers"
+import { LowStockList } from "@/components/reports/low-stock-list"
+import { PERIODS, normalizeReport, type LowStockRow, type PeriodValue, type ReportData } from "@/components/reports/report-data"
+import { dateStamp, downloadCsv, slugify, type CsvValue } from "@/components/reports/csv"
 import { getAnalyticsApi } from "@/lib/api/analytics.api"
-import { AnalyticsData } from "@/lib/api/analytics.api"
+import { getDashboardSummaryApi } from "@/lib/api/transactions.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
+import { formatCurrency, formatCurrencyCompact, formatNumber } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
-const CHART_COLORS = {
-  primary: "#8b5cf6",
-  accent: "#a855f7",
-  purple: "#c084fc",
-  violet: "#d8b4fe",
-  blue: "#60a5fa",
-  green: "#34d399",
-  yellow: "#fbbf24",
-  red: "#f87171",
+interface SummaryCounts {
+  low: number | null
+  out: number | null
+  items: LowStockRow[]
 }
 
-const PIE_COLORS = [
-  CHART_COLORS.accent,
-  CHART_COLORS.primary,
-  CHART_COLORS.purple,
-  CHART_COLORS.violet,
-  CHART_COLORS.blue,
-  CHART_COLORS.green,
-]
+export default function ReportsPage() {
+  const { workspaceId, workspace } = useWorkspace()
 
-export default function AnalyticsPage() {
-  const [timeRange, setTimeRange] = useState("6months")
-  const [workspaceId, setWorkspaceId] = useState<string>("")
+  const [period, setPeriod] = useState<PeriodValue>("6months")
+  const [report, setReport] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const requestId = useRef(0)
 
-  useEffect(() => {
-    const storedWorkspaceId = localStorage.getItem("currentWorkspaceId")
-    if (storedWorkspaceId) {
-      setWorkspaceId(storedWorkspaceId)
-    }
-  }, [])
+  const [summary, setSummary] = useState<SummaryCounts | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const loadAnalytics = async () => {
+  const periodMeta = PERIODS.find((p) => p.value === period) ?? PERIODS[2]
+
+  const loadReport = useCallback(
+    async (range: PeriodValue) => {
+      const id = ++requestId.current
       try {
-        setLoading(true)
-        const response = await getAnalyticsApi(workspaceId, timeRange)
-        if (response.data) {
-          setAnalyticsData(response.data)
-        }
-      } catch (error) {
-        console.error("Failed to load analytics:", error)
-        alert("Failed to load analytics data")
+        const res = await getAnalyticsApi(workspaceId, range)
+        if (id !== requestId.current) return // a newer period was picked meanwhile
+        setReport(normalizeReport(res.data))
+        setError(null)
+      } catch (err) {
+        if (id !== requestId.current) return
+        setError(getErrorMessage(err, "Couldn't load reports"))
       } finally {
-        setLoading(false)
+        if (id === requestId.current) {
+          setLoading(false)
+          setRefreshing(false)
+        }
       }
-    }
+    },
+    [workspaceId]
+  )
 
-    if (workspaceId) {
-      loadAnalytics()
+  // Low-stock list + counts are "right now" numbers, independent of the period
+  const loadSummary = useCallback(async () => {
+    try {
+      const res = await getDashboardSummaryApi(workspaceId)
+      const d = res.data
+      setSummary({
+        low: d?.lowStockCount ?? null,
+        out: d?.outOfStockCount ?? null,
+        items: (d?.lowStockItems ?? []).map((e) => ({
+          id: e.id,
+          name: e.name,
+          sku: e.itemNumber || null,
+          unit: e.unit,
+          onHand: e.onHand,
+          reorderPoint: e.reorderPoint,
+        })),
+      })
+      setSummaryError(null)
+    } catch (err) {
+      setSummaryError(getErrorMessage(err, "Couldn't load low-stock items"))
+    } finally {
+      setSummaryLoading(false)
     }
-  }, [workspaceId, timeRange])
+  }, [workspaceId])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-accent mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading analytics...</p>
-        </div>
-      </div>
-    )
+  useEffect(() => {
+    loadReport(period)
+  }, [loadReport, period])
+
+  useEffect(() => {
+    loadSummary()
+  }, [loadSummary])
+
+  const changePeriod = (value: string) => {
+    if (value === period) return
+    setRefreshing(true)
+    setPeriod(value as PeriodValue)
   }
 
-  if (!analyticsData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle>No Data Available</CardTitle>
-            <CardDescription>Unable to load analytics data</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    )
+  const retryReport = () => {
+    if (report) setRefreshing(true)
+    else setLoading(true)
+    setError(null)
+    loadReport(period)
   }
 
-  const { keyMetrics, stockTrendData, categoryDistribution, inventoryValueData, topMovingItems } = analyticsData
+  const retrySummary = () => {
+    setSummaryLoading(true)
+    setSummaryError(null)
+    loadSummary()
+  }
+
+  // ----- derived numbers -----
+  const lowStockItems = report?.lowStockItems ?? summary?.items ?? null
+  const lowCount = report?.lowStock ?? summary?.low ?? null
+  const outCount = report?.outOfStock ?? summary?.out ?? null
+  const attention = lowCount !== null || outCount !== null ? (lowCount ?? 0) + (outCount ?? 0) : null
+
+  const valueChange = useMemo(() => {
+    const trend = report?.valueTrend
+    if (!trend || trend.length < 2) return null
+    const first = trend[0]
+    const last = trend[trend.length - 1]
+    if (first.value <= 0) return null
+    return { pct: ((last.value - first.value) / first.value) * 100, since: first.fullLabel }
+  }, [report])
+
+  const isEmptyWorkspace =
+    report !== null &&
+    report.totalItems === 0 &&
+    (report.totals === null || (report.totals.in === 0 && report.totals.out === 0))
+
+  // ----- CSV exports -----
+  const exportCsv = (name: string, headers: string[], rows: CsvValue[][]) => {
+    if (downloadCsv(`${slugify(workspace?.name)}-${name}-${period}-${dateStamp()}.csv`, headers, rows)) {
+      toast.success(`Exported ${formatNumber(rows.length)} ${rows.length === 1 ? "row" : "rows"}`)
+    } else {
+      toast.error("Nothing to export yet")
+    }
+  }
+
+  const exports = [
+    {
+      key: "top-movers",
+      label: "Top movers",
+      disabled: !report?.movers.length,
+      run: () =>
+        exportCsv(
+          "top-movers",
+          ["Rank", "Item", "Item number", "Units moved", "Transactions", "Change vs previous period (%)"],
+          (report?.movers ?? []).map((m, i) => [
+            i + 1,
+            m.name,
+            m.sku,
+            m.units,
+            m.movements,
+            m.changePct ?? (m.isNew ? "new" : null),
+          ])
+        ),
+    },
+    {
+      key: "low-stock",
+      label: "Low stock",
+      disabled: !lowStockItems?.length,
+      run: () =>
+        exportCsv(
+          "low-stock",
+          ["Item", "Item number", "On hand", "Unit", "Reorder point", "Status"],
+          (lowStockItems ?? []).map((item) => [
+            item.name,
+            item.sku,
+            item.onHand,
+            item.unit,
+            item.reorderPoint,
+            item.onHand <= 0 ? "Out of stock" : "Low stock",
+          ])
+        ),
+    },
+    {
+      key: "movement",
+      label: "Stock movement",
+      disabled: !report?.movement?.length,
+      run: () =>
+        exportCsv(
+          "stock-movement",
+          ["Period", "Units in", "Units out", "Net", "Transferred"],
+          (report?.movement ?? []).map((p) => [p.fullLabel, p.in, p.out, p.net, p.transfers])
+        ),
+    },
+    {
+      key: "categories",
+      label: "Category breakdown",
+      disabled: !report?.categories.length,
+      run: () =>
+        exportCsv(
+          "categories",
+          ["Category", "Items", "Units on hand", "Inventory value"],
+          (report?.categories ?? []).map((c) => [c.name, c.items, c.units, c.value])
+        ),
+    },
+  ]
 
   return (
-    <div className="min-h-screen">
-      <div className="px-8 py-8">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-4xl font-bold bg-linear-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-              Analytics
-            </h1>
-            <p className="text-muted-foreground mt-2">Track inventory performance and insights</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Select value={timeRange} onValueChange={setTimeRange}>
-              <SelectTrigger className="w-[180px]">
-                <Calendar className="h-4 w-4 mr-2" />
-                <SelectValue />
+    <PageContainer className="space-y-6">
+      <PageHeader
+        title="Reports"
+        description={workspace ? `Stock movement and inventory value for ${workspace.name}` : "Stock movement and inventory value"}
+        actions={
+          <>
+            <Select value={period} onValueChange={changePeriod} disabled={loading}>
+              <SelectTrigger className="h-9 w-[170px]" aria-label="Reporting period" data-testid="report-period">
+                <div className="flex min-w-0 items-center gap-2">
+                  {refreshing && <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />}
+                  <SelectValue />
+                </div>
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7days">Last 7 days</SelectItem>
-                <SelectItem value="30days">Last 30 days</SelectItem>
-                <SelectItem value="3months">Last 3 months</SelectItem>
-                <SelectItem value="6months">Last 6 months</SelectItem>
-                <SelectItem value="1year">Last year</SelectItem>
+              <SelectContent align="end">
+                {PERIODS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Button variant="outline">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Export Report
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" disabled={loading || !report} data-testid="report-export">
+                  <Download /> Export <ChevronDown className="opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">Download CSV</DropdownMenuLabel>
+                {exports.map((e) => (
+                  <DropdownMenuItem key={e.key} disabled={e.disabled} onSelect={e.run}>
+                    {e.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        }
+      />
+
+      {loading ? (
+        <div className="space-y-6" aria-busy>
+          <StatsSkeleton />
+          <div className="grid gap-6 xl:grid-cols-5">
+            <Skeleton className="h-96 rounded-xl xl:col-span-3" />
+            <Skeleton className="h-96 rounded-xl xl:col-span-2" />
           </div>
         </div>
+      ) : !report ? (
+        <ErrorState title="Couldn't load reports" message={error ?? undefined} onRetry={retryReport} />
+      ) : isEmptyWorkspace ? (
+        <EmptyState
+          icon={Package}
+          title="No inventory to report on yet"
+          description="Reports fill in as soon as you add items and start receiving or shipping stock."
+          action={
+            <Button asChild>
+              <Link href="/dashboard/items">
+                <Plus /> Add items
+              </Link>
+            </Button>
+          }
+        />
+      ) : (
+        <div
+          className={cn("space-y-6 transition-opacity", refreshing && "pointer-events-none opacity-60")}
+          aria-busy={refreshing}
+        >
+          {error && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+            >
+              <span>
+                <span className="font-medium text-destructive">Couldn&apos;t refresh the report.</span>{" "}
+                <span className="text-muted-foreground">{error} Showing the last loaded data.</span>
+              </span>
+              <Button variant="outline" size="sm" onClick={retryReport}>
+                Try again
+              </Button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+            <StatCard
+              label="Inventory value"
+              value={report.totalValue !== null ? formatCurrencyCompact(report.totalValue) : "—"}
+              icon={DollarSign}
+              tone="primary"
+              hint={
+                valueChange
+                  ? `${formatChange(valueChange.pct)} since ${valueChange.since}`
+                  : report.totalValue !== null
+                    ? `${formatCurrency(report.totalValue)} at cost`
+                    : "Not available"
+              }
+              data-testid="stat-inventory-value"
+            />
+            <StatCard
+              label="Stock in"
+              value={report.totals ? formatNumber(report.totals.in) : "—"}
+              icon={ArrowDownToLine}
+              hint={report.totals ? `Units received · ${periodMeta.short}` : "Not available"}
+              data-testid="stat-stock-in"
+            />
+            <StatCard
+              label="Stock out"
+              value={report.totals ? formatNumber(report.totals.out) : "—"}
+              icon={ArrowUpFromLine}
+              hint={
+                report.totals
+                  ? report.turnover !== null
+                    ? `Turnover ${formatNumber(report.turnover)}× · ${periodMeta.short}`
+                    : `Units shipped · ${periodMeta.short}`
+                  : "Not available"
+              }
+              data-testid="stat-stock-out"
+            />
+            <StatCard
+              label="Needs attention"
+              value={attention !== null ? formatNumber(attention) : "—"}
+              icon={AlertTriangle}
+              tone={outCount ? "danger" : attention ? "warning" : "default"}
+              hint={
+                attention !== null
+                  ? `${formatNumber(lowCount ?? 0)} low · ${formatNumber(outCount ?? 0)} out of stock`
+                  : "Not available"
+              }
+              href="/dashboard/items"
+              data-testid="stat-needs-attention"
+            />
+          </div>
 
-        {/* Key Metrics */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Stock Value</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                <DollarSign className="h-4 w-4 text-accent" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">
-                ${keyMetrics.totalStockValue.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </div>
-              <div className="flex items-center gap-1 mt-1">
-                <ArrowUpRight className="h-3 w-3 text-accent" />
-                <p className="text-xs text-accent font-medium">Current value</p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="grid gap-6 xl:grid-cols-5">
+            <MovementChart
+              className="xl:col-span-3"
+              movement={report.movement}
+              totals={report.totals}
+              periodLabel={periodMeta.label}
+              granularity={report.granularity}
+            />
+            <CategoryBreakdown className="xl:col-span-2" categories={report.categories} />
+          </div>
 
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Stock Turnover</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <TrendingUp className="h-4 w-4 text-primary" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">{keyMetrics.stockTurnover}x</div>
-              <div className="flex items-center gap-1 mt-1">
-                <ArrowUpRight className="h-3 w-3 text-accent" />
-                <p className="text-xs text-accent font-medium">Turnover rate</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Items in Stock</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                <Package className="h-4 w-4 text-accent" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">{keyMetrics.inStockCount}</div>
-              <div className="flex items-center gap-1 mt-1">
-                <ArrowUpRight className="h-3 w-3 text-accent" />
-                <p className="text-xs text-accent font-medium">Items available</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50 bg-linear-to-br from-card to-card/50">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Low Stock Items</CardTitle>
-              <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
-                <AlertCircle className="h-4 w-4 text-destructive" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-card-foreground">{keyMetrics.lowStockCount}</div>
-              <div className="flex items-center gap-1 mt-1">
-                <AlertCircle className="h-3 w-3 text-destructive" />
-                <p className="text-xs text-destructive font-medium">Needs attention</p>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="grid gap-6 xl:grid-cols-5">
+            <TopMovers
+              className="xl:col-span-3"
+              movers={report.movers}
+              showChange={report.moversHaveChange}
+              periodShort={periodMeta.short}
+            />
+            <LowStockList
+              className="xl:col-span-2"
+              items={lowStockItems}
+              total={attention}
+              loading={!report.lowStockItems && summaryLoading}
+              error={!report.lowStockItems ? summaryError : null}
+              onRetry={retrySummary}
+            />
+          </div>
         </div>
-
-        {/* Charts Row 1 */}
-        <div className="grid lg:grid-cols-2 gap-6 mb-6">
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle>Stock Level Trends</CardTitle>
-              <CardDescription>Track stock levels over time</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={stockTrendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Legend />
-                  <Line type="monotone" dataKey="inStock" stroke={CHART_COLORS.accent} strokeWidth={2} name="In Stock" />
-                  <Line
-                    type="monotone"
-                    dataKey="lowStock"
-                    stroke={CHART_COLORS.purple}
-                    strokeWidth={2}
-                    name="Low Stock"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="outOfStock"
-                    stroke={CHART_COLORS.red}
-                    strokeWidth={2}
-                    name="Out of Stock"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle>Inventory Value Trend</CardTitle>
-              <CardDescription>Total inventory value over time</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={inventoryValueData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" />
-                  <YAxis stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                    }}
-                    formatter={(value: number) => `$${value.toLocaleString()}`}
-                  />
-                  <Bar dataKey="value" fill={CHART_COLORS.primary} radius={[8, 8, 0, 0]} name="Value" />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Charts Row 2 */}
-        <div className="grid lg:grid-cols-3 gap-6">
-          <Card className="border-border/50">
-            <CardHeader>
-              <CardTitle>Category Distribution</CardTitle>
-              <CardDescription>Items by category</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {categoryDistribution.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={categoryDistribution}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      dataKey="value"
-                    >
-                      {categoryDistribution.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[280px] flex items-center justify-center text-muted-foreground">
-                  No category data available
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50 lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Top Moving Items</CardTitle>
-              <CardDescription>Most frequently moved items in this period</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {topMovingItems.length > 0 ? (
-                <div className="space-y-4">
-                  {topMovingItems.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border/50 bg-muted/20"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
-                          <span className="font-bold text-accent">#{index + 1}</span>
-                        </div>
-                        <div>
-                          <p className="font-medium">{item.name}</p>
-                          <p className="text-sm text-muted-foreground">{item.moved} movements</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {item.trend === "up" ? (
-                          <TrendingUp className="h-4 w-4 text-accent" />
-                        ) : (
-                          <TrendingDown className="h-4 w-4 text-destructive" />
-                        )}
-                        <span className={`font-medium ${item.trend === "up" ? "text-accent" : "text-destructive"}`}>
-                          {item.change}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="h-full flex items-center justify-center text-muted-foreground py-8">
-                  No transaction data available for this period
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </div>
+      )}
+    </PageContainer>
   )
 }

@@ -1,78 +1,69 @@
 // Client-side API helper functions for inventory items
+import type { Prisma } from "@prisma/client";
 import type { ApiResponse } from "./types";
-import { Prisma } from "@prisma/client";
+import { apiRequest } from "./client";
 
 // ============================================
 // Derive types from Prisma queries
 // ============================================
 
 // Item with basic relations (for list view)
-export const itemWithRelationsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()(
-  {
-    include: {
-      category: true,
-      supplier: true,
-      customers: {
-        include: {
-          customer: true,
-        },
-      },
-      locations: {
-        include: {
-          location: true,
-        },
-      },
-    },
-  }
-);
-
-// Item with full details (for detail view)
-export const itemWithDetailsArgs = Prisma.validator<Prisma.ItemDefaultArgs>()({
+export type ItemWithRelations = Prisma.ItemGetPayload<{
   include: {
-    category: true,
-    supplier: true,
-    workspace: true,
+    category: true;
+    supplier: true;
     customers: {
       include: {
-        customer: true,
-      },
-    },
+        customer: true;
+      };
+    };
     locations: {
       include: {
-        location: true,
-      },
-    },
+        location: true;
+      };
+    };
+  };
+}> & { onHand: number };
+
+// Item with full details (for detail view)
+export type ItemWithDetails = Prisma.ItemGetPayload<{
+  include: {
+    category: true;
+    supplier: true;
+    workspace: true;
+    customers: {
+      include: {
+        customer: true;
+      };
+    };
+    locations: {
+      include: {
+        location: true;
+      };
+    };
     transactions: {
       include: {
         user: {
           select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+            id: true;
+            name: true;
+            email: true;
+          };
+        };
         fromLocation: {
           select: {
-            code: true,
-          },
-        },
+            code: true;
+          };
+        };
         toLocation: {
           select: {
-            code: true,
-          },
-        },
-      },
-    },
-  },
-});
-
-export type ItemWithRelations = Prisma.ItemGetPayload<
-  typeof itemWithRelationsArgs
-> & { onHand: number };
-
-export type ItemWithDetails = Prisma.ItemGetPayload<
-  typeof itemWithDetailsArgs
-> & { onHand: number };
+            code: true;
+          };
+        };
+      };
+    };
+  };
+}> & { onHand: number };
 
 // ============================================
 // Request types
@@ -130,42 +121,19 @@ export type ItemsApiResponse = ApiResponse<{
 export async function getItemsApi(
   workspaceId: string
 ): Promise<ItemsApiResponse> {
-  const response = await fetch(`/api/items?workspaceId=${workspaceId}`, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<ItemsApiResponse>("/api/items", {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch items",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch items");
-  }
-
-  return result;
 }
 
 /**
  * Get a single item by ID with full details including transactions
  */
 export async function getItemByIdApi(id: string): Promise<ItemsApiResponse> {
-  const response = await fetch(`/api/items/${id}`, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<ItemsApiResponse>(`/api/items/${id}`, {
+    errorMessage: "Failed to fetch item",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch item");
-  }
-
-  return result;
 }
 
 /**
@@ -174,22 +142,11 @@ export async function getItemByIdApi(id: string): Promise<ItemsApiResponse> {
 export async function createItemApi(
   data: CreateItemRequest
 ): Promise<ItemsApiResponse> {
-  const response = await fetch("/api/items", {
+  return apiRequest<ItemsApiResponse>("/api/items", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create item",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create item");
-  }
-
-  return result;
 }
 
 /**
@@ -199,43 +156,21 @@ export async function updateItemApi(
   id: string,
   data: UpdateItemRequest
 ): Promise<ItemsApiResponse> {
-  const response = await fetch(`/api/items/${id}`, {
+  return apiRequest<ItemsApiResponse>(`/api/items/${id}`, {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update item",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update item");
-  }
-
-  return result;
 }
 
 /**
  * Delete an item
  */
 export async function deleteItemApi(id: string): Promise<ItemsApiResponse> {
-  const response = await fetch(`/api/items/${id}`, {
+  return apiRequest<ItemsApiResponse>(`/api/items/${id}`, {
     method: "DELETE",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    errorMessage: "Failed to delete item",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to delete item");
-  }
-
-  return result;
 }
 
 /**
@@ -245,20 +180,32 @@ export async function adjustStockApi(
   id: string,
   data: AdjustStockRequest
 ): Promise<ItemsApiResponse> {
-  const response = await fetch(`/api/items/${id}/adjust-stock`, {
+  return apiRequest<ItemsApiResponse>(`/api/items/${id}/adjust-stock`, {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to adjust stock",
   });
+}
 
-  const result = await response.json();
+export type TransferStockRequest = {
+  quantity: number;
+  fromLocationId: string;
+  toLocationId: string;
+  /** Required for lot-tracked items; omitted for regular items (the server uses the item's system lot) */
+  lotId?: string;
+  reason?: string;
+};
 
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to adjust stock");
-  }
-
-  return result;
+/**
+ * Move stock between two locations
+ */
+export async function transferStockApi(
+  itemId: string,
+  data: TransferStockRequest
+): Promise<ItemsApiResponse> {
+  return apiRequest<ItemsApiResponse>(`/api/items/${itemId}/transfer-stock`, {
+    method: "POST",
+    body: data,
+    errorMessage: "Failed to transfer stock",
+  });
 }

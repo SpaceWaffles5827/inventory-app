@@ -1,142 +1,142 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type FormEvent } from "react"
+import { Loader2, Plus } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import { Plus } from "lucide-react"
-import { toast } from "sonner"
+import { EntityCombobox } from "@/components/items/entity-combobox"
+import { Field, invalidProps } from "@/components/items/form-field"
 import { adjustLotQuantityApi } from "@/lib/api/lots.api"
-import { type LocationWithCount } from "@/lib/api/locations.api"
+import type { LocationWithCount } from "@/lib/api/locations.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { formatQuantity } from "@/lib/format"
 
-interface AddLocationDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    lotId: string
-    availableLocations: LocationWithCount[]
-    onSuccess: () => void
+interface AddLocationToLotDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  lotId: string
+  /** Locations that don't hold this lot yet */
+  availableLocations: LocationWithCount[]
+  onSuccess: () => void
+  unit?: string | null
 }
 
-export function AddLocationToLotDialog({
-    open,
-    onOpenChange,
-    lotId,
-    availableLocations,
-    onSuccess,
-}: AddLocationDialogProps) {
-    const [selectedLocationId, setSelectedLocationId] = useState("")
-    const [locationQuantity, setLocationQuantity] = useState("")
-    const [isSubmitting, setIsSubmitting] = useState(false)
+/** Receive more of a lot into a location that doesn't hold it yet */
+export function AddLocationToLotDialog({ open, onOpenChange, ...props }: AddLocationToLotDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <AddLocationForm {...props} onClose={() => onOpenChange(false)} />
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-    const handleClose = () => {
-        setSelectedLocationId("")
-        setLocationQuantity("")
-        onOpenChange(false)
+function AddLocationForm({
+  lotId,
+  availableLocations,
+  onSuccess,
+  unit,
+  onClose,
+}: Omit<AddLocationToLotDialogProps, "open" | "onOpenChange"> & { onClose: () => void }) {
+  const [locationId, setLocationId] = useState("")
+  const [quantity, setQuantity] = useState("")
+  const [reason, setReason] = useState("")
+  const [submitted, setSubmitted] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const errors = {
+    location: submitted && !locationId ? "Choose a location" : undefined,
+    quantity:
+      submitted && !(/^\d+$/.test(quantity.trim()) && Number(quantity) > 0) ? "Enter a whole number of at least 1" : undefined,
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+    const qty = Number(quantity)
+    if (!locationId || !/^\d+$/.test(quantity.trim()) || qty < 1) return
+
+    setSaving(true)
+    try {
+      await adjustLotQuantityApi(lotId, {
+        type: "INPUT",
+        quantity: qty,
+        reason: reason.trim() || "Received into new location",
+        locationId,
+      })
+      const code = availableLocations.find((l) => l.id === locationId)?.code
+      toast.success("Stock added", { description: `${formatQuantity(qty, unit)} to ${code ?? "location"}` })
+      onSuccess()
+      onClose()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't add stock to that location"))
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const handleAddLocation = async () => {
-        if (!selectedLocationId || !locationQuantity) {
-            toast.error("Please select a location and enter quantity")
-            return
-        }
+  return (
+    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <DialogHeader>
+        <DialogTitle>Add to a location</DialogTitle>
+        <DialogDescription>Record stock of this lot at another storage location.</DialogDescription>
+      </DialogHeader>
 
-        const quantity = parseInt(locationQuantity)
-        if (quantity <= 0) {
-            toast.error("Quantity must be greater than 0")
-            return
-        }
+      <Field label="Location" htmlFor="lot-add-location" required error={errors.location}>
+        <EntityCombobox
+          id="lot-add-location"
+          value={locationId}
+          onChange={setLocationId}
+          options={availableLocations.map((l) => ({ value: l.id, label: l.code }))}
+          placeholder="Choose a location"
+          searchPlaceholder="Search locations…"
+          emptyText="No location found."
+          mono
+          invalid={!!errors.location}
+        />
+      </Field>
 
-        setIsSubmitting(true)
-        try {
-            await adjustLotQuantityApi(lotId, {
-                type: "INPUT",
-                quantity: quantity,
-                reason: "Added stock to new location",
-                locationId: selectedLocationId,
-            })
+      <Field label={`Quantity${unit ? ` (${unit})` : ""}`} htmlFor="lot-add-quantity" required error={errors.quantity}>
+        <Input
+          {...invalidProps("lot-add-quantity", errors.quantity)}
+          type="number"
+          min={1}
+          step={1}
+          inputMode="numeric"
+          placeholder="0"
+          value={quantity}
+          onChange={(e) => setQuantity(e.target.value)}
+        />
+      </Field>
 
-            toast.success("Location added successfully")
-            onSuccess()
-            handleClose()
-        } catch (error) {
-            console.error("Failed to add location:", error)
-            toast.error(error instanceof Error ? error.message : "Failed to add location")
-        } finally {
-            setIsSubmitting(false)
-        }
-    }
+      <Field label="Reason" htmlFor="lot-add-reason" hint="Optional — shown in the history">
+        <Input
+          {...invalidProps("lot-add-reason")}
+          placeholder="e.g. Received from supplier"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </Field>
 
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Add Location to Lot</DialogTitle>
-                    <DialogDescription className="text-xs">
-                        Assign this lot to a new storage location with an initial quantity.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-3 py-3">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="location" className="text-xs font-medium">
-                            Storage Location <span className="text-red-500">*</span>
-                        </Label>
-                        <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
-                            <SelectTrigger id="location" className="h-9">
-                                <SelectValue placeholder="Select a location" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {availableLocations.map((location) => (
-                                    <SelectItem key={location.id} value={location.id}>
-                                        <span className="font-mono font-semibold">{location.code}</span>
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label htmlFor="quantity" className="text-xs font-medium">
-                            Initial Quantity <span className="text-red-500">*</span>
-                        </Label>
-                        <Input
-                            id="quantity"
-                            type="number"
-                            min="1"
-                            value={locationQuantity}
-                            onChange={(e) => setLocationQuantity(e.target.value)}
-                            placeholder="Enter quantity"
-                            className="h-9"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            This will add {locationQuantity || 0} units to the selected location
-                        </p>
-                    </div>
-                </div>
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={handleClose} size="sm" disabled={isSubmitting}>
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleAddLocation}
-                        disabled={!selectedLocationId || !locationQuantity || isSubmitting}
-                        size="sm"
-                    >
-                        <Plus className="h-3.5 w-3.5 mr-1.5" />
-                        {isSubmitting ? "Adding..." : "Add Location"}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={saving}>
+          {saving ? <Loader2 className="animate-spin" /> : <Plus />}
+          {saving ? "Adding…" : "Add stock"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
 }

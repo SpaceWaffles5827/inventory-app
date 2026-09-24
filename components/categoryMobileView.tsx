@@ -1,112 +1,76 @@
-// components/categoryMobileView.tsx
 "use client"
 
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { MoreVertical, FolderOpen } from "lucide-react"
-import { CategoryWithCount } from "@/lib/api/categories.api"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import Link from "next/link"
+import { Eye, FolderTree, Pencil, Trash2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { RowActions } from "@/components/partners/row-actions"
+import type { CategoryRow } from "@/components/catalog/category-row"
+import { formatCurrencyCompact, formatNumber } from "@/lib/format"
 
 interface CategoryMobileViewProps {
-    categories: CategoryWithCount[]
-    onEditClick: (category: CategoryWithCount) => void
-    onDeleteClick: (id: string) => void
+    categories: CategoryRow[]
+    onEditClick: (category: CategoryRow) => void
+    /** Omit to hide the delete action (non-admins) */
+    onDeleteClick?: (category: CategoryRow) => void
 }
 
-export function CategoryMobileView({
-    categories,
-    onEditClick,
-    onDeleteClick
-}: CategoryMobileViewProps) {
-    const router = useRouter()
-
-    if (categories.length === 0) {
-        return (
-            <div className="text-center py-12 px-4 text-muted-foreground">
-                No categories found. Create your first category to get started.
-            </div>
-        )
-    }
-
+/** Stacked card list of categories for phones (the page shows a table from `md` up). */
+export function CategoryMobileView({ categories, onEditClick, onDeleteClick }: CategoryMobileViewProps) {
     return (
-        <div className="divide-y divide-border">
-            {categories.map((category) => (
-                <div
-                    key={category.id}
-                    className="flex items-center gap-3 p-4 active:bg-muted/50 transition-colors"
-                    onClick={() => router.push(`/dashboard/categories/${category.id}`)}
-                    data-testid={`category-row-${category.id}`}
-                >
-                    {/* Category Icon */}
-                    <div className="w-12 h-12 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center flex-shrink-0">
-                        <FolderOpen className="h-5 w-5 text-accent" />
-                    </div>
+        <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+            {categories.map((category) => {
+                const href = `/dashboard/categories/${category.id}`
+                const meta = [
+                    `${formatNumber(category.itemCount)} ${category.itemCount === 1 ? "item" : "items"}`,
+                    category.units !== null && category.itemCount > 0 ? `${formatNumber(category.units)} units` : null,
+                    category.value !== null && category.value > 0 ? formatCurrencyCompact(category.value) : null,
+                ].filter(Boolean)
 
-                    {/* Category Info */}
-                    <div className="flex-1 min-w-0">
-                        {/* Category Name */}
-                        <h3 className="font-semibold text-base leading-tight mb-1">
-                            {category.name}
-                        </h3>
-
-                        {/* Description */}
-                        {category.description && (
-                            <p className="text-sm text-muted-foreground line-clamp-1 mb-1">
-                                {category.description}
-                            </p>
-                        )}
-
-                        {/* Stats Row */}
-                        <div className="flex items-center gap-3 text-sm">
-                            <span className="font-medium text-accent">
-                                {category.itemCount} {category.itemCount === 1 ? 'item' : 'items'}
-                            </span>
-                            <span className="text-muted-foreground">|</span>
-                            <span className="text-muted-foreground text-xs">
-                                {new Date(category.createdAt).toLocaleDateString()}
-                            </span>
+                return (
+                    <li
+                        key={category.id}
+                        className="relative flex items-center gap-3 p-4 transition-colors active:bg-accent/60"
+                        data-testid={`category-row-${category.id}`}
+                    >
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <FolderTree className="size-5" />
                         </div>
-                    </div>
-
-                    {/* Actions Menu */}
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="flex-shrink-0 h-10 w-10"
+                        <div className="min-w-0 flex-1">
+                            <Link
+                                href={href}
+                                className="block truncate font-medium after:absolute after:inset-0 after:content-['']"
                             >
-                                <MoreVertical className="h-5 w-5" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => router.push(`/dashboard/categories/${category.id}`)}>
-                                View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => {
-                                e.stopPropagation()
-                                onEditClick(category)
-                            }}>
-                                Edit Category
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onDeleteClick(category.id)
-                                }}
-                            >
-                                Delete Category
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-            ))}
-        </div>
+                                {category.name}
+                            </Link>
+                            {category.description && (
+                                <p className="truncate text-sm text-muted-foreground">{category.description}</p>
+                            )}
+                            <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">{meta.join(" · ")}</p>
+                        </div>
+                        {category.lowStock !== null && category.lowStock > 0 && (
+                            <Badge variant="warning" className="tabular-nums">
+                                {formatNumber(category.lowStock)} low
+                            </Badge>
+                        )}
+                        <RowActions
+                            className="relative z-10"
+                            label={`Actions for ${category.name}`}
+                            actions={[
+                                { label: "View items", icon: Eye, href },
+                                { label: "Edit", icon: Pencil, onSelect: () => onEditClick(category) },
+                                {
+                                    label: "Delete",
+                                    icon: Trash2,
+                                    destructive: true,
+                                    separated: true,
+                                    hidden: !onDeleteClick,
+                                    onSelect: () => onDeleteClick?.(category),
+                                },
+                            ]}
+                        />
+                    </li>
+                )
+            })}
+        </ul>
     )
 }

@@ -1,3 +1,5 @@
+import { apiRequest } from "./client";
+
 export interface AnalyticsData {
   keyMetrics: {
     totalStockValue: number;
@@ -41,24 +43,8 @@ export async function getAnalyticsApi(
   workspaceId: string,
   timeRange: string = "6months"
 ): Promise<AnalyticsApiResponse> {
-  const response = await fetch(
-    `/api/analytics?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}&timeRange=${timeRange}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch analytics");
-  }
-
-  return result;
+  return apiRequest<AnalyticsApiResponse>("/api/analytics", {
+    query: { workspaceId, timeRange },
+    errorMessage: "Failed to fetch analytics",
+  });
 }

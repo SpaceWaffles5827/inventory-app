@@ -1,804 +1,610 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import Image from "next/image"
+import { Download, Loader2, QrCode } from "lucide-react"
+import { toast } from "sonner"
+import type { jsPDF } from "jspdf"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { QrCode, Barcode, Loader2, Printer } from "lucide-react"
-import { toast } from "sonner"
+import { Field, invalidProps } from "@/components/items/form-field"
+import { todayInputValue } from "@/components/items/item-utils"
+import { getErrorMessage } from "@/lib/api/client"
+import { formatCurrency } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
-interface ItemLabelGeneratorProps {
-    item: {
-        id: string
-        name: string
-        description?: string | null
-        itemNumber: string
-        sku?: string | null
-        barcode?: string | null
-        unit?: string | null
-        cost: number
-        unitPrice?: number | null
-    }
-    trigger?: React.ReactNode
+interface LabelItem {
+  id: string
+  name: string
+  description?: string | null
+  itemNumber: string
+  barcode?: string | null
+  unit?: string | null
+  cost: number
 }
 
-export function ItemLabelGenerator({ item, trigger }: ItemLabelGeneratorProps) {
-    const [isOpen, setIsOpen] = useState(false)
-    const [isGenerating, setIsGenerating] = useState(false)
+interface ItemLabelGeneratorProps {
+  item: LabelItem
+  /** Element that opens the dialog. Omit it when controlling `open` yourself. */
+  trigger?: ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
 
-    // Initialize from session storage or use defaults
-    const [labelWidth, setLabelWidth] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return sessionStorage.getItem('itemLabelWidth') || "4"
-        }
-        return "4"
-    })
-    const [labelHeight, setLabelHeight] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return sessionStorage.getItem('itemLabelHeight') || "6"
-        }
-        return "6"
-    })
+type CodeType = "qr" | "barcode" | "both"
+type FieldKey = "name" | "description" | "sku" | "unit" | "codeText" | "price"
 
-    const [codeType, setCodeType] = useState<"qr" | "barcode" | "both">("qr")
+interface LabelSettings {
+  preset: string
+  width: string
+  height: string
+  codeType: CodeType
+  fields: Record<FieldKey, boolean>
+  copies: string
+}
 
-    // Field visibility state
-    const [showName, setShowName] = useState(true)
-    const [showDescription, setShowDescription] = useState(true)
-    const [showSKU, setShowSKU] = useState(true)
-    const [showUnit, setShowUnit] = useState(true)
-    const [showBarcode, setShowBarcode] = useState(true)
-    const [showPrice, setShowPrice] = useState(false)
+const PRESETS = [
+  { value: "4x6", label: "4 × 6 in", width: 4, height: 6 },
+  { value: "4x3", label: "4 × 3 in", width: 4, height: 3 },
+  { value: "3x2", label: "3 × 2 in", width: 3, height: 2 },
+  { value: "2.25x1.25", label: "2.25 × 1.25 in", width: 2.25, height: 1.25 },
+  { value: "2x1", label: "2 × 1 in", width: 2, height: 1 },
+]
+const CUSTOM_PRESET = "custom"
 
-    // Save to session storage whenever width or height changes
-    const handleWidthChange = (value: string) => {
-        setLabelWidth(value)
-        if (typeof window !== 'undefined') {
-            sessionStorage.setItem('itemLabelWidth', value)
-        }
-    }
+const CODE_TYPES: { value: CodeType; label: string }[] = [
+  { value: "qr", label: "QR code" },
+  { value: "barcode", label: "Barcode" },
+  { value: "both", label: "Both" },
+]
 
-    const handleHeightChange = (value: string) => {
-        setLabelHeight(value)
-        if (typeof window !== 'undefined') {
-            sessionStorage.setItem('itemLabelHeight', value)
-        }
-    }
+const FIELD_OPTIONS: { key: FieldKey; label: string }[] = [
+  { key: "name", label: "Name" },
+  { key: "description", label: "Description" },
+  { key: "sku", label: "Item number" },
+  { key: "unit", label: "Unit" },
+  { key: "codeText", label: "Barcode digits" },
+  { key: "price", label: "Unit cost" },
+]
 
-    const generateItemLabel = async () => {
-        setIsGenerating(true)
+const DEFAULT_SETTINGS: LabelSettings = {
+  preset: "4x6",
+  width: "4",
+  height: "6",
+  codeType: "qr",
+  fields: { name: true, description: true, sku: true, unit: true, codeText: true, price: false },
+  copies: "1",
+}
+
+const STORAGE_KEY = "itemLabelSettings"
+
+function readSettings(): LabelSettings {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY)
+    if (!raw) return DEFAULT_SETTINGS
+    const saved = JSON.parse(raw) as Partial<LabelSettings>
+    return { ...DEFAULT_SETTINGS, ...saved, fields: { ...DEFAULT_SETTINGS.fields, ...saved.fields } }
+  } catch {
+    return DEFAULT_SETTINGS
+  }
+}
+
+function storeSettings(settings: LabelSettings) {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+  } catch {
+    // storage unavailable — settings just aren't remembered
+  }
+}
+
+/** What the QR code / barcode encode */
+function codeValueOf(item: LabelItem): string {
+  return item.barcode || item.itemNumber
+}
+
+/** Printable item label (PDF) with a QR code and/or barcode */
+export function ItemLabelGenerator({ item, trigger, open: openProp, onOpenChange }: ItemLabelGeneratorProps) {
+  const [openState, setOpenState] = useState(false)
+  const controlled = openProp !== undefined
+  const open = controlled ? openProp : openState
+
+  const setOpen = (next: boolean) => {
+    if (!controlled) setOpenState(next)
+    onOpenChange?.(next)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {trigger !== undefined ? (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      ) : (
+        !controlled && (
+          <DialogTrigger asChild>
+            <Button variant="outline">
+              <QrCode /> Print label
+            </Button>
+          </DialogTrigger>
+        )
+      )}
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Print label</DialogTitle>
+          <DialogDescription>Download a PDF label for {item.name} to print on a label printer or sheet.</DialogDescription>
+        </DialogHeader>
+        <LabelForm item={item} onDone={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+interface PreviewCodes {
+  value: string
+  qr: string | null
+  barcode: string | null
+}
+
+function LabelForm({ item, onDone }: { item: LabelItem; onDone: () => void }) {
+  const [settings, setSettings] = useState<LabelSettings>(readSettings)
+  const [codes, setCodes] = useState<PreviewCodes | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const codeValue = codeValueOf(item)
+
+  // Real QR / barcode images for the preview
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([import("qrcode"), import("jsbarcode")])
+      .then(async ([{ default: QRCode }, { default: JsBarcode }]) => {
+        const qr = await QRCode.toDataURL(codeValue, { width: 240, margin: 0, errorCorrectionLevel: "M" })
+        let barcode: string | null = null
         try {
-            const QRCode = (await import('qrcode')).default
-            const JsBarcode = (await import('jsbarcode')).default
-            const { jsPDF } = await import('jspdf')
-
-            // Parse label size from inputs
-            const width = parseFloat(labelWidth) || 4
-            const height = parseFloat(labelHeight) || 6
-
-            // Validate dimensions
-            if (width <= 0 || width > 12 || height <= 0 || height > 12) {
-                toast.error("Label dimensions must be between 0 and 12 inches")
-                setIsGenerating(false)
-                return
-            }
-
-            const doc = new jsPDF({
-                orientation: width > height ? 'landscape' : 'portrait',
-                unit: 'in',
-                format: [width, height]
-            })
-
-            // Scale-aware margins and spacing
-            const scaleFactor = Math.min(width, height) / 4
-            const margin = 0.1 * scaleFactor
-            const contentWidth = width - (margin * 2)
-            const contentHeight = height - (margin * 2)
-            let currentY = margin
-
-            // Calculate what we need to show
-            const hasHeader = showName || showDescription
-            const hasFooter = showSKU || showUnit || showPrice
-            const needsQR = codeType === 'qr' || codeType === 'both'
-            const needsBarcode = (codeType === 'barcode' || codeType === 'both') && item.barcode
-            const needsBothCodes = needsQR && needsBarcode
-
-            // Get barcode value for QR code
-            const barcodeValue = item.barcode || item.itemNumber || item.sku || `ITEM-${item.id}`
-
-            // ========== HEADER SECTION ==========
-            if (hasHeader) {
-                if (showName) {
-                    // Calculate optimal font size based on available width and content length
-                    const availableWidth = contentWidth
-                    const estimatedChars = item.name.length
-
-                    // Start with a base size relative to label dimensions - 3x larger
-                    const baseSize = Math.min(width, height) * 8.4 // Base scaling factor (2.8 * 3)
-
-                    // Adjust for content length (longer names = smaller font)
-                    // More aggressive reduction for very long names
-                    const lengthAdjustment = Math.max(0.3, Math.min(1.3, 40 / Math.sqrt(estimatedChars)))
-
-                    // Calculate initial size with reasonable bounds - 3x larger
-                    let nameFontSize = Math.max(8, Math.min(96, baseSize * lengthAdjustment))
-
-                    // Iteratively reduce font size if text would overflow
-                    doc.setFont('helvetica', 'bold')
-                    let nameLines = []
-                    let attempts = 0
-                    // Allow more lines for longer text
-                    const maxNameLines = estimatedChars > 100 ? 4 : (height < 2 ? 1 : 3)
-
-                    while (attempts < 20) {
-                        doc.setFontSize(nameFontSize)
-                        nameLines = doc.splitTextToSize(item.name, contentWidth)
-
-                        // Check if text fits within allowed lines
-                        if (nameLines.length <= maxNameLines) {
-                            // Additional check: ensure individual lines aren't too wide
-                            let maxLineWidth = 0
-                            nameLines.forEach(line => {
-                                const lineWidth = doc.getTextWidth(line)
-                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
-                            })
-
-                            if (maxLineWidth <= contentWidth * 1.05) { // Allow 5% overflow tolerance
-                                break // Text fits!
-                            }
-                        }
-
-                        // Reduce font size by 8% and try again (more aggressive)
-                        nameFontSize *= 0.92
-                        attempts++
-
-                        // Safety minimum - lower for super long names
-                        if (nameFontSize < 6) {
-                            nameFontSize = 6
-                            doc.setFontSize(nameFontSize)
-                            nameLines = doc.splitTextToSize(item.name, contentWidth)
-                            break
-                        }
-                    }
-
-                    const truncatedName = nameLines.slice(0, maxNameLines)
-                    const lineHeight = nameFontSize * 0.012
-                    truncatedName.forEach((line, index) => {
-                        doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
-                    })
-                    currentY += lineHeight * truncatedName.length + (0.03 * scaleFactor)
-                }
-
-                if (showDescription && item.description) {
-                    // Description should be moderately sized - increased from previous
-                    const availableWidth = contentWidth
-                    const estimatedChars = item.description.length
-
-                    const baseSize = Math.min(width, height) * 2.4 // Increased from 1.6
-                    // More aggressive reduction for very long descriptions
-                    const lengthAdjustment = Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(estimatedChars)))
-
-                    let descFontSize = Math.max(6, Math.min(28, baseSize * lengthAdjustment))
-
-                    // Iteratively reduce font size if text would overflow
-                    doc.setFont('helvetica', 'normal')
-                    let descLines = []
-                    let attempts = 0
-                    // Allow more lines for longer descriptions
-                    const maxDescLines = estimatedChars > 80 ? 3 : (height < 2 ? 1 : 2)
-
-                    while (attempts < 20) {
-                        doc.setFontSize(descFontSize)
-                        descLines = doc.splitTextToSize(item.description, contentWidth)
-
-                        // Check if text fits within allowed lines
-                        if (descLines.length <= maxDescLines) {
-                            // Additional check: ensure individual lines aren't too wide
-                            let maxLineWidth = 0
-                            descLines.forEach(line => {
-                                const lineWidth = doc.getTextWidth(line)
-                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
-                            })
-
-                            if (maxLineWidth <= contentWidth * 1.05) { // Allow 5% overflow tolerance
-                                break // Text fits!
-                            }
-                        }
-
-                        // Reduce font size by 8% and try again
-                        descFontSize *= 0.92
-                        attempts++
-
-                        // Safety minimum
-                        if (descFontSize < 5) {
-                            descFontSize = 5
-                            doc.setFontSize(descFontSize)
-                            descLines = doc.splitTextToSize(item.description, contentWidth)
-                            break
-                        }
-                    }
-
-                    const truncatedDesc = descLines.slice(0, maxDescLines)
-                    const lineHeight = descFontSize * 0.012
-                    truncatedDesc.forEach((line, index) => {
-                        doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
-                    })
-                    currentY += lineHeight * truncatedDesc.length + (0.02 * scaleFactor)
-                }
-
-                // Add separator line after header
-                if (hasHeader && (needsQR || needsBarcode || hasFooter)) {
-                    doc.setDrawColor(200, 200, 200)
-                    doc.setLineWidth(0.003)
-                    doc.line(margin, currentY, width - margin, currentY)
-                    currentY += 0.04 * scaleFactor
-                }
-            }
-
-            // ========== CALCULATE AVAILABLE SPACE FOR CODES ==========
-            const footerHeight = hasFooter ? (0.25 + (0.1 * scaleFactor)) : 0
-            const availableCodeHeight = height - currentY - footerHeight - margin
-
-            // ========== CODE SECTION ==========
-            if (needsQR || needsBarcode) {
-                const codeStartY = currentY
-
-                if (needsBothCodes) {
-                    // BOTH QR AND BARCODE - Stacked vertically
-                    const verticalSpacing = 0.08 * scaleFactor
-
-                    // Calculate sizes for stacked layout - QR uses maximum width
-                    const qrSize = Math.min(
-                        contentWidth * 0.85,  // Increased from 0.55 to use more width
-                        (availableCodeHeight - verticalSpacing) * 0.45,
-                        width * 0.75  // Increased from 0.45
-                    )
-
-                    const barcodeHeight = Math.min(
-                        (availableCodeHeight - verticalSpacing - qrSize) * 0.8,
-                        height * 0.2
-                    )
-
-                    // QR Code on top - centered
-                    const qrCodeDataUrl = await QRCode.toDataURL(barcodeValue, {
-                        width: 200,
-                        margin: 0,
-                        errorCorrectionLevel: 'M'
-                    })
-
-                    const qrX = (width - qrSize) / 2
-                    const qrY = codeStartY + ((availableCodeHeight - qrSize - barcodeHeight - verticalSpacing) / 2)
-                    doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, qrSize, qrSize)
-
-                    // Barcode below QR - centered
-                    const canvas = document.createElement('canvas')
-                    try {
-                        const barcodeCanvasHeight = Math.min(60, Math.max(30, height * 15))
-                        const barcodeCanvasWidth = Math.max(1.5, width * 0.5)
-
-                        JsBarcode(canvas, barcodeValue, {
-                            format: 'CODE128',
-                            width: barcodeCanvasWidth,
-                            height: barcodeCanvasHeight,
-                            displayValue: showBarcode,
-                            fontSize: Math.max(8, Math.min(12, width * 2.5)),
-                            textMargin: 2,
-                            margin: 0
-                        })
-
-                        const barcodeDataUrl = canvas.toDataURL('image/png')
-                        const barcodeDisplayWidth = contentWidth * 0.95  // Increased from 0.8 to use nearly full width
-                        const barcodeX = (width - barcodeDisplayWidth) / 2
-                        const barcodeY = qrY + qrSize + verticalSpacing
-
-                        doc.addImage(barcodeDataUrl, 'PNG', barcodeX, barcodeY, barcodeDisplayWidth, barcodeHeight)
-                    } catch (err) {
-                        console.error('Barcode generation failed:', err)
-                    }
-
-                } else if (needsQR) {
-                    // QR CODE ONLY - Centered, using maximum width
-                    const maxQRSize = Math.min(
-                        contentWidth * 0.85,  // Increased from 0.55 to use more width
-                        availableCodeHeight * 0.75,
-                        Math.max(width, height) * 0.7  // Increased from 0.45
-                    )
-
-                    // Generate compact QR Code
-                    const qrCodeDataUrl = await QRCode.toDataURL(barcodeValue, {
-                        width: 250,
-                        margin: 0,
-                        errorCorrectionLevel: 'M'
-                    })
-
-                    const qrX = (width - maxQRSize) / 2
-                    const qrY = codeStartY + ((availableCodeHeight - maxQRSize) / 2)
-                    doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, maxQRSize, maxQRSize)
-
-                } else if (needsBarcode) {
-                    // BARCODE ONLY - Centered and full width
-                    const canvas = document.createElement('canvas')
-                    try {
-                        const barcodeHeight = Math.min(80, Math.max(30, height * 20))
-                        const barcodeWidth = Math.max(1.5, width * 0.5)
-
-                        JsBarcode(canvas, barcodeValue, {
-                            format: 'CODE128',
-                            width: barcodeWidth,
-                            height: barcodeHeight,
-                            displayValue: showBarcode,
-                            fontSize: Math.max(10, Math.min(16, width * 3)),
-                            textMargin: 2,
-                            margin: 0
-                        })
-
-                        const barcodeDataUrl = canvas.toDataURL('image/png')
-                        const barcodeDisplayWidth = contentWidth * 0.95  // Increased from 0.75 to use nearly full width
-                        const barcodeDisplayHeight = Math.min(availableCodeHeight * 0.6, height * 0.3)
-                        const barcodeX = (width - barcodeDisplayWidth) / 2
-                        const barcodeY = codeStartY + ((availableCodeHeight - barcodeDisplayHeight) / 2)
-
-                        doc.addImage(barcodeDataUrl, 'PNG', barcodeX, barcodeY, barcodeDisplayWidth, barcodeDisplayHeight)
-                    } catch (err) {
-                        console.error('Barcode generation failed:', err)
-                    }
-                }
-
-                currentY = height - footerHeight - margin
-            }
-
-            // ========== FOOTER SECTION ==========
-            if (hasFooter) {
-                // Add separator line before footer
-                if (needsQR || needsBarcode) {
-                    doc.setDrawColor(200, 200, 200)
-                    doc.setLineWidth(0.003)
-                    doc.line(margin, currentY, width - margin, currentY)
-                    currentY += 0.03 * scaleFactor
-                }
-
-                const fontSize = Math.max(8, Math.min(14, width * 2.4))  // Increased from 5-9 and 1.8
-                doc.setFontSize(fontSize)
-                const lineHeight = fontSize * 0.012
-
-                // Count active fields to determine layout
-                const activeFields = [showSKU, showUnit, showPrice].filter(Boolean).length
-
-                if (activeFields === 1) {
-                    // Single field - centered
-                    doc.setFont('helvetica', 'bold')
-                    if (showSKU) {
-                        doc.text('SKU:', width / 2, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        const skuText = String(item.itemNumber || item.sku)
-                        const skuLines = doc.splitTextToSize(skuText, contentWidth * 0.9)
-                        doc.text(skuLines[0], width / 2, currentY + lineHeight * 2, { align: 'center' })
-                    } else if (showUnit) {
-                        doc.text('Unit:', width / 2, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        doc.text(item.unit || 'EA', width / 2, currentY + lineHeight * 2, { align: 'center' })
-                    } else if (showPrice) {
-                        doc.text('Price:', width / 2, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        doc.text(`$${(item.unitPrice || item.cost || 0).toFixed(2)}`, width / 2, currentY + lineHeight * 2, { align: 'center' })
-                    }
-                } else if (activeFields === 2) {
-                    // Two fields - side by side
-                    const colWidth = contentWidth / 2
-                    let col = 0
-
-                    if (showSKU) {
-                        const xPos = margin + (col * colWidth) + (colWidth / 2)
-                        doc.setFont('helvetica', 'bold')
-                        doc.text('SKU:', xPos, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        const skuText = String(item.itemNumber || item.sku)
-                        const skuLines = doc.splitTextToSize(skuText, colWidth * 0.85)
-                        doc.text(skuLines[0], xPos, currentY + lineHeight * 2, { align: 'center' })
-                        col++
-                    }
-                    if (showUnit) {
-                        const xPos = margin + (col * colWidth) + (colWidth / 2)
-                        doc.setFont('helvetica', 'bold')
-                        doc.text('Unit:', xPos, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        doc.text(item.unit || 'EA', xPos, currentY + lineHeight * 2, { align: 'center' })
-                        col++
-                    }
-                    if (showPrice && col < 2) {
-                        const xPos = margin + (col * colWidth) + (colWidth / 2)
-                        doc.setFont('helvetica', 'bold')
-                        doc.text('Price:', xPos, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        doc.text(`$${(item.unitPrice || item.cost || 0).toFixed(2)}`, xPos, currentY + lineHeight * 2, { align: 'center' })
-                    }
-                } else if (activeFields === 3) {
-                    // Three fields - use abbreviations for small labels
-                    const colWidth = contentWidth / 3
-
-                    if (showSKU) {
-                        const xPos = margin + (colWidth / 2)
-                        doc.setFont('helvetica', 'bold')
-                        doc.text('SKU', xPos, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        const skuText = String(item.itemNumber || item.sku)
-                        const skuLines = doc.splitTextToSize(skuText, colWidth * 0.85)
-                        doc.text(skuLines[0], xPos, currentY + lineHeight * 2, { align: 'center' })
-                    }
-
-                    if (showUnit) {
-                        const xPos = margin + colWidth + (colWidth / 2)
-                        doc.setFont('helvetica', 'bold')
-                        doc.text('Unit', xPos, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        doc.text(item.unit || 'EA', xPos, currentY + lineHeight * 2, { align: 'center' })
-                    }
-
-                    if (showPrice) {
-                        const xPos = margin + (colWidth * 2) + (colWidth / 2)
-                        doc.setFont('helvetica', 'bold')
-                        doc.text('Price', xPos, currentY + lineHeight, { align: 'center' })
-                        doc.setFont('helvetica', 'normal')
-                        doc.text(`$${(item.unitPrice || item.cost || 0).toFixed(2)}`, xPos, currentY + lineHeight * 2, { align: 'center' })
-                    }
-                }
-            }
-
-            // Add a subtle border around the entire label
-            doc.setDrawColor(180, 180, 180)
-            doc.setLineWidth(0.005)
-            doc.rect(0.02, 0.02, width - 0.04, height - 0.04)
-
-            // Save PDF
-            const itemIdentifier = item.itemNumber || item.sku || item.id
-            const timestamp = new Date().toISOString().slice(0, 10)
-            doc.save(`label-${itemIdentifier}-${width}x${height}-${timestamp}.pdf`)
-
-            toast.success("Label generated successfully!")
-            setIsOpen(false)
-        } catch (error) {
-            console.error("Failed to generate label:", error)
-            toast.error("Failed to generate label. Please try again.")
-        } finally {
-            setIsGenerating(false)
+          const canvas = document.createElement("canvas")
+          JsBarcode(canvas, codeValue, { format: "CODE128", displayValue: false, margin: 0, height: 60, width: 2 })
+          barcode = canvas.toDataURL("image/png")
+        } catch {
+          barcode = null
         }
+        if (!cancelled) setCodes({ value: codeValue, qr, barcode })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
     }
+  }, [codeValue])
 
-    return (
-        <>
-            {trigger ? (
-                <div onClick={() => setIsOpen(true)}>{trigger}</div>
-            ) : (
-                <Button variant="outline" size="sm" onClick={() => setIsOpen(true)} className="gap-2">
-                    <QrCode className="h-4 w-4" />
-                    <span className="hidden sm:inline">Label</span>
-                </Button>
-            )}
+  const update = (patch: Partial<LabelSettings>) => {
+    const next = { ...settings, ...patch }
+    setSettings(next)
+    storeSettings(next)
+  }
+  const toggleField = (key: FieldKey, checked: boolean) => update({ fields: { ...settings.fields, [key]: checked } })
 
-            <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
-                            <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                                <QrCode className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-                            </div>
-                            Generate Item Label
-                        </DialogTitle>
-                        <DialogDescription className="text-xs sm:text-sm">
-                            Generate a printable label with QR code and barcode for this item.
-                        </DialogDescription>
-                    </DialogHeader>
+  const preset = PRESETS.find((p) => p.value === settings.preset)
+  const width = preset ? preset.width : Number(settings.width)
+  const height = preset ? preset.height : Number(settings.height)
+  const sizeValid = width >= 0.5 && width <= 12 && height >= 0.5 && height <= 12
+  const copies = Number(settings.copies)
+  const copiesValid = Number.isInteger(copies) && copies >= 1 && copies <= 100
 
-                    {/* Label Preview and Controls */}
-                    <div className="space-y-2 py-0">
-                        {/* Label Preview */}
-                        <div className="border-2 border-dashed rounded-lg p-2 sm:p-3 bg-white text-black overflow-hidden">
-                            <div className="space-y-1.5 sm:space-y-2">
-                                {/* Header Section */}
-                                {(showName || showDescription) && (
-                                    <div className="text-center border-b border-gray-300 pb-1.5">
-                                        {showName && (
-                                            <h3 className="font-bold text-xs sm:text-sm line-clamp-1">
-                                                {item.name}
-                                            </h3>
-                                        )}
-                                        {showDescription && (
-                                            <p className="text-[10px] sm:text-xs text-gray-600 line-clamp-1 mt-0.5">
-                                                {item.description || "No description"}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!sizeValid || !copiesValid) return
+    setGenerating(true)
+    try {
+      await downloadLabelPdf(item, { width, height, codeType: settings.codeType, fields: settings.fields, copies })
+      toast.success(copies === 1 ? "Label downloaded" : `${copies} labels downloaded`)
+      onDone()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't generate the label"))
+    } finally {
+      setGenerating(false)
+    }
+  }
 
-                                {/* Code Display Section */}
-                                {(codeType === "qr" || codeType === "barcode" || codeType === "both") && (
-                                    <>
-                                        {codeType === "both" ? (
-                                            <div className="flex flex-col items-center gap-2 py-1">
-                                                <div className="w-24 h-24 border border-gray-300 rounded flex items-center justify-center bg-gray-50">
-                                                    <div className="text-center">
-                                                        <QrCode className="h-10 w-10 mx-auto text-gray-400" />
-                                                        <p className="text-[8px] text-gray-500 mt-0.5">QR</p>
-                                                    </div>
-                                                </div>
-                                                {item.barcode && (
-                                                    <div className="w-32 h-16 border border-gray-300 rounded flex items-center justify-center bg-gray-50">
-                                                        <div className="text-center w-full px-2">
-                                                            <Barcode className="h-8 w-8 mx-auto text-gray-400" />
-                                                            <p className="text-[8px] text-gray-500 mt-0.5">Barcode</p>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ) : codeType === "qr" ? (
-                                            <div className="flex justify-center py-1">
-                                                <div className="w-32 h-32 border border-gray-300 rounded flex items-center justify-center bg-gray-50">
-                                                    <div className="text-center">
-                                                        <QrCode className="h-16 w-16 mx-auto text-gray-400" />
-                                                        <p className="text-[10px] text-gray-500 mt-1">QR Code</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : item.barcode ? (
-                                            <div className="py-1">
-                                                <div className="h-16 border border-gray-300 rounded flex items-center justify-center bg-gray-50 w-full">
-                                                    <div className="text-center w-full px-2">
-                                                        <Barcode className="h-10 w-10 mx-auto text-gray-400" />
-                                                        {showBarcode && (
-                                                            <p className="text-[10px] text-gray-500 font-mono mt-0.5">{item.barcode}</p>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : null}
-                                    </>
-                                )}
+  return (
+    <form onSubmit={handleSubmit} noValidate className="space-y-5">
+      <div className="grid gap-5 sm:grid-cols-2">
+        <LabelPreview
+          item={item}
+          width={sizeValid ? width : 4}
+          height={sizeValid ? height : 6}
+          codeType={settings.codeType}
+          fields={settings.fields}
+          codes={codes?.value === codeValue ? codes : null}
+        />
 
-                                {/* Footer Section */}
-                                {(showSKU || showUnit || showPrice) && (
-                                    <div className="border-t border-gray-300 pt-1.5 text-[10px]">
-                                        {(() => {
-                                            const activeFields = [showSKU, showUnit, showPrice].filter(Boolean).length
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="label-size">Label size</Label>
+            <Select value={settings.preset} onValueChange={(v) => update({ preset: v })}>
+              <SelectTrigger id="label-size">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRESETS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value={CUSTOM_PRESET}>Custom size</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-                                            if (activeFields === 1) {
-                                                return (
-                                                    <div className="text-center">
-                                                        {showSKU && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">SKU:</p>
-                                                                <p className="font-mono font-semibold truncate">{item.itemNumber || item.sku}</p>
-                                                            </div>
-                                                        )}
-                                                        {showUnit && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">Unit:</p>
-                                                                <p className="font-semibold truncate">{item.unit || "EA"}</p>
-                                                            </div>
-                                                        )}
-                                                        {showPrice && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">Price:</p>
-                                                                <p className="font-semibold">${(item.unitPrice || item.cost || 0).toFixed(2)}</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )
-                                            } else if (activeFields === 2) {
-                                                return (
-                                                    <div className="grid grid-cols-2 gap-1 text-center">
-                                                        {showSKU && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">SKU:</p>
-                                                                <p className="font-mono font-semibold truncate px-1">{item.itemNumber || item.sku}</p>
-                                                            </div>
-                                                        )}
-                                                        {showUnit && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">Unit:</p>
-                                                                <p className="font-semibold truncate px-1">{item.unit || "EA"}</p>
-                                                            </div>
-                                                        )}
-                                                        {showPrice && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">Price:</p>
-                                                                <p className="font-semibold">${(item.unitPrice || item.cost || 0).toFixed(2)}</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )
-                                            } else {
-                                                return (
-                                                    <div className="grid grid-cols-3 gap-1 text-center">
-                                                        {showSKU && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">SKU</p>
-                                                                <p className="font-mono font-semibold truncate text-[8px]">{item.itemNumber || item.sku}</p>
-                                                            </div>
-                                                        )}
-                                                        {showUnit && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">Unit</p>
-                                                                <p className="font-semibold truncate text-[8px]">{item.unit || "EA"}</p>
-                                                            </div>
-                                                        )}
-                                                        {showPrice && (
-                                                            <div>
-                                                                <p className="text-gray-600 font-medium">Price</p>
-                                                                <p className="font-semibold text-[8px]">${(item.unitPrice || item.cost || 0).toFixed(2)}</p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )
-                                            }
-                                        })()}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+          {!preset && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Width (in)" htmlFor="label-width" error={sizeValid ? undefined : "0.5 – 12 in"}>
+                <Input
+                  {...invalidProps("label-width", sizeValid ? undefined : "invalid")}
+                  type="number"
+                  step="0.1"
+                  min={0.5}
+                  max={12}
+                  inputMode="decimal"
+                  value={settings.width}
+                  onChange={(e) => update({ width: e.target.value })}
+                />
+              </Field>
+              <Field label="Height (in)" htmlFor="label-height">
+                <Input
+                  id="label-height"
+                  aria-invalid={sizeValid ? undefined : true}
+                  type="number"
+                  step="0.1"
+                  min={0.5}
+                  max={12}
+                  inputMode="decimal"
+                  value={settings.height}
+                  onChange={(e) => update({ height: e.target.value })}
+                />
+              </Field>
+            </div>
+          )}
 
-                        <div className="space-y-2">
-                            {/* Compact Size and Code Type */}
-                            <div className="space-y-1">
-                                <Label className="text-xs font-semibold">Label Configuration</Label>
-                                <div className="grid grid-cols-4 gap-2">
-                                    <div className="space-y-1">
-                                        <Label htmlFor="labelWidth" className="text-[10px] text-muted-foreground">
-                                            Width (in)
-                                        </Label>
-                                        <Input
-                                            id="labelWidth"
-                                            type="number"
-                                            step="0.1"
-                                            min="0.5"
-                                            max="12"
-                                            value={labelWidth}
-                                            onChange={(e) => handleWidthChange(e.target.value)}
-                                            className="h-7 text-xs"
-                                            placeholder="4"
-                                        />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label htmlFor="labelHeight" className="text-[10px] text-muted-foreground">
-                                            Height (in)
-                                        </Label>
-                                        <Input
-                                            id="labelHeight"
-                                            type="number"
-                                            step="0.1"
-                                            min="0.5"
-                                            max="12"
-                                            value={labelHeight}
-                                            onChange={(e) => handleHeightChange(e.target.value)}
-                                            className="h-7 text-xs"
-                                            placeholder="6"
-                                        />
-                                    </div>
-                                    <div className="col-span-2 space-y-1">
-                                        <Label htmlFor="codeType" className="text-[10px] text-muted-foreground">
-                                            Code Type
-                                        </Label>
-                                        <Select value={codeType} onValueChange={(value: any) => setCodeType(value)}>
-                                            <SelectTrigger id="codeType" className="h-7 text-xs">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="qr" className="text-xs">
-                                                    QR Only
-                                                </SelectItem>
-                                                <SelectItem value="barcode" className="text-xs">
-                                                    Barcode Only
-                                                </SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                            </div>
+          <div className="space-y-1.5">
+            <Label id="label-code-type">Code</Label>
+            <div role="radiogroup" aria-labelledby="label-code-type" className="grid grid-cols-3 gap-1 rounded-lg border bg-muted/50 p-1">
+              {CODE_TYPES.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={settings.codeType === c.value}
+                  onClick={() => update({ codeType: c.value })}
+                  className={cn(
+                    "h-8 rounded-md text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    settings.codeType === c.value && "bg-background text-foreground shadow-xs"
+                  )}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Encodes <span className="font-mono">{codeValue}</span>
+              {item.barcode ? "" : " (item number — no barcode set)"}
+            </p>
+          </div>
 
-                            {/* Compact Field toggles */}
-                            <div className="border rounded-lg p-2 bg-muted/30 space-y-1">
-                                <Label className="text-xs font-semibold">Label Fields</Label>
-                                <div className="grid grid-cols-3 gap-x-2 gap-y-1">
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="showName" className="text-[14px] font-normal cursor-pointer">
-                                            Name
-                                        </Label>
-                                        <Switch id="showName" checked={showName} onCheckedChange={setShowName} className="scale-[0.65]" />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="showDescription" className="text-[14px] font-normal cursor-pointer">
-                                            Desc
-                                        </Label>
-                                        <Switch
-                                            id="showDescription"
-                                            checked={showDescription}
-                                            onCheckedChange={setShowDescription}
-                                            className="scale-[0.65]"
-                                        />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="showSKU" className="text-[14px] font-normal cursor-pointer">
-                                            SKU
-                                        </Label>
-                                        <Switch id="showSKU" checked={showSKU} onCheckedChange={setShowSKU} className="scale-[0.65]" />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="showUnit" className="text-[14px] font-normal cursor-pointer">
-                                            Unit
-                                        </Label>
-                                        <Switch
-                                            id="showUnit"
-                                            checked={showUnit}
-                                            onCheckedChange={setShowUnit}
-                                            className="scale-[0.65]"
-                                        />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="showBarcode" className="text-[14px] font-normal cursor-pointer">
-                                            Code #
-                                        </Label>
-                                        <Switch
-                                            id="showBarcode"
-                                            checked={showBarcode}
-                                            onCheckedChange={setShowBarcode}
-                                            className="scale-[0.65]"
-                                        />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <Label htmlFor="showPrice" className="text-[14px] font-normal cursor-pointer">
-                                            Price
-                                        </Label>
-                                        <Switch id="showPrice" checked={showPrice} onCheckedChange={setShowPrice} className="scale-[0.65]" />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+          <fieldset className="space-y-2">
+            <legend className="mb-2 text-sm font-medium">Show on label</legend>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {FIELD_OPTIONS.map((f) => {
+                const disabled = f.key === "codeText" && settings.codeType === "qr"
+                return (
+                  <label
+                    key={f.key}
+                    className={cn("flex min-h-8 items-center gap-2 text-sm", disabled ? "opacity-50" : "cursor-pointer")}
+                  >
+                    <Checkbox
+                      checked={settings.fields[f.key] && !disabled}
+                      disabled={disabled}
+                      onCheckedChange={(checked) => toggleField(f.key, checked === true)}
+                    />
+                    {f.label}
+                  </label>
+                )
+              })}
+            </div>
+          </fieldset>
 
-                    <DialogFooter className="gap-2 sm:gap-0">
-                        <Button
-                            variant="outline"
-                            onClick={() => setIsOpen(false)}
-                            className="h-8 text-xs"
-                            disabled={isGenerating}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={generateItemLabel}
-                            disabled={isGenerating}
-                            className="gap-2 h-8 text-xs"
-                        >
-                            {isGenerating ? (
-                                <>
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                    Generating...
-                                </>
-                            ) : (
-                                <>
-                                    <Printer className="h-3 w-3" />
-                                    Print Label
-                                </>
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </>
-    )
+          <Field label="Copies" htmlFor="label-copies" error={copiesValid ? undefined : "1 – 100"} className="max-w-32">
+            <Input
+              {...invalidProps("label-copies", copiesValid ? undefined : "invalid")}
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              inputMode="numeric"
+              value={settings.copies}
+              onChange={(e) => update({ copies: e.target.value })}
+            />
+          </Field>
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone} disabled={generating}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={generating || !sizeValid || !copiesValid} data-testid="download-label-button">
+          {generating ? <Loader2 className="animate-spin" /> : <Download />}
+          {generating ? "Generating…" : "Download PDF"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Preview (white "paper" — the one place raw white/black is allowed)
+// ---------------------------------------------------------------------------
+
+const PREVIEW_BOX = { width: 260, height: 240 }
+
+function footerFields(item: LabelItem, fields: Record<FieldKey, boolean>) {
+  const out: { label: string; value: string; mono?: boolean }[] = []
+  if (fields.sku) out.push({ label: "SKU", value: item.itemNumber, mono: true })
+  if (fields.unit) out.push({ label: "Unit", value: item.unit || "EA" })
+  if (fields.price) out.push({ label: "Price", value: formatCurrency(item.cost) })
+  return out
+}
+
+function LabelPreview({
+  item,
+  width,
+  height,
+  codeType,
+  fields,
+  codes,
+}: {
+  item: LabelItem
+  width: number
+  height: number
+  codeType: CodeType
+  fields: Record<FieldKey, boolean>
+  codes: PreviewCodes | null
+}) {
+  const scale = Math.min(PREVIEW_BOX.width / width, PREVIEW_BOX.height / height)
+  const boxWidth = width * scale
+  const boxHeight = height * scale
+  const fontSize = Math.max(7, Math.min(boxWidth, boxHeight) * 0.07)
+  const footer = footerFields(item, fields)
+  const showQr = codeType !== "barcode"
+  const showBarcode = codeType !== "qr"
+  const showDescription = fields.description && !!item.description
+
+  return (
+    <div className="flex items-center justify-center rounded-lg border bg-muted/50 p-4" aria-label="Label preview">
+      <div
+        className="flex flex-col overflow-hidden rounded-sm bg-white text-black shadow-md ring-1 ring-current/10"
+        style={{ width: boxWidth, height: boxHeight, padding: boxWidth * 0.04, fontSize, gap: fontSize * 0.4 }}
+      >
+        {(fields.name || showDescription) && (
+          <div className="shrink-0 border-b border-current/20 pb-[0.3em] text-center leading-tight">
+            {fields.name && <p className="line-clamp-2 font-bold">{item.name}</p>}
+            {showDescription && <p className="line-clamp-1 text-[0.75em] opacity-60">{item.description}</p>}
+          </div>
+        )}
+
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[0.3em]">
+          {showQr && (
+            <div className={cn("relative aspect-square max-w-full", showBarcode ? "h-[55%]" : "h-[85%]")}>
+              {codes?.qr ? (
+                <Image src={codes.qr} alt="QR code" fill unoptimized className="object-contain" />
+              ) : (
+                <div className="size-full animate-pulse rounded-sm bg-current/10" />
+              )}
+            </div>
+          )}
+          {showBarcode && (
+            <div className={cn("flex w-[92%] flex-col items-center", showQr ? "h-[32%]" : "h-[45%]")}>
+              <div className="relative min-h-0 w-full flex-1">
+                {codes?.barcode ? (
+                  <Image src={codes.barcode} alt="Barcode" fill unoptimized className="object-fill" />
+                ) : (
+                  <div className="size-full animate-pulse rounded-sm bg-current/10" />
+                )}
+              </div>
+              {fields.codeText && <p className="font-mono text-[0.7em] leading-tight">{codeValueOf(item)}</p>}
+            </div>
+          )}
+        </div>
+
+        {footer.length > 0 && (
+          <div
+            className="grid shrink-0 border-t border-current/20 pt-[0.3em] text-center text-[0.75em] leading-tight"
+            style={{ gridTemplateColumns: `repeat(${footer.length}, minmax(0, 1fr))` }}
+          >
+            {footer.map((f) => (
+              <div key={f.label} className="min-w-0 px-[0.2em]">
+                <p className="font-semibold opacity-60">{f.label}</p>
+                <p className={cn("truncate font-semibold", f.mono && "font-mono")}>{f.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PDF generation
+// ---------------------------------------------------------------------------
+
+interface PdfOptions {
+  width: number
+  height: number
+  codeType: CodeType
+  fields: Record<FieldKey, boolean>
+  copies: number
+}
+
+async function downloadLabelPdf(item: LabelItem, { width, height, codeType, fields, copies }: PdfOptions) {
+  const [{ default: QRCode }, { default: JsBarcode }, { jsPDF: JsPdf }] = await Promise.all([
+    import("qrcode"),
+    import("jsbarcode"),
+    import("jspdf"),
+  ])
+
+  const orientation = width > height ? "landscape" : "portrait"
+  const doc = new JsPdf({ orientation, unit: "in", format: [width, height] })
+  const value = codeValueOf(item)
+  const withQr = codeType !== "barcode"
+  const withBarcode = codeType !== "qr"
+  const both = withQr && withBarcode
+
+  const qr = withQr ? await QRCode.toDataURL(value, { width: 300, margin: 0, errorCorrectionLevel: "M" }) : null
+
+  let barcode: string | null = null
+  if (withBarcode) {
+    try {
+      const canvas = document.createElement("canvas")
+      JsBarcode(canvas, value, {
+        format: "CODE128",
+        width: Math.max(1.5, width * 0.5),
+        height: both ? Math.min(60, Math.max(30, height * 15)) : Math.min(80, Math.max(30, height * 20)),
+        displayValue: fields.codeText,
+        fontSize: both ? Math.max(8, Math.min(12, width * 2.5)) : Math.max(10, Math.min(16, width * 3)),
+        textMargin: 2,
+        margin: 0,
+      })
+      barcode = canvas.toDataURL("image/png")
+    } catch {
+      if (!withQr) throw new Error(`"${value}" can't be encoded as a barcode`)
+    }
+  }
+
+  for (let page = 0; page < copies; page++) {
+    if (page > 0) doc.addPage([width, height], orientation)
+    drawLabel(doc, item, { width, height, fields, qr, barcode })
+  }
+
+  doc.save(`label-${item.itemNumber}-${width}x${height}in-${todayInputValue()}.pdf`)
+}
+
+/** Shrink the font until `text` fits in `maxLines` lines of `maxWidth` */
+function fitText(doc: jsPDF, text: string, maxWidth: number, startSize: number, minSize: number, maxLines: number) {
+  let size = startSize
+  for (let attempt = 0; attempt < 20 && size > minSize; attempt++) {
+    doc.setFontSize(size)
+    const lines = doc.splitTextToSize(text, maxWidth) as string[]
+    const widest = Math.max(0, ...lines.map((line) => doc.getTextWidth(line)))
+    if (lines.length <= maxLines && widest <= maxWidth * 1.05) return { lines, size }
+    size *= 0.92
+  }
+  size = Math.max(size, minSize)
+  doc.setFontSize(size)
+  return { lines: (doc.splitTextToSize(text, maxWidth) as string[]).slice(0, maxLines), size }
+}
+
+function drawLabel(
+  doc: jsPDF,
+  item: LabelItem,
+  {
+    width,
+    height,
+    fields,
+    qr,
+    barcode,
+  }: { width: number; height: number; fields: Record<FieldKey, boolean>; qr: string | null; barcode: string | null }
+) {
+  const scale = Math.min(width, height) / 4
+  const margin = 0.1 * scale
+  const contentWidth = width - margin * 2
+  const footer = footerFields(item, fields)
+  const hasCodes = !!qr || !!barcode
+  const showDescription = fields.description && !!item.description
+  let y = margin
+
+  const separator = () => {
+    doc.setDrawColor(200, 200, 200)
+    doc.setLineWidth(0.003)
+    doc.line(margin, y, width - margin, y)
+  }
+
+  // Header
+  if (fields.name) {
+    doc.setFont("helvetica", "bold")
+    const lengthFactor = Math.max(0.3, Math.min(1.3, 40 / Math.sqrt(item.name.length)))
+    const start = Math.max(8, Math.min(96, Math.min(width, height) * 8.4 * lengthFactor))
+    const maxLines = item.name.length > 100 ? 4 : height < 2 ? 1 : 3
+    const { lines, size } = fitText(doc, item.name, contentWidth, start, 6, maxLines)
+    const lineHeight = size * 0.012
+    lines.forEach((line, i) => doc.text(line, width / 2, y + lineHeight * (i + 1), { align: "center" }))
+    y += lineHeight * lines.length + 0.03 * scale
+  }
+  if (showDescription && item.description) {
+    doc.setFont("helvetica", "normal")
+    const lengthFactor = Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(item.description.length)))
+    const start = Math.max(6, Math.min(28, Math.min(width, height) * 2.4 * lengthFactor))
+    const maxLines = item.description.length > 80 ? 3 : height < 2 ? 1 : 2
+    const { lines, size } = fitText(doc, item.description, contentWidth, start, 5, maxLines)
+    const lineHeight = size * 0.012
+    lines.forEach((line, i) => doc.text(line, width / 2, y + lineHeight * (i + 1), { align: "center" }))
+    y += lineHeight * lines.length + 0.02 * scale
+  }
+  if ((fields.name || showDescription) && (hasCodes || footer.length > 0)) {
+    separator()
+    y += 0.04 * scale
+  }
+
+  // Codes
+  const footerHeight = footer.length > 0 ? 0.25 + 0.1 * scale : 0
+  const available = height - y - footerHeight - margin
+
+  if (qr && barcode) {
+    const gap = 0.08 * scale
+    const qrSize = Math.min(contentWidth * 0.85, (available - gap) * 0.45, width * 0.75)
+    const barcodeHeight = Math.min((available - gap - qrSize) * 0.8, height * 0.2)
+    const qrY = y + (available - qrSize - barcodeHeight - gap) / 2
+    const barcodeWidth = contentWidth * 0.95
+    doc.addImage(qr, "PNG", (width - qrSize) / 2, qrY, qrSize, qrSize)
+    doc.addImage(barcode, "PNG", (width - barcodeWidth) / 2, qrY + qrSize + gap, barcodeWidth, barcodeHeight)
+  } else if (qr) {
+    const size = Math.min(contentWidth * 0.85, available * 0.75, Math.max(width, height) * 0.7)
+    doc.addImage(qr, "PNG", (width - size) / 2, y + (available - size) / 2, size, size)
+  } else if (barcode) {
+    const barcodeWidth = contentWidth * 0.95
+    const barcodeHeight = Math.min(available * 0.6, height * 0.3)
+    doc.addImage(barcode, "PNG", (width - barcodeWidth) / 2, y + (available - barcodeHeight) / 2, barcodeWidth, barcodeHeight)
+  }
+  if (hasCodes) y = height - footerHeight - margin
+
+  // Footer: up to three columns (SKU, unit, price)
+  if (footer.length > 0) {
+    if (hasCodes) {
+      separator()
+      y += 0.03 * scale
+    }
+    const fontSize = Math.max(8, Math.min(14, width * 2.4))
+    const lineHeight = fontSize * 0.012
+    const columnWidth = contentWidth / footer.length
+    doc.setFontSize(fontSize)
+    footer.forEach((f, i) => {
+      const x = margin + columnWidth * i + columnWidth / 2
+      doc.setFont("helvetica", "bold")
+      doc.text(footer.length === 3 ? f.label : `${f.label}:`, x, y + lineHeight, { align: "center" })
+      doc.setFont("helvetica", "normal")
+      const [valueLine = ""] = doc.splitTextToSize(f.value, columnWidth * 0.85) as string[]
+      doc.text(valueLine, x, y + lineHeight * 2, { align: "center" })
+    })
+  }
+
+  // Thin border around the label
+  doc.setDrawColor(180, 180, 180)
+  doc.setLineWidth(0.005)
+  doc.rect(0.02, 0.02, width - 0.04, height - 0.04)
 }

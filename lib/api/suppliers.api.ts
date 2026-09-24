@@ -1,6 +1,7 @@
 // Client-side API helper functions for suppliers
 import type { Supplier, Item } from "@prisma/client";
 import type { ApiResponse } from "./types";
+import { apiRequest } from "./client";
 
 // ============================================
 // Use Prisma's generated types directly
@@ -64,24 +65,10 @@ export type SupplierApiResponse = ApiResponse<{
 export async function getSuppliersApi(
   workspaceId: string
 ): Promise<SupplierApiResponse> {
-  const response = await fetch(
-    `/api/suppliers?workspaceId=${encodeURIComponent(workspaceId)}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch suppliers");
-  }
-
-  return result;
+  return apiRequest<SupplierApiResponse>("/api/suppliers", {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch suppliers",
+  });
 }
 
 /**
@@ -91,26 +78,10 @@ export async function getSupplierByIdApi(
   supplierId: string,
   workspaceId: string
 ): Promise<SupplierApiResponse> {
-  const response = await fetch(
-    `/api/suppliers/${supplierId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch supplier");
-  }
-
-  return result;
+  return apiRequest<SupplierApiResponse>(`/api/suppliers/${supplierId}`, {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch supplier",
+  });
 }
 
 /**
@@ -119,22 +90,11 @@ export async function getSupplierByIdApi(
 export async function createSupplierApi(
   data: CreateSupplierRequest
 ): Promise<SupplierApiResponse> {
-  const response = await fetch("/api/suppliers", {
+  return apiRequest<SupplierApiResponse>("/api/suppliers", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create supplier",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create supplier");
-  }
-
-  return result;
 }
 
 /**
@@ -144,22 +104,11 @@ export async function updateSupplierApi(
   supplierId: string,
   data: UpdateSupplierRequest
 ): Promise<SupplierApiResponse> {
-  const response = await fetch(`/api/suppliers/${supplierId}`, {
+  return apiRequest<SupplierApiResponse>(`/api/suppliers/${supplierId}`, {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update supplier",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update supplier");
-  }
-
-  return result;
 }
 
 /**
@@ -169,24 +118,9 @@ export async function deleteSupplierApi(
   supplierId: string,
   workspaceId: string
 ): Promise<SupplierApiResponse> {
-  const response = await fetch(
-    `/api/suppliers/${supplierId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
-    {
-      method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to delete supplier");
-  }
-
-  return result;
+  return apiRequest<SupplierApiResponse>(`/api/suppliers/${supplierId}`, {
+    method: "DELETE",
+    query: { workspaceId },
+    errorMessage: "Failed to delete supplier",
+  });
 }

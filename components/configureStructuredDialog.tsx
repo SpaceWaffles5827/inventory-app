@@ -1,198 +1,117 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import { Plus, Settings2, X } from "lucide-react"
+import { updateWorkspaceStructureApi, type LocationTemplate } from "@/lib/api/locations.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { LocationLevelsEditor, TemplatePreview } from "@/components/locations/location-levels-editor"
 import {
-    updateWorkspaceStructureApi,
-    LocationTemplate,
-} from "@/lib/api/locations.api"
+  DEFAULT_LEVEL_LABELS,
+  newLevelId,
+  templateFromDrafts,
+  validateTemplateLevels,
+  type LevelDraft,
+} from "@/components/locations/structure"
 
 interface ConfigureStructureDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    workspaceId: string
-    defaultStructure: LocationTemplate | null
-    onSuccess: (structure: LocationTemplate) => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  workspaceId: string
+  defaultStructure: LocationTemplate | null
+  onSuccess: (structure: LocationTemplate) => void
 }
 
-export function ConfigureStructureDialog({
-    open,
-    onOpenChange,
-    workspaceId,
-    defaultStructure,
-    onSuccess,
-}: ConfigureStructureDialogProps) {
-    const [tempStructureLevels, setTempStructureLevels] = useState<{ id: string; label: string }[]>([
-        { id: "1", label: "Zone" },
-        { id: "2", label: "Aisle" },
-    ])
+/** Admin dialog for the workspace's location structure (the level names new codes are built from) */
+export function ConfigureStructureDialog({ open, onOpenChange, ...rest }: ConfigureStructureDialogProps) {
+  const [saving, setSaving] = useState(false)
 
-    // Update temp structure levels when dialog opens or default structure changes
-    useEffect(() => {
-        if (open) {
-            if (defaultStructure && defaultStructure.levels.length > 0) {
-                setTempStructureLevels(
-                    defaultStructure.levels.map((level, idx) => ({
-                        id: idx.toString(),
-                        label: level.label,
-                    })),
-                )
-            } else {
-                setTempStructureLevels([
-                    { id: "1", label: "Zone" },
-                    { id: "2", label: "Aisle" },
-                ])
-            }
-        }
-    }, [open, defaultStructure])
+  return (
+    <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
+      <DialogContent className="sm:max-w-lg" data-testid="configure-structure-dialog">
+        <DialogHeader>
+          <DialogTitle>Location structure</DialogTitle>
+          <DialogDescription>
+            Name the levels your storage is organised by, from largest to smallest. New location codes are built
+            from one value per level.
+          </DialogDescription>
+        </DialogHeader>
+        <TemplateForm onOpenChange={onOpenChange} saving={saving} setSaving={setSaving} {...rest} />
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-    const addTempStructureLevel = () => {
-        setTempStructureLevels([...tempStructureLevels, { id: Date.now().toString(), label: "" }])
+function TemplateForm({
+  workspaceId,
+  defaultStructure,
+  onSuccess,
+  onOpenChange,
+  saving,
+  setSaving,
+}: Omit<ConfigureStructureDialogProps, "open"> & { saving: boolean; setSaving: (saving: boolean) => void }) {
+  const [levels, setLevels] = useState<LevelDraft[]>(() => {
+    const labels = defaultStructure?.levels.map((l) => l.label) ?? DEFAULT_LEVEL_LABELS
+    return labels.map((label) => ({ id: newLevelId(), label, value: "", fixed: false }))
+  })
+  const [submitted, setSubmitted] = useState(false)
+  const check = validateTemplateLevels(levels)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+    if (!check.valid) return
+
+    const structure = templateFromDrafts(levels)
+    setSaving(true)
+    try {
+      await updateWorkspaceStructureApi({ workspaceId, structure })
+      onSuccess(structure)
+      toast.success("Location structure saved", { description: structure.levels.map((l) => l.label).join(" › ") })
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't save the location structure"))
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const removeTempStructureLevel = (id: string) => {
-        if (tempStructureLevels.length > 1) {
-            setTempStructureLevels(tempStructureLevels.filter((level) => level.id !== id))
-        }
-    }
+  return (
+    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <LocationLevelsEditor
+        mode="template"
+        idPrefix="workspace-structure"
+        levels={levels}
+        onChange={setLevels}
+        errors={check.byId}
+        disabled={saving}
+      />
+      {submitted && check.form && <p className="text-xs text-destructive">{check.form}</p>}
 
-    const updateTempStructureLevel = (id: string, label: string) => {
-        setTempStructureLevels(tempStructureLevels.map((level) => (level.id === id ? { ...level, label } : level)))
-    }
+      <TemplatePreview labels={levels.map((l) => l.label)} />
 
-    const saveDefaultStructure = async () => {
-        const structure: LocationTemplate = {
-            levels: tempStructureLevels.filter((l) => l.label.trim()).map((l) => ({ label: l.label.trim() })),
-        }
+      <p className="text-xs text-muted-foreground">
+        Existing locations keep their current codes. Empty levels are ignored.
+      </p>
 
-        if (structure.levels.length === 0) {
-            alert("Please add at least one level to your structure")
-            return
-        }
-
-        try {
-            await updateWorkspaceStructureApi({
-                workspaceId,
-                structure,
-            })
-
-            onSuccess(structure)
-            onOpenChange(false)
-        } catch (error) {
-            console.error("Failed to save workspace structure:", error)
-            alert(error instanceof Error ? error.message : "Failed to save structure")
-        }
-    }
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <Settings2 className="h-5 w-5 text-primary" />
-                        Configure Default Location Structure
-                    </DialogTitle>
-                    <DialogDescription>
-                        Set up your standard location structure. This will be used as the template for all new locations.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-4 py-4">
-                    <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
-                        <p className="text-sm text-muted-foreground">
-                            <strong>How it works:</strong> Define the levels of your location structure (e.g., Building, Floor,
-                            Room, Shelf). When creating new locations, you&apos;ll only need to fill in the values for each level.
-                        </p>
-                    </div>
-
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-sm font-medium">Structure Levels</Label>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={addTempStructureLevel}
-                                className="h-8 text-xs bg-transparent"
-                            >
-                                <Plus className="h-3 w-3 mr-1" />
-                                Add Level
-                            </Button>
-                        </div>
-
-                        <div className="space-y-2">
-                            {tempStructureLevels.map((level, index) => (
-                                <div
-                                    key={level.id}
-                                    className="flex items-center gap-3 p-3 rounded-lg border border-border/50 bg-card"
-                                >
-                                    <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-medium text-sm flex-shrink-0">
-                                        {index + 1}
-                                    </span>
-                                    <div className="flex-1">
-                                        <Input
-                                            placeholder="Level name (e.g., Building, Floor, Zone, Aisle, Shelf...)"
-                                            value={level.label}
-                                            onChange={(e) => updateTempStructureLevel(level.id, e.target.value)}
-                                            className="h-10 text-sm"
-                                        />
-                                    </div>
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => removeTempStructureLevel(level.id)}
-                                        disabled={tempStructureLevels.length === 1}
-                                        className="h-9 w-9 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0"
-                                    >
-                                        <X className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            ))}
-                        </div>
-
-                        {tempStructureLevels.some((l) => l.label.trim()) && (
-                            <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
-                                <p className="text-xs text-muted-foreground mb-2">Preview Structure:</p>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    {tempStructureLevels
-                                        .filter((l) => l.label.trim())
-                                        .map((level, idx, arr) => (
-                                            <div key={level.id} className="flex items-center gap-2">
-                                                <span className="px-3 py-1.5 rounded-md bg-primary/10 text-primary font-medium text-sm">
-                                                    {level.label}
-                                                </span>
-                                                {idx < arr.length - 1 && <span className="text-muted-foreground">→</span>}
-                                            </div>
-                                        ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)} size="sm">
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={saveDefaultStructure}
-                        disabled={!tempStructureLevels.some((l) => l.label.trim())}
-                        size="sm"
-                    >
-                        Save as Default
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={saving} data-testid="save-structure-button">
+          {saving && <Loader2 className="animate-spin" />}
+          {saving ? "Saving…" : "Save structure"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
 }

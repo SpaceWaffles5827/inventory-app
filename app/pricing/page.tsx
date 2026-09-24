@@ -1,277 +1,232 @@
+import type { Metadata } from "next"
 import Link from "next/link"
+import { ArrowRight, Building2, Check, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Package, Check, ArrowRight, Zap } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { MarketingShell } from "@/components/marketing/marketing-shell"
+import { FaqList, GridBackdrop, SectionHeading, type FaqItem } from "@/components/marketing/section"
+import { CtaBanner } from "@/components/marketing/cta-banner"
+import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/components/marketing/site-config"
+import { cn } from "@/lib/utils"
+
+export const metadata: Metadata = {
+  title: "Pricing",
+  description: "Simple, transparent pricing for StockFlow. Every plan starts with a 14-day free trial — no credit card required.",
+}
+
+interface Plan {
+  name: string
+  description: string
+  price: string
+  teamSize: string
+  features: string[]
+  popular?: boolean
+}
+
+const PLANS: Plan[] = [
+  {
+    name: "Starter",
+    description: "Perfect for small teams getting started",
+    price: "$29",
+    teamSize: "1–5 people",
+    features: [
+      "Up to 500 items",
+      "Basic analytics",
+      "Email support",
+      "1 warehouse location",
+      "Works on phone, tablet & desktop",
+      "Basic reporting",
+    ],
+  },
+  {
+    name: "Professional",
+    description: "For growing businesses with more needs",
+    price: "$79",
+    teamSize: "6–20 people",
+    features: [
+      "Up to 5,000 items",
+      "Advanced analytics",
+      "Priority support",
+      "5 warehouse locations",
+      "Works on phone, tablet & desktop",
+      "Advanced reporting",
+      "API access",
+      "Custom categories",
+    ],
+    popular: true,
+  },
+  {
+    name: "Business",
+    description: "Advanced features for larger operations",
+    price: "$149",
+    teamSize: "21–50 people",
+    features: [
+      "Up to 25,000 items",
+      "Real-time analytics",
+      "24/7 phone support",
+      "Unlimited locations",
+      "Works on phone, tablet & desktop",
+      "Custom reporting",
+      "Full API access",
+      "Advanced integrations",
+      "Dedicated account manager",
+    ],
+  },
+  {
+    name: "Enterprise",
+    description: "Custom solutions for large organizations",
+    price: "$299",
+    teamSize: "51–100 people",
+    features: [
+      "Unlimited items",
+      "Enterprise analytics",
+      "24/7 priority support",
+      "Unlimited locations",
+      "Works on phone, tablet & desktop",
+      "Custom reporting",
+      "Full API access",
+      "Custom integrations",
+      "Dedicated success team",
+      "SLA guarantee",
+      "Custom training",
+    ],
+  },
+]
+
+const FAQ: FaqItem[] = [
+  {
+    question: "Is there a free trial?",
+    answer: "Yes. Every plan comes with a 14-day free trial, and you don't need a credit card to start.",
+  },
+  {
+    question: "Can I change plans later?",
+    answer:
+      "Yes. You can upgrade or downgrade your plan at any time. Changes are reflected in your next billing cycle.",
+  },
+  {
+    question: "What payment methods do you accept?",
+    answer:
+      "We accept all major credit cards (Visa, Mastercard, American Express) and offer annual billing with a discount.",
+  },
+  {
+    question: "Do I need to buy scanners or other hardware?",
+    answer:
+      "No. StockFlow scans barcodes and QR codes with any phone or tablet camera. Handheld USB or Bluetooth scanners that type like a keyboard work too.",
+  },
+  {
+    question: "I have a question that isn't answered here",
+    answer: (
+      <>
+        Email us at{" "}
+        <a href={CONTACT_MAILTO} className="font-medium text-primary underline-offset-4 hover:underline">
+          {CONTACT_EMAIL}
+        </a>{" "}
+        and we&apos;ll get back to you.
+      </>
+    ),
+  },
+]
+
+function PlanCard({ plan }: { plan: Plan }) {
+  return (
+    <article
+      aria-labelledby={`plan-${plan.name.toLowerCase()}`}
+      className={cn(
+        "relative flex flex-col rounded-2xl border bg-card p-6 text-card-foreground shadow-xs",
+        plan.popular && "border-primary/50 shadow-lg shadow-primary/10 ring-1 ring-primary/40"
+      )}
+    >
+      {plan.popular && (
+        <Badge className="absolute -top-3 left-6 shadow-sm" data-testid="plan-popular-badge">
+          Most popular
+        </Badge>
+      )}
+      <h2 id={`plan-${plan.name.toLowerCase()}`} className="text-lg font-semibold tracking-tight">
+        {plan.name}
+      </h2>
+      <p className="mt-1 min-h-10 text-sm text-muted-foreground">{plan.description}</p>
+      <p className="mt-6 flex items-baseline gap-1">
+        <span className="text-4xl font-semibold tracking-tight tabular-nums">{plan.price}</span>
+        <span className="text-sm text-muted-foreground">/month</span>
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">{plan.teamSize}</p>
+
+      <Button asChild className="mt-6 w-full" variant={plan.popular ? "default" : "outline"}>
+        <Link href="/signup" data-testid={`plan-${plan.name.toLowerCase()}-signup-link`}>
+          Start free trial
+          <ArrowRight />
+        </Link>
+      </Button>
+
+      <ul className="mt-6 space-y-3 border-t pt-6" aria-label={`${plan.name} plan includes`}>
+        {plan.features.map((feature) => (
+          <li key={feature} className="flex items-start gap-2.5 text-sm">
+            <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Check className="size-3" aria-hidden />
+            </span>
+            <span className="text-muted-foreground">{feature}</span>
+          </li>
+        ))}
+      </ul>
+    </article>
+  )
+}
 
 export default function PricingPage() {
-  const plans = [
-    {
-      name: "Starter",
-      description: "Perfect for small teams getting started",
-      price: "$29",
-      teamSize: "1-5 people",
-      features: [
-        "Up to 500 items",
-        "Basic analytics",
-        "Email support",
-        "1 warehouse location",
-        "Mobile app access",
-        "Basic reporting",
-      ],
-      popular: false,
-    },
-    {
-      name: "Professional",
-      description: "For growing businesses with more needs",
-      price: "$79",
-      teamSize: "6-20 people",
-      features: [
-        "Up to 5,000 items",
-        "Advanced analytics",
-        "Priority support",
-        "5 warehouse locations",
-        "Mobile app access",
-        "Advanced reporting",
-        "API access",
-        "Custom categories",
-      ],
-      popular: true,
-    },
-    {
-      name: "Business",
-      description: "Advanced features for larger operations",
-      price: "$149",
-      teamSize: "21-50 people",
-      features: [
-        "Up to 25,000 items",
-        "Real-time analytics",
-        "24/7 phone support",
-        "Unlimited locations",
-        "Mobile app access",
-        "Custom reporting",
-        "Full API access",
-        "Advanced integrations",
-        "Dedicated account manager",
-      ],
-      popular: false,
-    },
-    {
-      name: "Enterprise",
-      description: "Custom solutions for large organizations",
-      price: "$299",
-      teamSize: "51-100 people",
-      features: [
-        "Unlimited items",
-        "Enterprise analytics",
-        "24/7 priority support",
-        "Unlimited locations",
-        "Mobile app access",
-        "Custom reporting",
-        "Full API access",
-        "Custom integrations",
-        "Dedicated success team",
-        "SLA guarantee",
-        "Custom training",
-      ],
-      popular: false,
-    },
-  ]
-
   return (
-    <div className="min-h-screen bg-linear-to-b from-background via-background to-muted/20">
-      {/* Header */}
-      <header className="border-b border-border/40 bg-card/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-linear-to-br from-accent to-primary flex items-center justify-center">
-              <Package className="h-5 w-5 text-accent-foreground" />
-            </div>
-            <span className="text-xl font-bold bg-linear-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-              StockFlow
-            </span>
-          </Link>
-          <nav className="hidden md:flex items-center gap-8">
-            <Link
-              href="/#features"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Features
-            </Link>
-            <Link href="/pricing" className="text-sm font-medium text-foreground">
-              Pricing
-            </Link>
-            <Link
-              href="/#about"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              About
-            </Link>
-          </nav>
-          <div className="flex items-center gap-3">
-            <Link href="/login">
-              <Button variant="ghost" size="sm">
-                Log in
-              </Button>
-            </Link>
-            <Link href="/signup">
-              <Button size="sm" className="shadow-lg shadow-accent/20">
-                Sign up
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <section className="container mx-auto px-4 py-20 md:py-28">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-accent/10 border border-accent/20 mb-8">
-            <Zap className="h-4 w-4 text-accent" />
-            <span className="text-sm font-medium text-accent">Simple, transparent pricing</span>
-          </div>
-          <h1 className="text-5xl md:text-6xl font-bold text-foreground mb-6 text-balance leading-tight">
-            Choose the perfect plan for your{" "}
-            <span className="bg-linear-to-r from-accent via-primary to-accent bg-clip-text text-transparent">
-              business
-            </span>
+    <MarketingShell>
+      <section aria-labelledby="pricing-heading" className="relative isolate overflow-hidden">
+        <GridBackdrop />
+        <div className="mx-auto w-full max-w-6xl px-4 pb-16 pt-14 text-center sm:px-6 sm:pt-20">
+          <p className="text-sm font-semibold text-primary">Pricing</p>
+          <h1 id="pricing-heading" className="mx-auto mt-2 max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+            Simple pricing that grows with your team
           </h1>
-          <p className="text-xl text-muted-foreground mb-8 text-pretty leading-relaxed max-w-2xl mx-auto">
+          <p className="mx-auto mt-5 max-w-2xl text-lg text-pretty text-muted-foreground">
             Start with a 14-day free trial. No credit card required. Cancel anytime.
           </p>
         </div>
       </section>
 
-      {/* Pricing Cards */}
-      <section className="container mx-auto px-4 pb-24">
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
-          {plans.map((plan) => (
-            <Card
-              key={plan.name}
-              className={`relative border-border/50 hover:border-accent/50 transition-all hover:shadow-xl ${plan.popular ? "border-accent/50 shadow-xl shadow-accent/10 scale-105" : ""
-                }`}
-            >
-              {plan.popular && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                  <div className="bg-linear-to-r from-accent to-primary text-accent-foreground text-xs font-semibold px-4 py-1.5 rounded-full shadow-lg">
-                    Most Popular
-                  </div>
-                </div>
-              )}
-              <CardHeader className="pb-8">
-                <CardTitle className="text-2xl">{plan.name}</CardTitle>
-                <CardDescription className="text-sm">{plan.description}</CardDescription>
-                <div className="pt-4">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-foreground">{plan.price}</span>
-                    <span className="text-muted-foreground">/month</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-2">{plan.teamSize}</p>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <Link href="/signup">
-                  <Button className="w-full gap-2" variant={plan.popular ? "default" : "outline"}>
-                    Get Started
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-                <div className="space-y-3">
-                  {plan.features.map((feature) => (
-                    <div key={feature} className="flex items-start gap-3">
-                      <div className="h-5 w-5 rounded-full bg-accent/10 flex items-center justify-center flex-0 mt-0.5">
-                        <Check className="h-3 w-3 text-accent" />
-                      </div>
-                      <span className="text-sm text-muted-foreground leading-relaxed">{feature}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+      <section aria-label="Plans" className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
+        <div className="grid gap-6 pt-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+          {PLANS.map((plan) => (
+            <PlanCard key={plan.name} plan={plan} />
           ))}
         </div>
 
-        {/* Enterprise Contact */}
-        <div className="max-w-4xl mx-auto mt-16">
-          <Card className="border-border/50 bg-linear-to-br from-accent/5 via-primary/5 to-accent/5">
-            <CardContent className="p-8 md:p-12 text-center">
-              <h3 className="text-3xl font-bold text-foreground mb-4">Need more than 100 people?</h3>
-              <p className="text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
-                Contact our sales team for custom enterprise pricing and features tailored to your organization&apos;s needs.
-              </p>
-              <Button size="lg" className="gap-2">
-                Contact Sales
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </CardContent>
-          </Card>
+        <div className="mt-8 flex flex-col gap-5 rounded-2xl border bg-muted/40 p-6 sm:flex-row sm:items-center sm:p-8">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Building2 className="size-6" aria-hidden />
+          </span>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold tracking-tight">Need more than 100 people?</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Contact us for custom enterprise pricing and features tailored to your organization&apos;s needs.
+            </p>
+          </div>
+          <Button asChild variant="outline" className="sm:shrink-0">
+            <a href={CONTACT_MAILTO} data-testid="contact-sales-link">
+              <Mail />
+              Contact sales
+            </a>
+          </Button>
         </div>
       </section>
 
-      {/* FAQ Section */}
-      <section className="container mx-auto px-4 pb-24">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl font-bold text-center text-foreground mb-12">Frequently Asked Questions</h2>
-          <div className="space-y-6">
-            <Card className="border-border/50">
-              <CardHeader>
-                <CardTitle className="text-lg">Can I change plans later?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Yes! You can upgrade or downgrade your plan at any time. Changes will be reflected in your next
-                  billing cycle.
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardHeader>
-                <CardTitle className="text-lg">What payment methods do you accept?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  We accept all major credit cards (Visa, MasterCard, American Express) and offer annual billing with a
-                  discount.
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="border-border/50">
-              <CardHeader>
-                <CardTitle className="text-lg">Is there a free trial?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Yes! All plans come with a 14-day free trial. No credit card required to start.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+      <section aria-labelledby="pricing-faq-heading" className="border-t bg-muted/30 py-20 sm:py-24">
+        <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
+          <SectionHeading
+            id="pricing-faq-heading"
+            eyebrow="FAQ"
+            title="Frequently asked questions"
+            description="Everything you need to know about plans and billing."
+          />
+          <FaqList items={FAQ} className="mt-10" />
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-border/40 bg-card/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-12">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-2">
-              <div className="h-6 w-6 rounded-lg bg-linear-to-br from-accent to-primary flex items-center justify-center">
-                <Package className="h-4 w-4 text-accent-foreground" />
-              </div>
-              <span className="text-sm text-muted-foreground">© 2025 StockFlow. All rights reserved.</span>
-            </div>
-            <div className="flex items-center gap-8">
-              <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Privacy
-              </Link>
-              <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Terms
-              </Link>
-              <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Contact
-              </Link>
-            </div>
-          </div>
-        </div>
-      </footer>
-    </div>
+      <CtaBanner title="Try StockFlow free for 14 days" />
+    </MarketingShell>
   )
 }

@@ -1,136 +1,119 @@
 "use client"
 
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowRightLeft, History } from "lucide-react"
-import type { ItemWithDetails } from "@/lib/api/items.api"
+import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { ArrowUpRight, History, Loader2 } from "lucide-react"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/common/empty-state"
+import { ListSkeleton } from "@/components/common/states"
+import { SectionHeader } from "@/components/common/page"
+import { TransactionList } from "@/components/items/transaction-list"
+import { toTransactionEntries, type InventoryItemDetails } from "@/components/items/item-utils"
+import { getTransactionsApi, type TransactionEntry } from "@/lib/api/transactions.api"
+import type { LotWithRelations } from "@/lib/api/lots.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
 
-type TransactionWithUser = ItemWithDetails['transactions'][number]
+const PAGE_SIZE = 25
 
 interface ItemHistoryTabProps {
-    transactions: TransactionWithUser[]
+  item: InventoryItemDetails
+  /** Used to label lots when falling back to the item's embedded transactions */
+  lots?: LotWithRelations[]
 }
 
-export function ItemHistoryTab({ transactions }: ItemHistoryTabProps) {
-    return (
-        <div className="bg-card overflow-hidden">
-            <div className="p-4 border-b">
-                <h3 className="text-base font-semibold">Transaction History</h3>
+interface HistoryState {
+  rows: TransactionEntry[]
+  nextCursor: string | null
+  /** false when only the item's embedded (latest 10) movements are available */
+  complete: boolean
+}
+
+/** Stock movements for one item, newest first. Refetches whenever the item is reloaded. */
+export function ItemHistoryTab({ item, lots = [] }: ItemHistoryTabProps) {
+  const { workspaceId } = useWorkspace()
+  const [state, setState] = useState<HistoryState | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  const lotNumbers = useMemo(() => new Map(lots.map((l) => [l.id, l.lotNumber])), [lots])
+
+  useEffect(() => {
+    let cancelled = false
+    getTransactionsApi({ workspaceId, itemId: item.id, limit: PAGE_SIZE })
+      .then((res) => {
+        if (!cancelled) {
+          setState({ rows: res.data.transactions, nextCursor: res.data.nextCursor ?? null, complete: true })
+        }
+      })
+      .catch(() => {
+        // The activity endpoint isn't available — show the latest movements that come with the item
+        if (!cancelled) setState({ rows: toTransactionEntries(item), nextCursor: null, complete: false })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId, item])
+
+  const loadMore = async () => {
+    if (!state?.nextCursor) return
+    setLoadingMore(true)
+    try {
+      const res = await getTransactionsApi({ workspaceId, itemId: item.id, limit: PAGE_SIZE, cursor: state.nextCursor })
+      setState((s) =>
+        s ? { ...s, rows: [...s.rows, ...res.data.transactions], nextCursor: res.data.nextCursor ?? null } : s
+      )
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't load more history"))
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  // Embedded transactions only carry a lotId — fill in lot numbers we already know
+  const rows = (state?.rows ?? []).map((tx) =>
+    tx.lot || !lotNumbers.size ? tx : withLot(tx, item, lotNumbers)
+  )
+
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <SectionHeader
+        className="border-b px-4 py-3"
+        title="Stock movements"
+        description={
+          state && !state.complete && rows.length > 0 ? "The most recent movements" : "Every adjustment and transfer, newest first"
+        }
+        actions={
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/dashboard/activity?itemId=${item.id}`}>
+              Activity log <ArrowUpRight />
+            </Link>
+          </Button>
+        }
+      />
+      {state === null ? (
+        <ListSkeleton rows={4} className="rounded-none border-0" />
+      ) : rows.length === 0 ? (
+        <EmptyState bare icon={History} title="No movements yet" description="Adjustments, transfers and received lots will show up here." />
+      ) : (
+        <>
+          <TransactionList transactions={rows} unit={item.unit} showLot={item.lotTracking} showBalance />
+          {state.nextCursor && (
+            <div className="border-t p-3 text-center">
+              <Button variant="outline" size="sm" onClick={loadMore} disabled={loadingMore}>
+                {loadingMore && <Loader2 className="animate-spin" />}
+                Load more
+              </Button>
             </div>
-            {transactions && transactions.length > 0 ? (
-                <div className="overflow-x-auto">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead className="text-xs">Type</TableHead>
-                                <TableHead className="text-xs">Details</TableHead>
-                                <TableHead className="text-xs text-right">Qty</TableHead>
-                                <TableHead className="text-xs hidden sm:table-cell">User</TableHead>
-                                <TableHead className="text-xs">Date</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {transactions.slice(0, 20).map((transaction) => (
-                                <TableRow key={transaction.id}>
-                                    <TableCell>
-                                        <div className="flex items-center gap-2">
-                                            <div className={`p-1.5 rounded ${transaction.type === "INPUT"
-                                                    ? "bg-green-50"
-                                                    : transaction.type === "OUTPUT"
-                                                        ? "bg-red-50"
-                                                        : "bg-blue-50"
-                                                }`}>
-                                                {transaction.type === "TRANSFER" ? (
-                                                    <ArrowRightLeft className="h-3.5 w-3.5 text-blue-600" />
-                                                ) : (
-                                                    <History className={`h-3.5 w-3.5 ${transaction.type === "INPUT" ? "text-green-600" : "text-red-600"
-                                                        }`} />
-                                                )}
-                                            </div>
-                                            <span className="text-sm hidden md:inline">
-                                                {transaction.type === "INPUT"
-                                                    ? "Stock Added"
-                                                    : transaction.type === "OUTPUT"
-                                                        ? "Stock Removed"
-                                                        : "Transfer"}
-                                            </span>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        {transaction.type === "TRANSFER" ? (
-                                            <div className="flex flex-col gap-0.5">
-                                                <div className="flex items-center gap-1.5 text-xs">
-                                                    <span className="text-muted-foreground">To:</span>
-                                                    <code className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">
-                                                        {transaction.toLocation?.code || "Unknown"}
-                                                    </code>
-                                                </div>
-                                                <div className="flex items-center gap-1.5 text-xs">
-                                                    <span className="text-muted-foreground">From:</span>
-                                                    <code className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">
-                                                        {transaction.fromLocation?.code || "Unknown"}
-                                                    </code>
-                                                </div>
-                                                {transaction.reason && !transaction.reason.startsWith("Transfer:") && (
-                                                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[180px]">
-                                                        {transaction.reason}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col gap-0.5">
-                                                {transaction.fromLocationId && (
-                                                    <div className="flex items-center gap-1.5 text-xs">
-                                                        <span className="text-muted-foreground">Location:</span>
-                                                        <code className="font-mono font-semibold bg-muted px-1.5 py-0.5 rounded">
-                                                            {transaction.fromLocation?.code || transaction.toLocation?.code || "Unknown"}
-                                                        </code>
-                                                    </div>
-                                                )}
-                                                <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                                                    {transaction.reason || "—"}
-                                                </p>
-                                            </div>
-                                        )}
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <span
-                                            className={`text-sm font-semibold ${transaction.type === "INPUT"
-                                                    ? "text-green-600"
-                                                    : transaction.type === "OUTPUT"
-                                                        ? "text-red-600"
-                                                        : "text-blue-600"
-                                                }`}
-                                        >
-                                            {transaction.type === "INPUT"
-                                                ? "+"
-                                                : transaction.type === "OUTPUT"
-                                                    ? "-"
-                                                    : ""}
-                                            {transaction.quantity}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell className="hidden sm:table-cell">
-                                        <span className="text-sm text-muted-foreground">
-                                            {transaction.user?.name || "Unknown User"}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span className="text-xs text-muted-foreground">
-                                            {new Date(transaction.createdAt).toLocaleDateString()}
-                                        </span>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            ) : (
-                <div className="text-center py-12 px-4">
-                    <History className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                    <p className="text-sm font-medium text-muted-foreground">No transaction history</p>
-                    <p className="text-xs text-muted-foreground mt-1">Transactions will appear here as they occur</p>
-                </div>
-            )}
-        </div>
-    )
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function withLot(tx: TransactionEntry, item: InventoryItemDetails, lotNumbers: Map<string, string>): TransactionEntry {
+  const lotId = item.transactions?.find((t) => t.id === tx.id)?.lotId
+  const lotNumber = lotId ? lotNumbers.get(lotId) : undefined
+  return lotId && lotNumber ? { ...tx, lot: { id: lotId, lotNumber } } : tx
 }

@@ -1,11 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // TEMPORARY: the app has pre-existing type/lint errors that block `next build`.
-  // These are tracked as tech debt to be fixed so this gating can be re-enabled.
-  // The app runs fine (it's the same code `next dev` runs); this only unblocks the prod build.
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
+  // Lets the e2e test server (NEXT_DIST_DIR=.next-test) run alongside the dev server.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // The floating dev badge sits on top of the sidebar avatar and the mobile tab bar.
+  devIndicators: false,
   async rewrites() {
     return [
       {

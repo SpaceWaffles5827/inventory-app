@@ -1,571 +1,611 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import type { jsPDF } from "jspdf"
+import { Download, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { QrCode, Barcode, Loader2 } from "lucide-react"
-import { toast } from "sonner"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
+import { formatNumber } from "@/lib/format"
 import type { LocationStructure } from "@/lib/api/locations.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { parseLocationStructure } from "@/components/locations/structure"
 
-interface LocationData {
-    id: string
-    code: string
-    barcode?: string | null
-    description?: string | null
-    structure?: LocationStructure[] | null
+/** Anything with a code can be labelled; structure is the raw JSON from the API */
+export interface LabelLocation {
+  id: string
+  code: string
+  barcode?: string | null
+  description?: string | null
+  structure?: unknown
 }
 
 interface LocationLabelGeneratorProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    location: LocationData
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** A single location (detail page, row action) */
+  location?: LabelLocation | null
+  /** Several locations — one PDF with a page per label */
+  locations?: LabelLocation[]
 }
 
-export function LocationLabelGenerator({
-    open,
-    onOpenChange,
-    location,
-}: LocationLabelGeneratorProps) {
-    const [isGeneratingLabel, setIsGeneratingLabel] = useState(false)
+type CodeType = "qr" | "barcode"
 
-    // Initialize from session storage or use defaults
-    const [labelWidth, setLabelWidth] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return sessionStorage.getItem('locationLabelWidth') || "4"
-        }
-        return "4"
-    })
-    const [labelHeight, setLabelHeight] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return sessionStorage.getItem('locationLabelHeight') || "6"
-        }
-        return "6"
-    })
+interface LabelOptions {
+  width: number
+  height: number
+  codeType: CodeType
+  showCode: boolean
+  showStructure: boolean
+  showDescription: boolean
+  /** Human-readable value under the QR code / barcode */
+  showValue: boolean
+}
 
-    const [codeType, setCodeType] = useState<"qr" | "barcode">("qr")
-    const [showLocationCode, setShowLocationCode] = useState(true)
-    const [showStructure, setShowStructure] = useState(true)
-    const [showBarcode, setShowBarcode] = useState(true)
-    const [showDescription, setShowDescription] = useState(false)
+const PRESETS = [
+  { label: "4 × 6", width: 4, height: 6 },
+  { label: "4 × 2", width: 4, height: 2 },
+  { label: "3 × 2", width: 3, height: 2 },
+  { label: "2 × 1", width: 2, height: 1 },
+]
 
-    const structure = Array.isArray(location.structure) ? location.structure : []
+const MIN_SIZE = 1
+const MAX_SIZE = 12
+/** jsPDF line height in inches per point of font size */
+const LINE = 0.012
 
-    // Save to session storage whenever width or height changes
-    const handleWidthChange = (value: string) => {
-        setLabelWidth(value)
-        if (typeof window !== 'undefined') {
-            sessionStorage.setItem('locationLabelWidth', value)
-        }
+const scanValue = (location: LabelLocation) => location.barcode || location.code || `LOC-${location.id}`
+const structureText = (structure: LocationStructure) =>
+  structure.map((s) => (s.label ? `${s.label}: ${s.value}` : s.value)).join("  •  ")
+
+function readSession(key: string, fallback: string): string {
+  try {
+    return sessionStorage.getItem(key) || fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeSession(key: string, value: string) {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // storage unavailable — the setting just won't persist
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PDF rendering
+// ---------------------------------------------------------------------------
+
+/** Shrinks the font until `text` fits in `maxLines` lines of `maxWidth` (and `maxHeight` if given) */
+function fitText(
+  doc: jsPDF,
+  text: string,
+  opts: { style: "bold" | "normal" | "italic"; start: number; min: number; maxLines: number; maxWidth: number; maxHeight?: number }
+): { lines: string[]; size: number } {
+  doc.setFont("helvetica", opts.style)
+  let size = opts.start
+  let lines: string[] = []
+  for (let attempt = 0; attempt < 24; attempt++) {
+    doc.setFontSize(size)
+    lines = doc.splitTextToSize(text, opts.maxWidth) as string[]
+    const widest = lines.reduce((max, line) => Math.max(max, doc.getTextWidth(line)), 0)
+    const height = lines.length * size * LINE
+    if (lines.length <= opts.maxLines && widest <= opts.maxWidth * 1.05 && (!opts.maxHeight || height <= opts.maxHeight)) {
+      break
+    }
+    size *= 0.92
+    if (size < opts.min) {
+      size = opts.min
+      doc.setFontSize(size)
+      lines = doc.splitTextToSize(text, opts.maxWidth) as string[]
+      break
+    }
+  }
+  return { lines: lines.slice(0, opts.maxLines), size }
+}
+
+function drawLines(doc: jsPDF, lines: string[], size: number, centerX: number, top: number): number {
+  const lineHeight = size * LINE
+  lines.forEach((line, index) => {
+    doc.text(line, centerX, top + lineHeight * (index + 1), { align: "center" })
+  })
+  return lineHeight * lines.length
+}
+
+async function renderLabelsPdf(locations: LabelLocation[], options: LabelOptions): Promise<jsPDF> {
+  const [{ jsPDF: JsPdf }, qrcode, jsbarcode] = await Promise.all([
+    import("jspdf"),
+    import("qrcode"),
+    import("jsbarcode"),
+  ])
+  const QRCode = qrcode.default
+  const JsBarcode = jsbarcode.default
+  const { width, height } = options
+  const orientation = width > height ? "landscape" : "portrait"
+  const doc = new JsPdf({ orientation, unit: "in", format: [width, height] })
+
+  const scale = Math.min(width, height) / 4
+  const margin = 0.1 * scale
+  const contentWidth = width - margin * 2
+
+  for (const [index, location] of locations.entries()) {
+    if (index > 0) doc.addPage([width, height], orientation)
+    const structure = parseLocationStructure(location.structure)
+    const value = scanValue(location)
+    let y = margin
+
+    const hasHeader =
+      options.showCode || (options.showStructure && structure.length > 0) || (options.showDescription && !!location.description)
+
+    if (options.showCode) {
+      const chars = location.code.length
+      const { lines, size } = fitText(doc, location.code, {
+        style: "bold",
+        start: Math.max(14, Math.min(140, Math.min(width, height) * 14 * Math.max(0.3, Math.min(1.3, 35 / Math.sqrt(chars))))),
+        min: 12,
+        maxLines: chars > 50 ? 3 : height < 2 ? 1 : 2,
+        maxWidth: contentWidth,
+        maxHeight: height * 0.35,
+      })
+      y += drawLines(doc, lines, size, width / 2, y) + 0.02 * scale
     }
 
-    const handleHeightChange = (value: string) => {
-        setLabelHeight(value)
-        if (typeof window !== 'undefined') {
-            sessionStorage.setItem('locationLabelHeight', value)
-        }
+    const smallStart = (text: string) =>
+      Math.max(6, Math.min(28, Math.min(width, height) * 2.4 * Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(text.length)))))
+
+    if (options.showStructure && structure.length > 0) {
+      const text = structureText(structure)
+      const { lines, size } = fitText(doc, text, {
+        style: "normal",
+        start: smallStart(text),
+        min: 5,
+        maxLines: text.length > 80 ? 2 : 1,
+        maxWidth: contentWidth,
+      })
+      y += drawLines(doc, lines, size, width / 2, y) + 0.015 * scale
     }
 
-    const generateLocationLabel = async () => {
-        setIsGeneratingLabel(true)
-        try {
-            const QRCode = (await import('qrcode')).default
-            const JsBarcode = (await import('jsbarcode')).default
-            const { jsPDF } = await import('jspdf')
+    if (options.showDescription && location.description) {
+      const text = location.description
+      const { lines, size } = fitText(doc, text, {
+        style: "italic",
+        start: smallStart(text),
+        min: 5,
+        maxLines: text.length > 80 ? 2 : 1,
+        maxWidth: contentWidth,
+      })
+      y += drawLines(doc, lines, size, width / 2, y) + 0.015 * scale
+    }
 
-            const width = parseFloat(labelWidth) || 4
-            const height = parseFloat(labelHeight) || 6
+    if (hasHeader) {
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.003)
+      doc.line(margin, y, width - margin, y)
+      y += 0.03 * scale
+    }
 
-            if (width <= 0 || width > 12 || height <= 0 || height > 12) {
-                toast.error("Label dimensions must be between 0 and 12 inches")
-                setIsGeneratingLabel(false)
-                return
-            }
+    const available = height - y - margin
 
-            const doc = new jsPDF({
-                orientation: width > height ? 'landscape' : 'portrait',
-                unit: 'in',
-                format: [width, height]
+    if (options.codeType === "qr") {
+      // Reserve a line for the human-readable value when requested
+      const valueSize = Math.max(6, Math.min(16, Math.min(width, height) * 3))
+      const valueSpace = options.showValue ? valueSize * LINE * 1.6 : 0
+      const qrSize = Math.max(0.3, Math.min(contentWidth * 0.85, (available - valueSpace) * 0.9, Math.max(width, height) * 0.7))
+      const dataUrl = await QRCode.toDataURL(value, { width: 600, margin: 1, errorCorrectionLevel: "M" })
+      const qrY = y + (available - valueSpace - qrSize) / 2
+      doc.addImage(dataUrl, "PNG", (width - qrSize) / 2, qrY, qrSize, qrSize)
+      if (options.showValue) {
+        doc.setFont("courier", "normal")
+        doc.setFontSize(valueSize)
+        const [line] = doc.splitTextToSize(value, contentWidth) as string[]
+        doc.text(line ?? value, width / 2, qrY + qrSize + valueSize * LINE * 1.2, { align: "center" })
+      }
+    } else {
+      const canvas = document.createElement("canvas")
+      JsBarcode(canvas, value, {
+        format: "CODE128",
+        width: 3,
+        height: Math.max(100, height * 30),
+        displayValue: options.showValue,
+        fontSize: Math.max(14, Math.min(20, width * 4)),
+        textMargin: 5,
+        margin: 10,
+      })
+      const barcodeWidth = contentWidth * 0.95
+      const barcodeHeight = Math.min(available * 0.8, height * 0.5)
+      doc.addImage(
+        canvas.toDataURL("image/png"),
+        "PNG",
+        (width - barcodeWidth) / 2,
+        y + (available - barcodeHeight) / 2,
+        barcodeWidth,
+        barcodeHeight
+      )
+    }
+
+    doc.setDrawColor(180, 180, 180)
+    doc.setLineWidth(0.005)
+    doc.rect(0.02, 0.02, width - 0.04, height - 0.04)
+  }
+
+  return doc
+}
+
+// ---------------------------------------------------------------------------
+// Dialog
+// ---------------------------------------------------------------------------
+
+export function LocationLabelGenerator({ open, onOpenChange, location, locations }: LocationLabelGeneratorProps) {
+  const targets = locations ?? (location ? [location] : [])
+  const [busy, setBusy] = useState(false)
+  const multiple = targets.length > 1
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent className="sm:max-w-lg" data-testid="location-label-dialog">
+        <DialogHeader>
+          <DialogTitle>{multiple ? `Print ${formatNumber(targets.length)} labels` : "Print label"}</DialogTitle>
+          <DialogDescription>
+            {multiple
+              ? "One PDF with a label per location, ready for your label printer."
+              : "Download a printable PDF with a QR code or barcode for this location."}
+          </DialogDescription>
+        </DialogHeader>
+        {targets.length > 0 ? (
+          <LabelForm targets={targets} busy={busy} setBusy={setBusy} onDone={() => onOpenChange(false)} />
+        ) : (
+          <p className="text-sm text-muted-foreground">There are no locations to print.</p>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function LabelForm({
+  targets,
+  busy,
+  setBusy,
+  onDone,
+}: {
+  targets: LabelLocation[]
+  busy: boolean
+  setBusy: (busy: boolean) => void
+  onDone: () => void
+}) {
+  const [width, setWidth] = useState(() => readSession("locationLabelWidth", "4"))
+  const [height, setHeight] = useState(() => readSession("locationLabelHeight", "6"))
+  const [codeType, setCodeType] = useState<CodeType>("qr")
+  const [showCode, setShowCode] = useState(true)
+  const [showStructure, setShowStructure] = useState(true)
+  const [showDescription, setShowDescription] = useState(false)
+  const [showValue, setShowValue] = useState(true)
+
+  const w = Number.parseFloat(width)
+  const h = Number.parseFloat(height)
+  const sizeError =
+    !Number.isFinite(w) || !Number.isFinite(h) || w < MIN_SIZE || h < MIN_SIZE || w > MAX_SIZE || h > MAX_SIZE
+      ? `Width and height must be between ${MIN_SIZE} and ${MAX_SIZE} inches`
+      : undefined
+
+  const setSize = (nextWidth: string, nextHeight: string) => {
+    setWidth(nextWidth)
+    setHeight(nextHeight)
+    writeSession("locationLabelWidth", nextWidth)
+    writeSession("locationLabelHeight", nextHeight)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (sizeError) return
+    setBusy(true)
+    try {
+      const doc = await renderLabelsPdf(targets, {
+        width: w,
+        height: h,
+        codeType,
+        showCode,
+        showStructure,
+        showDescription,
+        showValue,
+      })
+      const date = new Date().toISOString().slice(0, 10)
+      const name =
+        targets.length === 1
+          ? `location-label-${targets[0].code.replace(/[^a-zA-Z0-9-]/g, "_")}-${w}x${h}-${date}.pdf`
+          : `location-labels-${targets.length}-${w}x${h}-${date}.pdf`
+      doc.save(name)
+      toast.success(targets.length === 1 ? "Label downloaded" : `${formatNumber(targets.length)} labels downloaded`)
+      onDone()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't generate the label"), {
+        description: codeType === "barcode" ? "Barcodes only support plain ASCII characters." : undefined,
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const preview = targets[0]
+
+  return (
+    <form onSubmit={handleSubmit} noValidate className="space-y-5">
+      <div className="space-y-2">
+        <LabelPreview
+          location={preview}
+          width={sizeError ? 4 : w}
+          height={sizeError ? 6 : h}
+          codeType={codeType}
+          showCode={showCode}
+          showStructure={showStructure}
+          showDescription={showDescription}
+          showValue={showValue}
+        />
+        {targets.length > 1 && (
+          <p className="text-center text-xs text-muted-foreground">
+            Previewing <span className="font-mono">{preview.code}</span> · 1 of {formatNumber(targets.length)}
+          </p>
+        )}
+      </div>
+
+      <fieldset className="space-y-2">
+        <legend className="mb-2 text-sm font-medium">Label size (inches)</legend>
+        <div className="flex flex-wrap gap-2">
+          {PRESETS.map((preset) => {
+            const active = w === preset.width && h === preset.height
+            return (
+              <Button
+                key={preset.label}
+                type="button"
+                variant={active ? "secondary" : "outline"}
+                size="sm"
+                aria-pressed={active}
+                onClick={() => setSize(String(preset.width), String(preset.height))}
+                disabled={busy}
+                className={cn("tabular-nums", active && "ring-1 ring-primary/40")}
+              >
+                {preset.label}
+              </Button>
+            )
+          })}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="label-width" className="text-xs text-muted-foreground">
+              Width
+            </Label>
+            <Input
+              id="label-width"
+              type="number"
+              inputMode="decimal"
+              step="0.1"
+              min={MIN_SIZE}
+              max={MAX_SIZE}
+              value={width}
+              onChange={(e) => setSize(e.target.value, height)}
+              aria-invalid={Boolean(sizeError) || undefined}
+              disabled={busy}
+              className="h-10 tabular-nums"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="label-height" className="text-xs text-muted-foreground">
+              Height
+            </Label>
+            <Input
+              id="label-height"
+              type="number"
+              inputMode="decimal"
+              step="0.1"
+              min={MIN_SIZE}
+              max={MAX_SIZE}
+              value={height}
+              onChange={(e) => setSize(width, e.target.value)}
+              aria-invalid={Boolean(sizeError) || undefined}
+              disabled={busy}
+              className="h-10 tabular-nums"
+            />
+          </div>
+        </div>
+        {sizeError && <p className="text-xs text-destructive">{sizeError}</p>}
+      </fieldset>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Code</p>
+        <Tabs value={codeType} onValueChange={(v) => setCodeType(v as CodeType)}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="qr" disabled={busy}>
+              QR code
+            </TabsTrigger>
+            <TabsTrigger value="barcode" disabled={busy}>
+              Barcode
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <fieldset className="space-y-1">
+        <legend className="mb-2 text-sm font-medium">Show on label</legend>
+        <div className="grid gap-x-6 sm:grid-cols-2">
+          <ToggleRow id="label-show-code" label="Location code" checked={showCode} onChange={setShowCode} disabled={busy} />
+          <ToggleRow
+            id="label-show-structure"
+            label="Levels"
+            checked={showStructure}
+            onChange={setShowStructure}
+            disabled={busy}
+          />
+          <ToggleRow
+            id="label-show-description"
+            label="Description"
+            checked={showDescription}
+            onChange={setShowDescription}
+            disabled={busy}
+          />
+          <ToggleRow
+            id="label-show-value"
+            label={codeType === "qr" ? "Value under QR code" : "Value under barcode"}
+            checked={showValue}
+            onChange={setShowValue}
+            disabled={busy}
+          />
+        </div>
+      </fieldset>
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onDone} disabled={busy}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={busy || Boolean(sizeError)} data-testid="download-label-button">
+          {busy ? <Loader2 className="animate-spin" /> : <Download />}
+          {busy ? "Generating…" : "Download PDF"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
+}
+
+function ToggleRow({
+  id,
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  id: string
+  label: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex min-h-10 items-center justify-between gap-3">
+      <Label htmlFor={id} className="cursor-pointer font-normal">
+        {label}
+      </Label>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} disabled={disabled} />
+    </div>
+  )
+}
+
+/** On-screen approximation of the printed label (white paper in both themes) */
+function LabelPreview({
+  location,
+  width,
+  height,
+  codeType,
+  showCode,
+  showStructure,
+  showDescription,
+  showValue,
+}: {
+  location: LabelLocation
+  width: number
+  height: number
+  codeType: CodeType
+  showCode: boolean
+  showStructure: boolean
+  showDescription: boolean
+  showValue: boolean
+}) {
+  const qrRef = useRef<HTMLCanvasElement>(null)
+  const barcodeRef = useRef<SVGSVGElement>(null)
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const structure = parseLocationStructure(location.structure)
+  const value = scanValue(location)
+  const hasHeader = showCode || (showStructure && structure.length > 0) || (showDescription && !!location.description)
+
+  useEffect(() => {
+    let cancelled = false
+    const draw = async () => {
+      try {
+        if (codeType === "qr" && qrRef.current) {
+          const QRCode = (await import("qrcode")).default
+          const canvas = qrRef.current
+          if (!cancelled && canvas) {
+            await QRCode.toCanvas(canvas, value, { width: 240, margin: 1, errorCorrectionLevel: "M" })
+            // qrcode pins an inline pixel size; let CSS scale it to the preview instead
+            canvas.style.removeProperty("width")
+            canvas.style.removeProperty("height")
+          }
+        } else if (codeType === "barcode" && barcodeRef.current) {
+          const JsBarcode = (await import("jsbarcode")).default
+          if (!cancelled && barcodeRef.current) {
+            JsBarcode(barcodeRef.current, value, {
+              format: "CODE128",
+              width: 2,
+              height: 60,
+              displayValue: showValue,
+              fontSize: 14,
+              margin: 0,
             })
-
-            const scaleFactor = Math.min(width, height) / 4
-            const margin = 0.1 * scaleFactor
-            const contentWidth = width - (margin * 2)
-            const contentHeight = height - (margin * 2)
-            let currentY = margin
-
-            const hasHeader = showLocationCode || showStructure || showDescription
-            const needsQR = codeType === 'qr'
-            const needsBarcode = codeType === 'barcode'
-
-            const barcodeValue = location.barcode || location.code || `LOC-${location.id}`
-
-            // ========== HEADER SECTION ==========
-            if (hasHeader) {
-                if (showLocationCode) {
-                    // Calculate optimal font size based on available width and content length
-                    // WAREHOUSE VISIBILITY - Large enough to read from distance but balanced
-                    const availableWidth = contentWidth
-                    const estimatedChars = location.code.length
-
-                    // Calculate available space for header text
-                    const totalHeaderSpace = height * 0.35 // Allow header to use ~35% of label height
-
-                    // Start with a base size that's proportional to available space
-                    // Target: location code should be prominent but not overwhelming
-                    const baseSize = Math.min(width, height) * 14.0  // Reduced from 24.0
-
-                    // Adjust for content length (longer codes = smaller font)
-                    const lengthAdjustment = Math.max(0.3, Math.min(1.3, 35 / Math.sqrt(estimatedChars)))
-
-                    // Calculate initial size with reasonable bounds
-                    let codeFontSize = Math.max(14, Math.min(140, baseSize * lengthAdjustment))  // 14-140pt range
-
-                    // Iteratively reduce font size if text would overflow
-                    doc.setFont('helvetica', 'bold')
-                    let codeLines = []
-                    let attempts = 0
-                    const maxCodeLines = estimatedChars > 50 ? 3 : (height < 2 ? 1 : 2)
-
-                    while (attempts < 20) {
-                        doc.setFontSize(codeFontSize)
-                        codeLines = doc.splitTextToSize(location.code, contentWidth)
-
-                        // Check if text fits within allowed lines
-                        if (codeLines.length <= maxCodeLines) {
-                            // Additional check: ensure individual lines aren't too wide
-                            let maxLineWidth = 0
-                            codeLines.forEach(line => {
-                                const lineWidth = doc.getTextWidth(line)
-                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
-                            })
-
-                            // Also check that total text height doesn't exceed allocated space
-                            const totalTextHeight = (codeLines.length * codeFontSize * 0.012)
-
-                            if (maxLineWidth <= contentWidth * 1.05 && totalTextHeight <= totalHeaderSpace) {
-                                break // Text fits!
-                            }
-                        }
-
-                        // Reduce font size by 8% and try again
-                        codeFontSize *= 0.92
-                        attempts++
-
-                        // Safety minimum
-                        if (codeFontSize < 12) {
-                            codeFontSize = 12
-                            doc.setFontSize(codeFontSize)
-                            codeLines = doc.splitTextToSize(location.code, contentWidth)
-                            break
-                        }
-                    }
-
-                    const truncatedCode = codeLines.slice(0, maxCodeLines)
-                    const lineHeight = codeFontSize * 0.012
-                    truncatedCode.forEach((line, index) => {
-                        doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
-                    })
-                    currentY += lineHeight * truncatedCode.length + (0.02 * scaleFactor)
-                }
-
-                if (showStructure && structure.length > 0) {
-                    // Structure text - moderately sized
-                    const availableWidth = contentWidth
-                    const structureText = structure.map((s: any) => `${s.label}: ${s.value}`).join(' • ')
-                    const estimatedChars = structureText.length
-
-                    const baseSize = Math.min(width, height) * 2.4
-                    const lengthAdjustment = Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(estimatedChars)))
-
-                    let structFontSize = Math.max(6, Math.min(28, baseSize * lengthAdjustment))
-
-                    // Iteratively reduce font size if text would overflow
-                    doc.setFont('helvetica', 'normal')
-                    let structLines = []
-                    let attempts = 0
-                    const maxStructLines = estimatedChars > 80 ? 2 : 1
-
-                    while (attempts < 20) {
-                        doc.setFontSize(structFontSize)
-                        structLines = doc.splitTextToSize(structureText, contentWidth)
-
-                        if (structLines.length <= maxStructLines) {
-                            let maxLineWidth = 0
-                            structLines.forEach(line => {
-                                const lineWidth = doc.getTextWidth(line)
-                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
-                            })
-
-                            if (maxLineWidth <= contentWidth * 1.05) {
-                                break
-                            }
-                        }
-
-                        structFontSize *= 0.92
-                        attempts++
-
-                        if (structFontSize < 5) {
-                            structFontSize = 5
-                            doc.setFontSize(structFontSize)
-                            structLines = doc.splitTextToSize(structureText, contentWidth)
-                            break
-                        }
-                    }
-
-                    const truncatedStruct = structLines.slice(0, maxStructLines)
-                    const lineHeight = structFontSize * 0.012
-                    truncatedStruct.forEach((line, index) => {
-                        doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
-                    })
-                    currentY += lineHeight * truncatedStruct.length + (0.015 * scaleFactor)
-                }
-
-                if (showDescription && location.description) {
-                    // Description - moderately sized
-                    const availableWidth = contentWidth
-                    const estimatedChars = location.description.length
-
-                    const baseSize = Math.min(width, height) * 2.4
-                    const lengthAdjustment = Math.max(0.4, Math.min(1.2, 60 / Math.sqrt(estimatedChars)))
-
-                    let descFontSize = Math.max(6, Math.min(28, baseSize * lengthAdjustment))
-
-                    // Iteratively reduce font size if text would overflow
-                    doc.setFont('helvetica', 'italic')
-                    let descLines = []
-                    let attempts = 0
-                    const maxDescLines = estimatedChars > 80 ? 2 : 1
-
-                    while (attempts < 20) {
-                        doc.setFontSize(descFontSize)
-                        descLines = doc.splitTextToSize(location.description, contentWidth)
-
-                        if (descLines.length <= maxDescLines) {
-                            let maxLineWidth = 0
-                            descLines.forEach(line => {
-                                const lineWidth = doc.getTextWidth(line)
-                                if (lineWidth > maxLineWidth) maxLineWidth = lineWidth
-                            })
-
-                            if (maxLineWidth <= contentWidth * 1.05) {
-                                break
-                            }
-                        }
-
-                        descFontSize *= 0.92
-                        attempts++
-
-                        if (descFontSize < 5) {
-                            descFontSize = 5
-                            doc.setFontSize(descFontSize)
-                            descLines = doc.splitTextToSize(location.description, contentWidth)
-                            break
-                        }
-                    }
-
-                    const truncatedDesc = descLines.slice(0, maxDescLines)
-                    const lineHeight = descFontSize * 0.012
-                    truncatedDesc.forEach((line, index) => {
-                        doc.text(line, width / 2, currentY + lineHeight * (index + 1), { align: 'center' })
-                    })
-                    currentY += lineHeight * truncatedDesc.length + (0.015 * scaleFactor)
-                }
-
-                // Add separator line after header
-                if (hasHeader && (needsQR || needsBarcode)) {
-                    doc.setDrawColor(200, 200, 200)
-                    doc.setLineWidth(0.003)
-                    doc.line(margin, currentY, width - margin, currentY)
-                    currentY += 0.03 * scaleFactor
-                }
-            }
-
-            // ========== CODE SECTION ==========
-            const availableCodeHeight = height - currentY - margin
-
-            if (needsQR || needsBarcode) {
-                const codeStartY = currentY
-
-                if (needsQR) {
-                    // QR CODE - use maximum width
-                    const maxQRSize = Math.min(
-                        contentWidth * 0.85,
-                        availableCodeHeight * 0.75,
-                        Math.max(width, height) * 0.7
-                    )
-
-                    const qrCodeDataUrl = await QRCode.toDataURL(barcodeValue, {
-                        width: 500,
-                        margin: 1,
-                        errorCorrectionLevel: 'M'
-                    })
-
-                    const qrX = (width - maxQRSize) / 2
-                    const qrY = codeStartY + ((availableCodeHeight - maxQRSize) / 2)
-                    doc.addImage(qrCodeDataUrl, 'PNG', qrX, qrY, maxQRSize, maxQRSize)
-
-                } else if (needsBarcode) {
-                    // BARCODE - use maximum width
-                    const canvas = document.createElement('canvas')
-                    try {
-                        JsBarcode(canvas, barcodeValue, {
-                            format: 'CODE128',
-                            width: 3,
-                            height: Math.max(100, height * 30),
-                            displayValue: showBarcode,
-                            fontSize: Math.max(14, Math.min(20, width * 4)),
-                            textMargin: 5,
-                            margin: 10
-                        })
-
-                        const barcodeDataUrl = canvas.toDataURL('image/png')
-                        const barcodeDisplayWidth = contentWidth * 0.95
-                        const barcodeDisplayHeight = Math.min(availableCodeHeight * 0.8, height * 0.5)
-                        const barcodeX = (width - barcodeDisplayWidth) / 2
-                        const barcodeY = codeStartY + ((availableCodeHeight - barcodeDisplayHeight) / 2)
-
-                        doc.addImage(barcodeDataUrl, 'PNG', barcodeX, barcodeY, barcodeDisplayWidth, barcodeDisplayHeight)
-                    } catch (err) {
-                        console.error('Barcode generation failed:', err)
-                        toast.error('Barcode generation failed: ' + (err as Error).message)
-                    }
-                }
-            }
-
-            // Add border
-            doc.setDrawColor(180, 180, 180)
-            doc.setLineWidth(0.005)
-            doc.rect(0.02, 0.02, width - 0.04, height - 0.04)
-
-            const locationIdentifier = location.code.replace(/[^a-zA-Z0-9-]/g, '_')
-            const timestamp = new Date().toISOString().slice(0, 10)
-            doc.save(`location-label-${locationIdentifier}-${width}x${height}-${timestamp}.pdf`)
-
-            toast.success("Label generated successfully!")
-            onOpenChange(false)
-        } catch (error) {
-            console.error("Failed to generate label:", error)
-            toast.error("Failed to generate label. Please try again.")
-        } finally {
-            setIsGeneratingLabel(false)
+          }
         }
+        if (!cancelled) setRenderError(null)
+      } catch (err) {
+        if (!cancelled) setRenderError(getErrorMessage(err, "Can't encode this value"))
+      }
     }
+    draw()
+    return () => {
+      cancelled = true
+    }
+  }, [codeType, value, showValue])
 
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
-                        <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <QrCode className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-                        </div>
-                        Generate Location Label
-                    </DialogTitle>
-                    <DialogDescription className="text-xs sm:text-sm">
-                        Generate a printable label with QR code or barcode for this location.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-2 py-0">
-                    {/* Preview */}
-                    <div className="border-2 border-dashed rounded-lg p-2 sm:p-3 bg-white text-black overflow-hidden">
-                        <div className="space-y-1.5 sm:space-y-2">
-                            {(showLocationCode || showStructure || showDescription) && (
-                                <div className="text-center border-b border-gray-300 pb-1.5">
-                                    {showLocationCode && (
-                                        <h3 className="font-bold text-xs sm:text-sm line-clamp-1">
-                                            {location.code}
-                                        </h3>
-                                    )}
-                                    {showStructure && structure.length > 0 && (
-                                        <p className="text-[10px] sm:text-xs text-gray-600 line-clamp-1 mt-0.5">
-                                            {structure.map(s => `${s.label}: ${s.value}`).join(' • ')}
-                                        </p>
-                                    )}
-                                    {showDescription && location.description && (
-                                        <p className="text-[10px] sm:text-xs text-gray-600 line-clamp-1 mt-0.5">
-                                            {location.description}
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-
-                            {(codeType === "qr" || codeType === "barcode") && (
-                                <>
-                                    {codeType === "qr" ? (
-                                        <div className="flex justify-center py-1">
-                                            <div className="w-32 h-32 border border-gray-300 rounded flex items-center justify-center bg-gray-50">
-                                                <div className="text-center">
-                                                    <QrCode className="h-16 w-16 mx-auto text-gray-400" />
-                                                    <p className="text-[10px] text-gray-500 mt-1">QR Code</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="py-1">
-                                            <div className="h-16 border border-gray-300 rounded flex items-center justify-center bg-gray-50 w-full">
-                                                <div className="text-center w-full px-2">
-                                                    <Barcode className="h-10 w-10 mx-auto text-gray-400" />
-                                                    {showBarcode && (
-                                                        <p className="text-[10px] text-gray-500 font-mono mt-0.5">
-                                                            {location.barcode || location.code}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Configuration */}
-                    <div className="space-y-2">
-                        <div className="space-y-1">
-                            <Label className="text-xs font-semibold">Label Configuration</Label>
-                            <div className="grid grid-cols-4 gap-2">
-                                <div className="space-y-1">
-                                    <Label htmlFor="labelWidth" className="text-[10px] text-muted-foreground">
-                                        Width (in)
-                                    </Label>
-                                    <Input
-                                        id="labelWidth"
-                                        type="number"
-                                        step="0.1"
-                                        min="0.5"
-                                        max="12"
-                                        value={labelWidth}
-                                        onChange={(e) => handleWidthChange(e.target.value)}
-                                        className="h-7 text-xs"
-                                        placeholder="4"
-                                    />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label htmlFor="labelHeight" className="text-[10px] text-muted-foreground">
-                                        Height (in)
-                                    </Label>
-                                    <Input
-                                        id="labelHeight"
-                                        type="number"
-                                        step="0.1"
-                                        min="0.5"
-                                        max="12"
-                                        value={labelHeight}
-                                        onChange={(e) => handleHeightChange(e.target.value)}
-                                        className="h-7 text-xs"
-                                        placeholder="6"
-                                    />
-                                </div>
-                                <div className="col-span-2 space-y-1">
-                                    <Label htmlFor="codeType" className="text-[10px] text-muted-foreground">
-                                        Code Type
-                                    </Label>
-                                    <Select value={codeType} onValueChange={(value: any) => setCodeType(value)}>
-                                        <SelectTrigger id="codeType" className="h-7 text-xs">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="qr" className="text-xs">
-                                                QR Code
-                                            </SelectItem>
-                                            <SelectItem value="barcode" className="text-xs">
-                                                Barcode
-                                            </SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="border rounded-lg p-2 bg-muted/30 space-y-1">
-                            <Label className="text-xs font-semibold">Label Fields</Label>
-                            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-                                <div className="flex items-center justify-between">
-                                    <Label htmlFor="showLocationCode" className="text-xs font-normal cursor-pointer">
-                                        Code
-                                    </Label>
-                                    <Switch
-                                        id="showLocationCode"
-                                        checked={showLocationCode}
-                                        onCheckedChange={setShowLocationCode}
-                                        className="scale-75"
-                                    />
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label htmlFor="showStructure" className="text-xs font-normal cursor-pointer">
-                                        Structure
-                                    </Label>
-                                    <Switch
-                                        id="showStructure"
-                                        checked={showStructure}
-                                        onCheckedChange={setShowStructure}
-                                        className="scale-75"
-                                    />
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label htmlFor="showBarcode" className="text-xs font-normal cursor-pointer">
-                                        Code #
-                                    </Label>
-                                    <Switch
-                                        id="showBarcode"
-                                        checked={showBarcode}
-                                        onCheckedChange={setShowBarcode}
-                                        className="scale-75"
-                                    />
-                                </div>
-                                <div className="flex items-center justify-between">
-                                    <Label htmlFor="showDescription" className="text-xs font-normal cursor-pointer">
-                                        Desc
-                                    </Label>
-                                    <Switch
-                                        id="showDescription"
-                                        checked={showDescription}
-                                        onCheckedChange={setShowDescription}
-                                        className="scale-75"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <DialogFooter className="gap-2 sm:gap-0">
-                    <Button
-                        variant="outline"
-                        onClick={() => onOpenChange(false)}
-                        className="h-8 text-xs"
-                        disabled={isGeneratingLabel}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={generateLocationLabel}
-                        disabled={isGeneratingLabel}
-                        className="gap-2 h-8 text-xs"
-                    >
-                        {isGeneratingLabel ? (
-                            <>
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                Generating...
-                            </>
-                        ) : (
-                            "Download PDF"
-                        )}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+  return (
+    <div className="flex justify-center rounded-lg bg-muted p-4">
+      <div
+        className="flex flex-col overflow-hidden rounded-sm bg-white p-[5%] text-black shadow-md ring-1 ring-black/10"
+        style={{ aspectRatio: `${width} / ${height}`, width: `min(100%, calc(15rem * ${width / height}))` }}
+        aria-label={`Label preview for ${location.code}`}
+      >
+        {hasHeader && (
+          <div className="shrink-0 border-b border-black/20 pb-1.5 text-center">
+            {showCode && <p className="break-all text-lg font-bold leading-tight">{location.code}</p>}
+            {showStructure && structure.length > 0 && (
+              <p className="mt-0.5 line-clamp-1 text-[10px] text-black/70">{structureText(structure)}</p>
+            )}
+            {showDescription && location.description && (
+              <p className="mt-0.5 line-clamp-1 text-[10px] italic text-black/70">{location.description}</p>
+            )}
+          </div>
+        )}
+        <div
+          className={cn(
+            "relative flex min-h-0 flex-1 flex-col items-center justify-center gap-1 pt-1.5",
+            renderError && "[&>*]:invisible"
+          )}
+        >
+          {renderError && (
+            <p className="!visible absolute inset-0 flex items-center justify-center text-center text-xs text-black/60">
+              {renderError}
+            </p>
+          )}
+          {codeType === "qr" ? (
+            <>
+              <div className="relative min-h-0 w-full flex-1">
+                <canvas ref={qrRef} className="absolute inset-0 size-full object-contain" />
+              </div>
+              {showValue && <p className="max-w-full shrink-0 truncate font-mono text-[10px]">{value}</p>}
+            </>
+          ) : (
+            <svg ref={barcodeRef} className="h-auto max-h-full w-full" preserveAspectRatio="xMidYMid meet" />
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }

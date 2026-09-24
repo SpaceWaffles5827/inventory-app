@@ -1,221 +1,172 @@
 "use client"
 
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { MapPin, Plus, Trash2, Save, Loader2 } from "lucide-react"
-import { updateItemApi, getItemByIdApi, type ItemWithDetails } from "@/lib/api/items.api"
-import { type LocationWithCount } from "@/lib/api/locations.api"
+import { Loader2, MapPin, Plus, X } from "lucide-react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { EntityCombobox } from "@/components/items/entity-combobox"
+import { testIdSlug } from "@/components/items/item-utils"
+import { getItemByIdApi, updateItemApi, type ItemWithDetails } from "@/lib/api/items.api"
+import type { LocationWithCount } from "@/lib/api/locations.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { formatQuantity } from "@/lib/format"
 
 interface ManageLocationsDialogProps {
-    isOpen: boolean
-    onClose: () => void
-    itemId: string
-    currentLocationIds: string[]
-    locations: LocationWithCount[]
-    onSuccess: (updatedItem: ItemWithDetails) => void
+  isOpen: boolean
+  onClose: () => void
+  itemId: string
+  currentLocationIds: string[]
+  /** All locations in the workspace */
+  locations: LocationWithCount[]
+  onSuccess: (updatedItem: ItemWithDetails) => void
+  /** Quantity currently stored per location id — locations holding stock can't be unassigned */
+  quantities?: Record<string, number>
+  unit?: string | null
 }
 
-export function ManageLocationsDialog({
-    isOpen,
-    onClose,
-    itemId,
-    currentLocationIds,
-    locations,
-    onSuccess,
-}: ManageLocationsDialogProps) {
-    const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>(currentLocationIds)
-    const [newLocationId, setNewLocationId] = useState("")
-    const [isSaving, setIsSaving] = useState(false)
+/** Assign an item to storage locations (or unassign empty ones) */
+export function ManageLocationsDialog({ isOpen, onClose, ...props }: ManageLocationsDialogProps) {
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg" data-testid="manage-locations-dialog">
+        <DialogHeader>
+          <DialogTitle>Storage locations</DialogTitle>
+          <DialogDescription>Choose where this item can be stored. Stock is added to a location by adjusting or transferring.</DialogDescription>
+        </DialogHeader>
+        <ManageLocationsForm {...props} onClose={onClose} />
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-    // Update state when dialog opens with new location IDs
-    useState(() => {
-        if (isOpen) {
-            setSelectedLocationIds(currentLocationIds)
-            setNewLocationId("")
-        }
-    })
+function ManageLocationsForm({
+  onClose,
+  itemId,
+  currentLocationIds,
+  locations,
+  onSuccess,
+  quantities = {},
+  unit,
+}: Omit<ManageLocationsDialogProps, "isOpen">) {
+  const [selectedIds, setSelectedIds] = useState<string[]>(currentLocationIds)
+  const [pendingId, setPendingId] = useState("")
+  const [saving, setSaving] = useState(false)
 
-    const handleAddLocation = () => {
-        if (newLocationId && !selectedLocationIds.includes(newLocationId)) {
-            setSelectedLocationIds([...selectedLocationIds, newLocationId])
-            setNewLocationId("")
-        }
+  const byId = new Map(locations.map((l) => [l.id, l]))
+  const available = locations.filter((l) => !selectedIds.includes(l.id))
+  const changed =
+    selectedIds.length !== currentLocationIds.length || selectedIds.some((id) => !currentLocationIds.includes(id))
+
+  const add = () => {
+    if (!pendingId || selectedIds.includes(pendingId)) return
+    setSelectedIds((ids) => [...ids, pendingId])
+    setPendingId("")
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await updateItemApi(itemId, { locationIds: selectedIds })
+      const refreshed = await getItemByIdApi(itemId)
+      if (refreshed.data?.item) onSuccess(refreshed.data.item as ItemWithDetails)
+      toast.success("Locations updated successfully")
+      onClose()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't update locations"))
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const handleRemoveLocation = (locationId: string) => {
-        setSelectedLocationIds(selectedLocationIds.filter((id) => id !== locationId))
-    }
+  return (
+    <>
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <div className="min-w-0 flex-1">
+            <EntityCombobox
+              id="manage-location-picker"
+              value={pendingId}
+              onChange={setPendingId}
+              options={available.map((l) => ({
+                value: l.id,
+                label: l.code,
+                testId: `manage-location-option-${testIdSlug(l.code)}`,
+              }))}
+              placeholder={available.length ? "Choose a location" : "All locations assigned"}
+              searchPlaceholder="Search locations…"
+              emptyText="No location found."
+              mono
+              disabled={available.length === 0 || saving}
+              triggerTestId="manage-location-select-trigger"
+            />
+          </div>
+          <Button type="button" onClick={add} disabled={!pendingId || saving} data-testid="manage-location-add-button">
+            <Plus /> Add
+          </Button>
+        </div>
 
-    const handleUpdateLocations = async () => {
-        setIsSaving(true)
-        try {
-            const updateData = {
-                locationIds: selectedLocationIds,
-            }
-
-            const response = await updateItemApi(itemId, updateData)
-
-            if (response.data?.item) {
-                // Reload the full item data with all relationships including transactions
-                const refreshResponse = await getItemByIdApi(itemId)
-                if (refreshResponse.data?.item) {
-                    onSuccess(refreshResponse.data.item as ItemWithDetails)
-                }
-                onClose()
-                toast.success("Locations updated successfully!")
-            }
-        } catch (error) {
-            console.error("Failed to update locations:", error)
-            toast.error(error instanceof Error ? error.message : "Failed to update locations")
-        } finally {
-            setIsSaving(false)
-        }
-    }
-
-    const selectedLocations = locations.filter((l) => selectedLocationIds.includes(l.id))
-
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[500px]" data-testid="manage-locations-dialog">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                            <MapPin className="h-4 w-4 text-accent" />
-                        </div>
-                        Manage Storage Locations
-                    </DialogTitle>
-                    <DialogDescription className="text-xs">
-                        Assign this item to one or more warehouse locations. This helps organize inventory and track where items are stored.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-3 py-3">
-                    <div className="space-y-1.5">
-                        <Label className="text-xs font-medium">Assigned Locations ({selectedLocationIds.length})</Label>
-                        {selectedLocationIds.length === 0 ? (
-                            <div className="text-xs text-muted-foreground py-3 text-center border border-dashed rounded-lg">
-                                No locations assigned yet
-                            </div>
-                        ) : (
-                            <div className="space-y-1.5">
-                                {selectedLocations.map((location) => (
-                                    <div
-                                        key={location.id}
-                                        className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/30"
-                                        data-testid={`manage-location-row-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
-                                    >
-                                        <div className="flex items-center gap-1.5">
-                                            <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                                            <div>
-                                                <span className="font-medium font-mono text-sm">{location.code}</span>
-                                            </div>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
-                                            onClick={() => handleRemoveLocation(location.id)}
-                                            data-testid={`manage-location-remove-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
-                                        >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="space-y-1.5">
-                        <Label htmlFor="addLocation" className="text-xs font-medium">
-                            Add Location
-                        </Label>
-                        <div className="flex gap-2">
-                            <Select value={newLocationId} onValueChange={(value) => setNewLocationId(value)}>
-                                <SelectTrigger
-                                    id="addLocation"
-                                    className="flex-1 h-8"
-                                    data-testid="manage-location-select-trigger"
-                                >
-                                    <SelectValue placeholder="Select a location" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {locations
-                                        .filter((l) => !selectedLocationIds.includes(l.id))
-                                        .map((location) => (
-                                            <SelectItem
-                                                key={location.id}
-                                                value={location.id}
-                                                data-testid={`manage-location-option-${location.code.toLowerCase().replace(/\s+/g, "-")}`}
-                                            >
-                                                <div className="font-mono text-sm">{location.code}</div>
-                                            </SelectItem>
-                                        ))}
-                                </SelectContent>
-                            </Select>
-                            <Button
-                                onClick={handleAddLocation}
-                                disabled={!newLocationId}
-                                size="sm"
-                                className="h-8"
-                                data-testid="manage-location-add-button"
-                            >
-                                <Plus className="h-3.5 w-3.5 mr-1" />
-                                Add
-                            </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            Select from existing locations or create new ones in the Locations page
-                        </p>
-                    </div>
-                </div>
-
-                <DialogFooter>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">
+            Assigned <span className="text-muted-foreground">({selectedIds.length})</span>
+          </p>
+          {selectedIds.length === 0 ? (
+            <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+              No locations assigned yet.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {selectedIds.map((id) => {
+                const code = byId.get(id)?.code ?? "Unknown location"
+                const qty = quantities[id] ?? 0
+                const isNew = !currentLocationIds.includes(id)
+                return (
+                  <li key={id} className="flex items-center gap-3 px-3 py-2" data-testid={`manage-location-row-${testIdSlug(code)}`}>
+                    <MapPin className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate font-mono text-sm">{code}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {isNew ? "New" : qty > 0 ? formatQuantity(qty, unit) : "Empty"}
+                    </span>
                     <Button
-                        variant="outline"
-                        onClick={onClose}
-                        disabled={isSaving}
-                        size="sm"
-                        data-testid="manage-location-cancel-button"
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => setSelectedIds((ids) => ids.filter((x) => x !== id))}
+                      disabled={qty > 0 || saving}
+                      title={qty > 0 ? "Move or remove the stock here first" : `Remove ${code}`}
+                      aria-label={`Remove ${code}`}
+                      data-testid={`manage-location-remove-${testIdSlug(code)}`}
                     >
-                        Cancel
+                      <X />
                     </Button>
-                    <Button
-                        onClick={handleUpdateLocations}
-                        disabled={isSaving}
-                        size="sm"
-                        data-testid="manage-location-save-button"
-                    >
-                        {isSaving ? (
-                            <>
-                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                                Saving...
-                            </>
-                        ) : (
-                            <>
-                                <Save className="h-3.5 w-3.5 mr-1.5" />
-                                Save Changes
-                            </>
-                        )}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {Object.values(quantities).some((q) => q > 0) && (
+            <p className="text-xs text-muted-foreground">Locations that still hold stock can&apos;t be removed.</p>
+          )}
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={saving} data-testid="manage-location-cancel-button">
+          Cancel
+        </Button>
+        <Button type="button" onClick={save} disabled={saving || !changed} data-testid="manage-location-save-button">
+          {saving && <Loader2 className="animate-spin" />}
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
+      </DialogFooter>
+    </>
+  )
 }

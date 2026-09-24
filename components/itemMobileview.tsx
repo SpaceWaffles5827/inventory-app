@@ -1,136 +1,81 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { MoreVertical, ArrowRightLeft, Diff, Trash2 } from "lucide-react"
+import Link from "next/link"
+import { PackageSearch } from "lucide-react"
+import { EmptyState } from "@/components/common/empty-state"
 import { ItemImage } from "@/components/imageItem"
-import { ItemWithRelations } from "@/lib/api/items.api"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { ItemActionsMenu, type ItemRowActions } from "@/components/items/item-actions-menu"
+import { getItemStatus, itemHref, type InventoryItem } from "@/components/items/item-utils"
+import { formatNumber } from "@/lib/format"
+import { getStockStatus, type StatusVariant } from "@/lib/stock"
+import { cn } from "@/lib/utils"
 
-interface ItemMobileViewProps {
-    items: ItemWithRelations[]
-    onAdjustmentClick: (item: ItemWithRelations) => void
-    onTransferClick: (item: ItemWithRelations) => void
-    onDeleteClick: (item: ItemWithRelations) => void
+interface ItemMobileViewProps extends ItemRowActions {
+  items: InventoryItem[]
 }
 
-export function ItemMobileView({
-    items,
-    onAdjustmentClick,
-    onTransferClick,
-    onDeleteClick
-}: ItemMobileViewProps) {
-    const router = useRouter()
+// Same palette as the status badges (lib/stock variants), shown as a dot to save width on phones
+const DOT_CLASS: Record<StatusVariant, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-destructive",
+  info: "bg-info",
+  muted: "bg-muted-foreground",
+}
 
-    if (items.length === 0) {
+/** Compact phone rows: tap the row to open the item, "…" for actions */
+export function ItemMobileView({ items, onAdjustmentClick, onTransferClick, onDeleteClick }: ItemMobileViewProps) {
+  if (items.length === 0) {
+    return <EmptyState icon={PackageSearch} title="No items to show" />
+  }
+
+  return (
+    <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+      {items.map((item) => {
+        const status = getStockStatus(getItemStatus(item))
         return (
-            <div className="text-center py-12 px-4 text-muted-foreground">
-                No items found matching your filters
+          <li
+            key={item.id}
+            className="relative flex items-center gap-3 py-2.5 pl-3 pr-1.5 transition-colors active:bg-muted has-[a:focus-visible]:bg-muted/60"
+            data-testid={`item-card-${item.id}`}
+          >
+            <ItemImage itemId={item.id} alt="" className="size-11 rounded-lg border" sizes="44px" />
+
+            <div className="min-w-0 flex-1">
+              <Link
+                href={itemHref(item.id)}
+                className="block truncate text-sm font-medium after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
+              >
+                {item.name}
+              </Link>
+              <p className="truncate font-mono text-xs text-muted-foreground">{item.itemNumber}</p>
             </div>
+
+            <div className="shrink-0 text-right">
+              <p className="text-sm tabular-nums">
+                <span className="font-semibold" data-testid="item-stock-value">
+                  {formatNumber(item.onHand)}
+                </span>
+                {item.unit && <span className="ml-1 text-xs text-muted-foreground">{item.unit}</span>}
+              </p>
+              <p className="flex h-4 items-center justify-end gap-1.5 text-[11px] text-muted-foreground" title={status.label}>
+                <span aria-hidden className={cn("size-2 rounded-full", DOT_CLASS[status.variant])} />
+                <span className="sr-only sm:not-sr-only">{status.label}</span>
+              </p>
+            </div>
+
+            <div className="relative z-10">
+              <ItemActionsMenu
+                item={item}
+                className="size-10"
+                onAdjustmentClick={onAdjustmentClick}
+                onTransferClick={onTransferClick}
+                onDeleteClick={onDeleteClick}
+              />
+            </div>
+          </li>
         )
-    }
-
-    return (
-        <div className="divide-y divide-border">
-            {items.map((item) => (
-                <div
-                    key={item.id}
-                    className="flex items-center gap-3 p-4 active:bg-muted/50 transition-colors"
-                    onClick={() => router.push(`/dashboard/items/${item.id}`)}
-                >
-                    {/* Item Image */}
-                    <div className="w-16 h-16 rounded-lg bg-muted/50 border border-border overflow-hidden flex-shrink-0">
-                        <ItemImage
-                            itemId={item.id}
-                            alt={item.name}
-                            className="w-full h-full object-cover"
-                        />
-                    </div>
-
-                    {/* Item Info */}
-                    <div className="flex-1 min-w-0">
-                        {/* Item Number */}
-                        <p className="text-xs text-muted-foreground font-mono mb-0.5">
-                            {item.itemNumber}
-                        </p>
-
-                        {/* Item Name */}
-                        <h3 className="font-semibold text-base leading-tight mb-1 line-clamp-1">
-                            {item.name}
-                        </h3>
-
-                        {/* Stock and Value Info */}
-                        <div className="flex items-center gap-3 text-sm">
-                            <span className="font-medium">
-                                {item.onHand} {item.unit?.toLowerCase() || "units"}
-                            </span>
-                            {item.onHand > 0 && item.cost > 0 && (
-                                <>
-                                    <span className="text-muted-foreground">|</span>
-                                    <span className="text-muted-foreground">
-                                        ${(item.onHand * item.cost).toLocaleString()}
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Actions Menu */}
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="flex-shrink-0 h-10 w-10"
-                            >
-                                <MoreVertical className="h-5 w-5" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => router.push(`/dashboard/items/${item.id}`)}>
-                                View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onAdjustmentClick(item)
-                                }}
-                                data-testid="item-adjust-button"
-                            >
-                                <Diff className="h-4 w-4 mr-2" />
-                                Adjust Stock
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => {
-                                e.stopPropagation()
-                                onTransferClick(item)
-                            }}
-                                data-testid="item-transfer-button"
-                            >
-                                <ArrowRightLeft className="h-4 w-4 mr-2" />
-                                Transfer Stock
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    onDeleteClick(item)
-                                }}
-                                data-testid="item-delete-button"
-                            >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete Item
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-            ))}
-        </div>
-    )
+      })}
+    </ul>
+  )
 }

@@ -1,3 +1,5 @@
+import { apiRequest } from "./client";
+
 export interface WorkspaceMember {
   id: string;
   role: "OWNER" | "ADMIN" | "MEMBER";
@@ -36,24 +38,10 @@ export interface WorkspaceMembersApiResponse {
 export async function getMembersApi(
   workspaceId: string
 ): Promise<WorkspaceMembersApiResponse> {
-  const response = await fetch(
-    `/api/workspace-members?workspaceId=${encodeURIComponent(workspaceId)}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch members");
-  }
-
-  return result;
+  return apiRequest<WorkspaceMembersApiResponse>("/api/workspace-members", {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch members",
+  });
 }
 
 /**
@@ -64,22 +52,14 @@ export async function updateMemberRoleApi(
   role: string,
   workspaceId: string
 ): Promise<WorkspaceMembersApiResponse> {
-  const response = await fetch(`/api/workspace-members/${memberId}/role`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ role, workspaceId }),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update member role");
-  }
-
-  return result;
+  return apiRequest<WorkspaceMembersApiResponse>(
+    `/api/workspace-members/${memberId}/role`,
+    {
+      method: "PATCH",
+      body: { role, workspaceId },
+      errorMessage: "Failed to update member role",
+    }
+  );
 }
 
 /**
@@ -89,26 +69,14 @@ export async function removeMemberApi(
   memberId: string,
   workspaceId: string
 ): Promise<WorkspaceMembersApiResponse> {
-  const response = await fetch(
-    `/api/workspace-members/${memberId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
+  return apiRequest<WorkspaceMembersApiResponse>(
+    `/api/workspace-members/${memberId}`,
     {
       method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      query: { workspaceId },
+      errorMessage: "Failed to remove member",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to remove member");
-  }
-
-  return result;
 }
 
 /**
@@ -119,22 +87,14 @@ export async function inviteMemberApi(
   role: string,
   workspaceId: string
 ): Promise<WorkspaceMembersApiResponse> {
-  const response = await fetch("/api/workspace-members/invite", {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ email, role, workspaceId }),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to invite member");
-  }
-
-  return result;
+  return apiRequest<WorkspaceMembersApiResponse>(
+    "/api/workspace-members/invite",
+    {
+      method: "POST",
+      body: { email, role, workspaceId },
+      errorMessage: "Failed to invite member",
+    }
+  );
 }
 
 /**
@@ -143,26 +103,13 @@ export async function inviteMemberApi(
 export async function getInvitationsApi(
   workspaceId: string
 ): Promise<WorkspaceMembersApiResponse> {
-  const response = await fetch(
-    `/api/workspace-members/invitations?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
+  return apiRequest<WorkspaceMembersApiResponse>(
+    "/api/workspace-members/invitations",
     {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      query: { workspaceId },
+      errorMessage: "Failed to fetch invitations",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch invitations");
-  }
-
-  return result;
 }
 
 /**
@@ -172,26 +119,14 @@ export async function cancelInvitationApi(
   invitationId: string,
   workspaceId: string
 ): Promise<WorkspaceMembersApiResponse> {
-  const response = await fetch(
-    `/api/workspace-members/invitations/${invitationId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
+  return apiRequest<WorkspaceMembersApiResponse>(
+    `/api/workspace-members/invitations/${invitationId}`,
     {
       method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      query: { workspaceId },
+      errorMessage: "Failed to cancel invitation",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to cancel invitation");
-  }
-
-  return result;
 }
 
 /**
@@ -201,23 +136,12 @@ export async function resendInvitationApi(
   invitationId: string,
   workspaceId: string
 ): Promise<WorkspaceMembersApiResponse> {
-  const response = await fetch(
+  return apiRequest<WorkspaceMembersApiResponse>(
     `/api/workspace-members/invitations/${invitationId}/resend`,
     {
       method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ workspaceId }),
+      body: { workspaceId },
+      errorMessage: "Failed to resend invitation",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to resend invitation");
-  }
-
-  return result;
 }

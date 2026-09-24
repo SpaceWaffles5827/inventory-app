@@ -3,109 +3,99 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Prevent iOS zoom and rubber-band scrolling */
-html {
-  touch-action: pan-x pan-y;
-  -webkit-text-size-adjust: 100%;
-  height: 100%;
-}
-
-body {
-  overscroll-behavior: none;
-  height: 100%;
-  /* Remove the fixed positioning that's breaking scroll */
-}
-
-/* Reset for main content areas to allow scrolling */
-main,
-[role="main"],
-.overflow-auto,
-[data-radix-scroll-area-viewport] {
-  touch-action: pan-y !important;
-}
-
+/*
+ * StockFlow design tokens
+ * - `primary` is the brand color (buttons, links, active nav).
+ * - `accent` is a SUBTLE hover/selected surface (shadcn convention) — never use it as a brand color.
+ * - `success` / `warning` / `info` / `destructive` are status colors; pair each with its `-foreground`
+ *   for solid fills, or use `bg-success/10 text-success` for soft badges.
+ */
 :root {
-  /* Enhanced light mode with better contrast and visual separation */
-  --background: oklch(0.97 0.002 240);
-  --foreground: oklch(0.1 0.015 240);
+  --background: oklch(0.985 0.002 260);
+  --foreground: oklch(0.2 0.02 265);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.1 0.015 240);
+  --card-foreground: oklch(0.2 0.02 265);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.1 0.015 240);
-  --primary: oklch(0.45 0.22 260);
-  --primary-foreground: oklch(0.99 0.002 240);
-  --secondary: oklch(0.94 0.01 240);
-  --secondary-foreground: oklch(0.1 0.015 240);
-  --muted: oklch(0.95 0.005 240);
-  --muted-foreground: oklch(0.42 0.015 240);
-  --accent: oklch(0.52 0.24 260);
-  --accent-foreground: oklch(0.99 0.002 240);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.99 0.002 240);
-  /* Stronger borders for better definition */
-  --border: oklch(0.85 0.005 240);
-  --input: oklch(0.85 0.005 240);
-  --ring: oklch(0.52 0.24 260);
-  --chart-1: oklch(0.52 0.24 260);
-  --chart-2: oklch(0.58 0.2 200);
-  --chart-3: oklch(0.62 0.18 160);
-  --chart-4: oklch(0.55 0.22 300);
-  --chart-5: oklch(0.6 0.2 340);
-  --radius: 0.75rem;
-  /* Improved sidebar with better contrast */
-  --sidebar: oklch(0.99 0 0);
-  --sidebar-foreground: oklch(0.1 0.015 240);
-  --sidebar-primary: oklch(0.45 0.22 260);
-  --sidebar-primary-foreground: oklch(0.99 0.002 240);
-  --sidebar-accent: oklch(0.94 0.01 240);
-  --sidebar-accent-foreground: oklch(0.1 0.015 240);
-  --sidebar-border: oklch(0.85 0.005 240);
-  --sidebar-ring: oklch(0.52 0.24 260);
+  --popover-foreground: oklch(0.2 0.02 265);
+  --primary: oklch(0.51 0.2 266);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.955 0.006 265);
+  --secondary-foreground: oklch(0.25 0.02 265);
+  --muted: oklch(0.96 0.005 265);
+  --muted-foreground: oklch(0.5 0.02 265);
+  --accent: oklch(0.95 0.012 266);
+  --accent-foreground: oklch(0.25 0.03 266);
+  --destructive: oklch(0.58 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.6 0.15 155);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.7 0.16 70);
+  --warning-foreground: oklch(0.22 0.05 70);
+  --info: oklch(0.6 0.14 235);
+  --info-foreground: oklch(0.99 0 0);
+  --border: oklch(0.915 0.006 265);
+  --input: oklch(0.89 0.008 265);
+  --ring: oklch(0.51 0.2 266);
+  --chart-1: oklch(0.55 0.2 266);
+  --chart-2: oklch(0.65 0.14 190);
+  --chart-3: oklch(0.72 0.15 75);
+  --chart-4: oklch(0.6 0.19 320);
+  --chart-5: oklch(0.65 0.15 150);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.975 0.004 265);
+  --sidebar-foreground: oklch(0.3 0.02 265);
+  --sidebar-primary: oklch(0.51 0.2 266);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.93 0.012 266);
+  --sidebar-accent-foreground: oklch(0.2 0.03 266);
+  --sidebar-border: oklch(0.915 0.006 265);
+  --sidebar-ring: oklch(0.51 0.2 266);
 }
 
 .dark {
-  /* Enhanced dark mode with better contrast and depth */
-  --background: oklch(0.12 0.012 240);
-  --foreground: oklch(0.95 0.005 240);
-  --card: oklch(0.17 0.015 240);
-  --card-foreground: oklch(0.95 0.005 240);
-  --popover: oklch(0.17 0.015 240);
-  --popover-foreground: oklch(0.95 0.005 240);
-  --primary: oklch(0.68 0.24 260);
-  --primary-foreground: oklch(0.12 0.012 240);
-  --secondary: oklch(0.22 0.015 240);
-  --secondary-foreground: oklch(0.95 0.005 240);
-  --muted: oklch(0.22 0.015 240);
-  --muted-foreground: oklch(0.65 0.01 240);
-  --accent: oklch(0.62 0.24 260);
-  --accent-foreground: oklch(0.95 0.005 240);
-  --destructive: oklch(0.5 0.2 27.325);
-  --destructive-foreground: oklch(0.95 0.005 240);
-  /* Improved borders for better element separation */
-  --border: oklch(0.26 0.015 240);
-  --input: oklch(0.26 0.015 240);
-  --ring: oklch(0.62 0.24 260);
-  --chart-1: oklch(0.62 0.24 260);
-  --chart-2: oklch(0.65 0.2 200);
-  --chart-3: oklch(0.68 0.18 160);
-  --chart-4: oklch(0.64 0.22 300);
-  --chart-5: oklch(0.66 0.2 340);
-  /* Enhanced sidebar with better contrast */
-  --sidebar: oklch(0.15 0.015 240);
-  --sidebar-foreground: oklch(0.95 0.005 240);
-  --sidebar-primary: oklch(0.62 0.24 260);
-  --sidebar-primary-foreground: oklch(0.95 0.005 240);
-  --sidebar-accent: oklch(0.22 0.015 240);
-  --sidebar-accent-foreground: oklch(0.95 0.005 240);
-  --sidebar-border: oklch(0.26 0.015 240);
-  --sidebar-ring: oklch(0.62 0.24 260);
+  --background: oklch(0.155 0.01 265);
+  --foreground: oklch(0.95 0.005 265);
+  --card: oklch(0.195 0.012 265);
+  --card-foreground: oklch(0.95 0.005 265);
+  --popover: oklch(0.21 0.013 265);
+  --popover-foreground: oklch(0.95 0.005 265);
+  --primary: oklch(0.66 0.17 266);
+  --primary-foreground: oklch(0.16 0.02 266);
+  --secondary: oklch(0.25 0.013 265);
+  --secondary-foreground: oklch(0.93 0.005 265);
+  --muted: oklch(0.235 0.012 265);
+  --muted-foreground: oklch(0.68 0.015 265);
+  --accent: oklch(0.26 0.02 266);
+  --accent-foreground: oklch(0.95 0.005 265);
+  --destructive: oklch(0.64 0.2 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.7 0.15 155);
+  --success-foreground: oklch(0.18 0.04 155);
+  --warning: oklch(0.78 0.15 75);
+  --warning-foreground: oklch(0.2 0.05 70);
+  --info: oklch(0.7 0.13 235);
+  --info-foreground: oklch(0.18 0.04 235);
+  --border: oklch(0.27 0.012 265);
+  --input: oklch(0.3 0.013 265);
+  --ring: oklch(0.66 0.17 266);
+  --chart-1: oklch(0.66 0.17 266);
+  --chart-2: oklch(0.72 0.12 190);
+  --chart-3: oklch(0.8 0.14 75);
+  --chart-4: oklch(0.7 0.17 320);
+  --chart-5: oklch(0.72 0.14 150);
+  --sidebar: oklch(0.175 0.011 265);
+  --sidebar-foreground: oklch(0.85 0.01 265);
+  --sidebar-primary: oklch(0.66 0.17 266);
+  --sidebar-primary-foreground: oklch(0.16 0.02 266);
+  --sidebar-accent: oklch(0.25 0.016 266);
+  --sidebar-accent-foreground: oklch(0.96 0.005 265);
+  --sidebar-border: oklch(0.25 0.012 265);
+  --sidebar-ring: oklch(0.66 0.17 266);
 }
 
 @theme inline {
-  /* Updated to use Inter and JetBrains Mono for modern typography */
-  --font-sans: "Inter", "Inter Fallback", system-ui, -apple-system, sans-serif;
-  --font-mono:
-    "JetBrains Mono", "JetBrains Mono Fallback", "Courier New", monospace;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular", Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -122,6 +112,12 @@ main,
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -148,122 +144,36 @@ main,
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+    overscroll-behavior-y: none;
   }
-
-  /* Adding cursor pointer to all buttons and interactive elements */
-  button,
-  [role="button"],
-  [type="button"],
-  [type="submit"],
-  [type="reset"] {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }
-
-  /* Enhanced shadows and borders for light mode */
-  :root:not(.dark) {
-    .card,
-    [data-slot="card"] {
-      box-shadow:
-        0 1px 3px 0 rgb(0 0 0 / 0.08),
-        0 1px 2px -1px rgb(0 0 0 / 0.08);
-    }
-
-    /* Better table styling in light mode */
-    table {
-      border-color: oklch(0.85 0.005 240);
-    }
-
-    /* Enhanced input visibility */
-    input,
-    textarea,
-    select {
-      background-color: oklch(0.99 0 0);
-      border-color: oklch(0.85 0.005 240);
-    }
-
-    input:focus,
-    textarea:focus,
-    select:focus {
-      border-color: oklch(0.52 0.24 260);
-      box-shadow: 0 0 0 3px oklch(0.52 0.24 260 / 0.1);
-    }
-
-    /* Better button contrast */
-    button[data-variant="outline"] {
-      border-color: oklch(0.85 0.005 240);
-    }
-
-    button[data-variant="outline"]:hover {
-      background-color: oklch(0.95 0.005 240);
-    }
+  /* Tabular numbers everywhere we show quantities */
+  .tabular-nums,
+  td,
+  [data-slot="stat-value"] {
+    font-variant-numeric: tabular-nums;
   }
+}
 
-  /* Enhanced dark mode styling with better depth and contrast */
-  .dark {
-    .card,
-    [data-slot="card"] {
-      box-shadow:
-        0 4px 6px -1px rgb(0 0 0 / 0.3),
-        0 2px 4px -2px rgb(0 0 0 / 0.3);
-      border: 1px solid oklch(0.26 0.015 240);
-    }
-
-    /* Better table styling in dark mode */
-    table {
-      border-color: oklch(0.26 0.015 240);
-    }
-
-    /* Enhanced input visibility in dark mode */
-    input,
-    textarea,
-    select {
-      background-color: oklch(0.15 0.012 240);
-      border-color: oklch(0.26 0.015 240);
-    }
-
-    input:hover,
-    textarea:hover,
-    select:hover {
-      border-color: oklch(0.32 0.015 240);
-    }
-
-    input:focus,
-    textarea:focus,
-    select:focus {
-      border-color: oklch(0.62 0.24 260);
-      background-color: oklch(0.17 0.012 240);
-      box-shadow: 0 0 0 3px oklch(0.62 0.24 260 / 0.15);
-    }
-
-    /* Better button contrast in dark mode */
-    button[data-variant="outline"] {
-      border-color: oklch(0.26 0.015 240);
-      background-color: oklch(0.15 0.012 240);
-    }
-
-    button[data-variant="outline"]:hover {
-      background-color: oklch(0.22 0.015 240);
-      border-color: oklch(0.32 0.015 240);
-    }
-
-    /* Enhanced secondary buttons */
-    button[data-variant="secondary"] {
-      background-color: oklch(0.22 0.015 240);
-    }
-
-    button[data-variant="secondary"]:hover {
-      background-color: oklch(0.26 0.015 240);
-    }
-
-    /* Better popover/dialog contrast */
-    [role="dialog"],
-    [role="menu"] {
-      box-shadow:
-        0 10px 15px -3px rgb(0 0 0 / 0.4),
-        0 4px 6px -4px rgb(0 0 0 / 0.4);
-      border: 1px solid oklch(0.26 0.015 240);
-    }
+@layer utilities {
+  /* Space for the iOS home indicator under fixed bottom bars */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }

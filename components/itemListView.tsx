@@ -1,125 +1,89 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Diff, Trash2 } from "lucide-react"
+import Link from "next/link"
+import { MapPin, PackageSearch } from "lucide-react"
+import { EmptyState } from "@/components/common/empty-state"
+import { StockStatusBadge } from "@/components/common/status-badge"
 import { ItemImage } from "@/components/imageItem"
-import { ItemWithRelations } from "@/lib/api/items.api"
+import { AdjustStockButton, ItemActionsMenu, type ItemRowActions } from "@/components/items/item-actions-menu"
+import {
+  getItemStatus,
+  getItemValue,
+  itemHref,
+  locationsSummary,
+  type InventoryItem,
+} from "@/components/items/item-utils"
+import { formatCurrency, formatNumber } from "@/lib/format"
 
-interface ItemListViewProps {
-    items: ItemWithRelations[]
-    onAdjustmentClick: (item: ItemWithRelations) => void
-    onDeleteClick: (item: ItemWithRelations) => void
+interface ItemListViewProps extends ItemRowActions {
+  items: InventoryItem[]
 }
 
-export function ItemListView({
-    items,
-    onAdjustmentClick,
-    onDeleteClick
-}: ItemListViewProps) {
-    const router = useRouter()
+/** Roomy list rows: larger thumbnail, category + locations, stock and value */
+export function ItemListView({ items, onAdjustmentClick, onTransferClick, onDeleteClick }: ItemListViewProps) {
+  if (items.length === 0) {
+    return <EmptyState icon={PackageSearch} title="No items to show" />
+  }
 
-    if (items.length === 0) {
-        return (
-            <div className="text-center py-12 text-muted-foreground">
-                No items found matching your filters
+  return (
+    <ul className="divide-y overflow-hidden rounded-xl border bg-card">
+      {items.map((item) => (
+        <li
+          key={item.id}
+          className="relative flex items-center gap-4 p-3 transition-colors hover:bg-muted/50 has-[a:focus-visible]:bg-muted/50 sm:p-4"
+          data-testid={`item-card-${item.id}`}
+        >
+          <ItemImage itemId={item.id} alt="" className="size-16 rounded-lg border" sizes="64px" />
+
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <Link
+                href={itemHref(item.id)}
+                className="truncate font-medium after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
+                title={item.name}
+              >
+                {item.name}
+              </Link>
+              <StockStatusBadge status={getItemStatus(item)} className="hidden lg:inline-flex" />
             </div>
-        )
-    }
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="font-mono">{item.itemNumber}</span>
+              {item.category && <span className="truncate">{item.category.name}</span>}
+              <span className="inline-flex items-center gap-1 font-mono">
+                <MapPin aria-hidden className="size-3" />
+                {locationsSummary(item)}
+              </span>
+            </div>
+          </div>
 
-    return (
-        <div className="space-y-3">
-            {items.map((item) => (
-                <Card
-                    key={item.id}
-                    className="cursor-pointer hover:shadow-md transition-all duration-200 hover:border-accent/50 overflow-hidden"
-                    onClick={() => router.push(`/dashboard/items/${item.id}`)}
-                    data-testid={`item-card-${item.id}`}
-                >
-                    <CardContent className="pt-0 pb-0">
-                        <div className="flex items-center gap-4 min-w-0">
-                            <div className="w-20 h-20 rounded-md bg-muted/50 border border-border overflow-hidden flex-shrink-0">
-                                <ItemImage
-                                    itemId={item.id}
-                                    alt={item.name}
-                                    className="w-full h-full object-cover"
-                                />
-                            </div>
-                            <div className="flex-1 min-w-0 overflow-hidden">
-                                <div className="flex items-start gap-3 mb-1 min-w-0">
-                                    <h3 className="font-semibold text-base line-clamp-2 break-words flex-1 min-w-0 overflow-hidden" title={item.name}>
-                                        {item.name}
-                                    </h3>
-                                    <Badge
-                                        variant={item.status === "IN_STOCK" ? "default" : "destructive"}
-                                        className={
-                                            item.status === "IN_STOCK"
-                                                ? "bg-accent/10 text-accent flex-shrink-0"
-                                                : "bg-destructive/10 text-destructive flex-shrink-0"
-                                        }
-                                    >
-                                        {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                                    </Badge>
-                                </div>
-                                <div className="flex items-center gap-3 text-sm text-muted-foreground flex-wrap min-w-0">
-                                    <span className="font-mono">{item.itemNumber}</span>
-                                    <span className="text-xs truncate min-w-0">
-                                        {item.locations && item.locations.filter(loc => loc.quantity > 0).length > 0
-                                            ? item.locations
-                                                .filter(loc => loc.quantity > 0)
-                                                .map(loc => `${loc.location.code} (${loc.quantity})`)
-                                                .join(', ')
-                                            : "Unassigned"}
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-6 flex-none">
-                                <div className="text-center">
-                                    <p className="text-xs text-muted-foreground mb-1">Stock</p>
-                                    <div className="flex items-baseline gap-1.5 justify-center">
-                                        <p className="text-2xl font-semibold tabular-nums text-right min-w-[3ch]" data-testid="item-stock-value">
-                                            {item.onHand}
-                                        </p>
-                                        <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight w-[4ch] text-left">{item.unit || "EA"}</span>
-                                    </div>
-                                </div>
-                                <div className="text-center min-w-[70px]">
-                                    <p className="text-xs text-muted-foreground mb-1">Cost</p>
-                                    <p className="text-base font-medium">${item.cost.toFixed(2)}</p>
-                                </div>
-                                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="flex-1 h-9 hover:bg-accent/10 hover:text-accent bg-transparent"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            onAdjustmentClick(item)
-                                        }}
-                                        data-testid="item-adjust-button"
-                                    >
-                                        <Diff className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        className="flex-1 h-9 hover:bg-destructive/10 hover:text-destructive bg-transparent"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            onDeleteClick(item)
-                                        }}
-                                        data-testid="item-delete-button"
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            ))}
-        </div>
-    )
+          <div className="w-24 shrink-0 text-right tabular-nums">
+            <p>
+              <span className="text-lg font-semibold" data-testid="item-stock-value">
+                {formatNumber(item.onHand)}
+              </span>
+              {item.unit && <span className="ml-1 text-xs text-muted-foreground">{item.unit}</span>}
+            </p>
+            <p className="text-xs text-muted-foreground">on hand</p>
+          </div>
+
+          <div className="hidden w-28 shrink-0 text-right tabular-nums xl:block">
+            <p className="text-sm font-medium">{formatCurrency(getItemValue(item))}</p>
+            <p className="text-xs text-muted-foreground">{formatCurrency(item.cost)} each</p>
+          </div>
+
+          <StockStatusBadge status={getItemStatus(item)} className="lg:hidden" />
+
+          <div className="relative z-10 flex shrink-0 items-center gap-1">
+            {onAdjustmentClick && <AdjustStockButton item={item} onClick={onAdjustmentClick} />}
+            <ItemActionsMenu
+              item={item}
+              onAdjustmentClick={onAdjustmentClick}
+              onTransferClick={onTransferClick}
+              onDeleteClick={onDeleteClick}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
 }

@@ -1,552 +1,535 @@
 "use client"
 
-import type React from "react"
-
-import { useState, useEffect, use, useMemo, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useParams, useRouter } from "next/navigation"
 import {
-    ArrowLeft,
-    Mail,
-    Phone,
-    MapPin,
-    Calendar,
-    DollarSign,
-    Package,
-    Edit2,
-    Save,
-    Clock,
-    Loader2,
-    ChevronLeft,
-    ChevronRight,
-    AlertCircle,
+  AlertTriangle,
+  Building2,
+  CalendarDays,
+  Clock,
+  DollarSign,
+  Layers,
+  Link2,
+  Mail,
+  MapPin,
+  Package,
+  Pencil,
+  Phone,
+  Power,
+  SearchX,
+  Trash2,
+  Unlink,
+  User,
+  Users,
+  type LucideIcon,
 } from "lucide-react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { PageContainer, PageHeader, SectionHeader } from "@/components/common/page"
+import { StatCard } from "@/components/common/stat-card"
+import { EmptyState } from "@/components/common/empty-state"
+import { ErrorState } from "@/components/common/states"
+import { SearchInput } from "@/components/common/search-input"
+import { StockStatusBadge } from "@/components/common/status-badge"
+import { useConfirm } from "@/components/common/confirm-provider"
+import { ActiveBadge } from "@/components/partners/contact-details"
+import { RowActions } from "@/components/partners/row-actions"
+import { Pagination, clampPage } from "@/components/partners/pagination"
+import { EditCustomerDialog } from "@/components/editCustomerDialog"
 import {
-    getCustomerByIdApi,
-    updateCustomerApi,
-    type CustomerWithItems,
-    type UpdateCustomerRequest,
+  deleteCustomerApi,
+  detachItemFromCustomerApi,
+  getCustomerByIdApi,
+  updateCustomerApi,
+  type CustomerWithCount,
+  type CustomerWithItems,
 } from "@/lib/api/customers.api"
+import { ApiError, getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
+import { formatCurrency, formatCurrencyCompact, formatDate, formatNumber, formatRelativeTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import CustomerDetailLoading from "./loading"
 
-export default function CustomerDetailPage({
-    params,
-}: {
-    params: Promise<{ customerId: string }>
-}) {
-    const { customerId } = use(params)
-    return <CustomerDetailPageClient customerId={customerId} />
+type LinkedItem = CustomerWithItems["items"][number]
+
+const PAGE_SIZE = 10
+
+export default function CustomerDetailPage() {
+  const params = useParams<{ customerId: string }>()
+  const customerId = params.customerId
+  const router = useRouter()
+  const confirm = useConfirm()
+  const { workspaceId, isAdmin } = useWorkspace()
+
+  const [customer, setCustomer] = useState<CustomerWithItems | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [notFound, setNotFound] = useState(false)
+
+  const [query, setQuery] = useState("")
+  const [page, setPage] = useState(1)
+  const [editOpen, setEditOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    setNotFound(false)
+    try {
+      const res = await getCustomerByIdApi(customerId, workspaceId)
+      const found = res.data?.customer as CustomerWithItems | undefined
+      if (!found) setNotFound(true)
+      else setCustomer({ ...found, items: found.items ?? [] })
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) setNotFound(true)
+      else setError(getErrorMessage(err, "Couldn't load this customer"))
+    } finally {
+      setLoading(false)
+    }
+  }, [customerId, workspaceId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const linked = useMemo(() => customer?.items ?? [], [customer])
+
+  const stats = useMemo(() => {
+    let units = 0
+    let value = 0
+    let low = 0
+    for (const link of linked) {
+      units += link.item.onHand
+      value += link.item.onHand * link.item.cost
+      if (link.item.status === "LOW_STOCK" || link.item.status === "OUT_OF_STOCK") low += 1
+    }
+    return { units, value, low }
+  }, [linked])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return linked
+    return linked.filter(
+      (link) => link.item.name.toLowerCase().includes(q) || link.item.itemNumber.toLowerCase().includes(q)
+    )
+  }, [linked, query])
+
+  const currentPage = clampPage(page, filtered.length, PAGE_SIZE)
+  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  const handleEdited = (updated: CustomerWithCount) => {
+    setCustomer((prev) => (prev ? { ...prev, ...updated, items: prev.items, _count: prev._count } : prev))
+  }
+
+  const toggleStatus = async () => {
+    if (!customer) return
+    const previous = customer.status
+    const next = previous === "ACTIVE" ? "INACTIVE" : "ACTIVE"
+    setCustomer((prev) => (prev ? { ...prev, status: next } : prev))
+    try {
+      await updateCustomerApi(customer.id, { status: next, workspaceId })
+      toast.success(`${customer.name} marked as ${next === "ACTIVE" ? "active" : "inactive"}`)
+    } catch (err) {
+      setCustomer((prev) => (prev ? { ...prev, status: previous } : prev))
+      toast.error(getErrorMessage(err, "Couldn't update the customer"))
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!customer) return
+    if (linked.length > 0) {
+      toast.error(`Can't delete ${customer.name}`, {
+        description: `${formatNumber(linked.length)} ${linked.length === 1 ? "item is" : "items are"} linked to this customer. Unlink them below first, or mark the customer as inactive instead.`,
+      })
+      return
+    }
+    const deleted = await confirm({
+      title: `Delete ${customer.name}?`,
+      description:
+        "The customer and their contact details are removed permanently. They have no linked items, so stock isn't affected. To keep the record, mark them as inactive instead.",
+      destructive: true,
+      confirmLabel: "Delete customer",
+      action: async () => {
+        try {
+          await deleteCustomerApi(customer.id, workspaceId)
+        } catch (err) {
+          toast.error(getErrorMessage(err, "Couldn't delete customer"))
+          throw err
+        }
+      },
+    })
+    if (deleted) {
+      toast.success(`${customer.name} deleted`)
+      router.push("/dashboard/customers")
+    }
+  }
+
+  const handleUnlink = async (link: LinkedItem) => {
+    if (!customer) return
+    const unlinked = await confirm({
+      title: `Unlink ${link.item.name}?`,
+      description: `It will no longer be listed under ${customer.name}. The item itself and its stock aren't changed, and you can link it again from the item's page.`,
+      confirmLabel: "Unlink item",
+      destructive: true,
+      action: async () => {
+        try {
+          await detachItemFromCustomerApi(customer.id, link.item.id)
+        } catch (err) {
+          toast.error(getErrorMessage(err, "Couldn't unlink the item"))
+          throw err
+        }
+      },
+    })
+    if (unlinked) {
+      setCustomer((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: prev.items.filter((l) => l.id !== link.id),
+              _count: { ...prev._count, items: Math.max(0, prev._count.items - 1) },
+            }
+          : prev
+      )
+      toast.success(`${link.item.name} unlinked`)
+    }
+  }
+
+  const back = { href: "/dashboard/customers", label: "All customers" }
+
+  if (loading) return <CustomerDetailLoading />
+
+  if (notFound) {
+    return (
+      <PageContainer>
+        <PageHeader title="Customer not found" back={back} />
+        <EmptyState
+          icon={Users}
+          title="This customer doesn't exist"
+          description="They may have been deleted, or the link points to a different workspace."
+          action={
+            <Button asChild variant="outline">
+              <Link href="/dashboard/customers">Back to customers</Link>
+            </Button>
+          }
+        />
+      </PageContainer>
+    )
+  }
+
+  if (error || !customer) {
+    return (
+      <PageContainer>
+        <PageHeader title="Customer" back={back} />
+        <ErrorState title="Couldn't load this customer" message={error ?? undefined} onRetry={load} />
+      </PageContainer>
+    )
+  }
+
+  const active = customer.status === "ACTIVE"
+  const company = customer.company && customer.company !== customer.name ? customer.company : null
+  const hasManualHistory = customer.orderCount > 0 || customer.totalSpent > 0
+
+  return (
+    <PageContainer>
+      <PageHeader
+        back={back}
+        title={<span className="break-words">{customer.name}</span>}
+        description={company ?? customer.contactPerson ?? undefined}
+        meta={
+          <>
+            <ActiveBadge active={active} />
+            <span className="text-xs text-muted-foreground">Customer since {formatDate(customer.createdAt)}</span>
+          </>
+        }
+        actions={
+          <>
+            <Button variant="outline" onClick={() => setEditOpen(true)} data-testid="edit-customer-button">
+              <Pencil /> Edit
+            </Button>
+            <RowActions
+              className="border bg-background"
+              label="More actions"
+              data-testid="customer-more-actions"
+              actions={[
+                { label: active ? "Mark as inactive" : "Mark as active", icon: Power, onSelect: toggleStatus },
+                {
+                  label: "Delete customer",
+                  icon: Trash2,
+                  destructive: true,
+                  separated: true,
+                  hidden: !isAdmin,
+                  onSelect: handleDelete,
+                },
+              ]}
+            />
+          </>
+        }
+      />
+
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+          <StatCard
+            label="Linked items"
+            value={formatNumber(linked.length)}
+            icon={Link2}
+            tone="primary"
+            hint="Items associated with this customer"
+          />
+          <StatCard label="Units on hand" value={formatNumber(stats.units)} icon={Layers} hint="Of the linked items" />
+          <StatCard
+            label="Stock value"
+            value={formatCurrencyCompact(stats.value)}
+            icon={DollarSign}
+            tone="success"
+            hint="On hand × unit cost"
+          />
+          <StatCard
+            label="Low stock"
+            value={formatNumber(stats.low)}
+            icon={AlertTriangle}
+            tone={stats.low > 0 ? "warning" : "default"}
+            hint={stats.low > 0 ? "Linked items to restock" : "Everything is stocked"}
+          />
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Contact card first in the DOM so it sits above the items on phones */}
+          <section className="h-fit overflow-hidden rounded-xl border bg-card lg:col-start-3 lg:row-start-1">
+            <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+              <h2 className="text-base font-semibold tracking-tight">Contact details</h2>
+              <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil /> Edit
+              </Button>
+            </div>
+            <dl className="divide-y">
+              <DetailRow icon={User} label="Contact person" value={customer.contactPerson} />
+              {company && <DetailRow icon={Building2} label="Company" value={company} />}
+              <DetailRow
+                icon={Mail}
+                label="Email"
+                value={
+                  customer.email && (
+                    <a href={`mailto:${customer.email}`} className="break-all text-primary hover:underline">
+                      {customer.email}
+                    </a>
+                  )
+                }
+              />
+              <DetailRow
+                icon={Phone}
+                label="Phone"
+                value={
+                  customer.phone && (
+                    <a
+                      href={`tel:${customer.phone.replace(/[^\d+]/g, "")}`}
+                      className="text-primary tabular-nums hover:underline"
+                    >
+                      {customer.phone}
+                    </a>
+                  )
+                }
+              />
+              <DetailRow
+                icon={MapPin}
+                label="Address"
+                value={customer.address && <span className="whitespace-pre-line">{customer.address}</span>}
+              />
+              <DetailRow icon={CalendarDays} label="Customer since" value={formatDate(customer.createdAt)} />
+              <DetailRow icon={Clock} label="Last updated" value={formatRelativeTime(customer.updatedAt)} />
+            </dl>
+            {hasManualHistory && (
+              <div className="border-t bg-muted/30 px-5 py-4">
+                <p className="text-sm font-medium">Recorded order history</p>
+                <p className="text-xs text-muted-foreground">Entered manually — not calculated from stock movements.</p>
+                <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Orders</dt>
+                    <dd className="font-medium tabular-nums">{formatNumber(customer.orderCount)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Total spent</dt>
+                    <dd className="font-medium tabular-nums">{formatCurrency(customer.totalSpent)}</dd>
+                  </div>
+                </dl>
+              </div>
+            )}
+          </section>
+
+          <section className="min-w-0 space-y-4 lg:col-span-2 lg:row-start-1">
+            <SectionHeader
+              title="Linked items"
+              description="Link or unlink customers from an item's page."
+              actions={linked.length > 0 && <Badge variant="secondary">{formatNumber(linked.length)}</Badge>}
+            />
+
+            {linked.length === 0 ? (
+              <EmptyState
+                icon={Package}
+                title="No linked items yet"
+                description={`Open an item and add ${customer.name} under Customers to track what you supply them.`}
+                action={
+                  <Button asChild variant="outline">
+                    <Link href="/dashboard/items">Browse items</Link>
+                  </Button>
+                }
+              />
+            ) : (
+              <>
+                {linked.length > PAGE_SIZE && (
+                  <SearchInput
+                    value={query}
+                    onValueChange={(value) => {
+                      setQuery(value)
+                      setPage(1)
+                    }}
+                    placeholder="Search linked items…"
+                    aria-label="Search linked items"
+                    className="sm:max-w-sm"
+                  />
+                )}
+
+                {filtered.length === 0 ? (
+                  <EmptyState
+                    icon={SearchX}
+                    title="No linked items match"
+                    description={`Nothing matches “${query.trim()}”.`}
+                    action={
+                      <Button variant="outline" onClick={() => setQuery("")}>
+                        Clear search
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <>
+                    <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+                      <Table>
+                        <TableHeader className="bg-muted/40">
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="h-11 pl-4 text-muted-foreground">Item</TableHead>
+                            <TableHead className="h-11 text-muted-foreground">Status</TableHead>
+                            <TableHead className="h-11 text-right text-muted-foreground">On hand</TableHead>
+                            <TableHead className="hidden h-11 text-right text-muted-foreground xl:table-cell">
+                              Unit cost
+                            </TableHead>
+                            <TableHead className="h-11 text-right text-muted-foreground">Value</TableHead>
+                            <TableHead className="h-11 w-14 pr-4">
+                              <span className="sr-only">Actions</span>
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {pageRows.map((link) => (
+                            <TableRow
+                              key={link.id}
+                              className="cursor-pointer"
+                              onClick={() => router.push(`/dashboard/items/${link.item.id}`)}
+                            >
+                              <TableCell className="w-full max-w-0 py-3 pl-4">
+                                <Link
+                                  href={`/dashboard/items/${link.item.id}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="block truncate font-medium hover:underline"
+                                >
+                                  {link.item.name}
+                                </Link>
+                                <p className="truncate font-mono text-xs text-muted-foreground">{link.item.itemNumber}</p>
+                              </TableCell>
+                              <TableCell>
+                                <StockStatusBadge status={link.item.status} />
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">{formatNumber(link.item.onHand)}</TableCell>
+                              <TableCell className="hidden text-right tabular-nums xl:table-cell">
+                                {formatCurrency(link.item.cost)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {formatCurrency(link.item.onHand * link.item.cost)}
+                              </TableCell>
+                              <TableCell className="pr-4 text-right">
+                                <UnlinkButton name={link.item.name} onClick={() => handleUnlink(link)} />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    <ul className="divide-y overflow-hidden rounded-xl border bg-card md:hidden">
+                      {pageRows.map((link) => (
+                        <li key={link.id} className="relative flex items-center gap-3 p-4 active:bg-accent/60">
+                          <div className="min-w-0 flex-1">
+                            <Link
+                              href={`/dashboard/items/${link.item.id}`}
+                              className="block truncate font-medium after:absolute after:inset-0 after:content-['']"
+                            >
+                              {link.item.name}
+                            </Link>
+                            <p className="truncate font-mono text-xs text-muted-foreground">{link.item.itemNumber}</p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                              <StockStatusBadge status={link.item.status} />
+                              <span className="tabular-nums text-muted-foreground">
+                                {formatNumber(link.item.onHand)} on hand · {formatCurrency(link.item.onHand * link.item.cost)}
+                              </span>
+                            </div>
+                          </div>
+                          <UnlinkButton name={link.item.name} onClick={() => handleUnlink(link)} className="relative z-10" />
+                        </li>
+                      ))}
+                    </ul>
+
+                    <Pagination
+                      page={currentPage}
+                      pageSize={PAGE_SIZE}
+                      total={filtered.length}
+                      onPageChange={setPage}
+                      noun="items"
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </section>
+        </div>
+      </div>
+
+      <EditCustomerDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        workspaceId={workspaceId}
+        customer={customer}
+        onSuccess={handleEdited}
+      />
+    </PageContainer>
+  )
 }
 
-function CustomerDetailPageClient({ customerId }: { customerId: string }) {
-    const router = useRouter()
-    const [customer, setCustomer] = useState<CustomerWithItems | null>(null)
-    const [isEditing, setIsEditing] = useState(false)
-    const [formData, setFormData] = useState<Partial<CustomerWithItems> | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
-    const [isSaving, setIsSaving] = useState(false)
-    const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(null)
-    const [currentPage, setCurrentPage] = useState(1)
-    const [itemsPerPage, setItemsPerPage] = useState(10)
-    const [emailError, setEmailError] = useState("")
+function DetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex gap-3 px-5 py-3">
+      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <dt className="text-xs text-muted-foreground">{label}</dt>
+        <dd className="mt-0.5 break-words text-sm">{value || <span className="text-muted-foreground">Not provided</span>}</dd>
+      </div>
+    </div>
+  )
+}
 
-    // Email validation function
-    const validateEmail = (email: string): boolean => {
-        if (!email.trim()) return true // Empty email is allowed
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-        return emailRegex.test(email.trim())
-    }
-
-    // Memoized input handlers
-    const handleInputChange = useCallback((field: keyof Partial<CustomerWithItems>, value: string) => {
-        setFormData(prev => ({ ...prev!, [field]: value }))
-    }, [])
-
-    // Fetch customer data
-    useEffect(() => {
-        const workspaceId = localStorage.getItem("currentWorkspaceId")
-
-        if (!workspaceId) {
-            toast.error("No Workspace Selected", {
-                description: "Please select a workspace to continue."
-            })
-            router.push("/dashboard")
-            return
-        }
-
-        setCurrentWorkspaceId(workspaceId)
-
-        async function fetchCustomer() {
-            try {
-                setIsLoading(true)
-                const response = await getCustomerByIdApi(customerId, workspaceId!)
-
-                if (response.status == 'success' && response.data.customer) {
-                    const customerData = response.data.customer as CustomerWithItems
-                    setCustomer(customerData)
-                    setFormData(customerData)
-                }
-            } catch (error) {
-                console.error("Failed to fetch customer:", error)
-                toast.error("Failed to Load Customer", {
-                    description: "Unable to load customer details. Please try again."
-                })
-                router.push("/dashboard/customers")
-            } finally {
-                setIsLoading(false)
-            }
-        }
-
-        fetchCustomer()
-    }, [customerId, router])
-
-    const handleSave = async () => {
-        if (!formData || !customer || !currentWorkspaceId) return
-
-        // Reset email error
-        setEmailError("")
-
-        // Validate email format
-        if (formData.email && formData.email.trim() && !validateEmail(formData.email)) {
-            setEmailError("Please enter a valid email address")
-            toast.error("Validation Error", {
-                description: "Please enter a valid email address"
-            })
-            return
-        }
-
-        try {
-            setIsSaving(true)
-
-            const updateData: UpdateCustomerRequest = {
-                name: formData.name,
-                contactPerson: formData.contactPerson || undefined,
-                email: formData.email || undefined,
-                phone: formData.phone || undefined,
-                address: formData.address || undefined,
-                status: formData.status,
-                orderCount: formData.orderCount,
-                totalSpent: formData.totalSpent,
-                workspaceId: currentWorkspaceId,
-            }
-
-            const response = await updateCustomerApi(customer.id, updateData)
-
-            if (response.status == 'success') {
-                // Refetch the full customer data with items
-                const customerResponse = await getCustomerByIdApi(customerId, currentWorkspaceId!)
-                if (customerResponse.status === 'success' && customerResponse.data.customer) {
-                    const fullCustomerData = customerResponse.data.customer as CustomerWithItems
-                    setCustomer(fullCustomerData)
-                    setFormData(fullCustomerData)
-                }
-                setEmailError("")
-                setIsEditing(false)
-                toast.success("Customer Updated", {
-                    description: `${formData.name}'s details have been successfully updated.`
-                })
-            } else {
-                throw new Error(response.message || "Failed to update customer")
-            }
-        } catch (error) {
-            console.error("Failed to update customer:", error)
-            toast.error("Update Failed", {
-                description: error instanceof Error ? error.message : "Failed to update customer details. Please try again."
-            })
-        } finally {
-            setIsSaving(false)
-        }
-    }
-
-    // Pagination for items - memoized
-    const customerItems = useMemo(() => customer?.items || [], [customer?.items])
-    const totalPages = useMemo(() => Math.ceil(customerItems.length / itemsPerPage), [customerItems.length, itemsPerPage])
-    const startIndex = useMemo(() => (currentPage - 1) * itemsPerPage, [currentPage, itemsPerPage])
-    const endIndex = useMemo(() => startIndex + itemsPerPage, [startIndex, itemsPerPage])
-    const paginatedItems = useMemo(() => customerItems.slice(startIndex, endIndex), [customerItems, startIndex, endIndex])
-
-    if (isLoading) {
-        return (
-            <div className="min-h-screen bg-background flex items-center justify-center">
-                <Card className="max-w-md">
-                    <CardHeader>
-                        <div className="flex items-center gap-2">
-                            <Loader2 className="h-5 w-5 animate-spin" />
-                            <CardTitle>Loading Customer...</CardTitle>
-                        </div>
-                        <CardDescription>Please wait while we load the customer details.</CardDescription>
-                    </CardHeader>
-                </Card>
-            </div>
-        )
-    }
-
-    if (!customer) {
-        return (
-            <div className="min-h-screen bg-background flex items-center justify-center">
-                <Card className="max-w-md">
-                    <CardHeader>
-                        <CardTitle>Customer Not Found</CardTitle>
-                        <CardDescription>The customer you&apos;re looking for doesn&apos;t exist.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <Button onClick={() => router.push("/dashboard/customers")}>
-                            Back to Customers
-                        </Button>
-                    </CardContent>
-                </Card>
-            </div>
-        )
-    }
-
-    return (
-        <div className="min-h-screen bg-background">
-            <div className="container mx-auto px-8 py-8">
-                <Button
-                    variant="ghost"
-                    className="mb-6"
-                    onClick={() => router.push("/dashboard/customers")}
-                >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
-                    Back to Customers
-                </Button>
-
-                <div className="grid lg:grid-cols-3 gap-6">
-                    {/* Main Content - 2 columns */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Customer Details Card */}
-                        <Card className="border-border/50">
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle className="text-2xl">Customer Details</CardTitle>
-                                        <CardDescription>View and edit customer information</CardDescription>
-                                    </div>
-                                    {!isEditing ? (
-                                        <Button onClick={() => setIsEditing(true)} className="shadow-lg shadow-accent/20">
-                                            <Edit2 className="h-4 w-4 mr-2" />
-                                            Edit
-                                        </Button>
-                                    ) : (
-                                        <div className="flex gap-2">
-                                            <Button variant="outline" onClick={() => {
-                                                setIsEditing(false)
-                                                setFormData(customer)
-                                                setEmailError("")
-                                            }}>
-                                                Cancel
-                                            </Button>
-                                            <Button onClick={handleSave} className="shadow-lg shadow-accent/20" disabled={isSaving}>
-                                                {isSaving ? (
-                                                    <>
-                                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                                        Saving...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Save className="h-4 w-4 mr-2" />
-                                                        Save
-                                                    </>
-                                                )}
-                                            </Button>
-                                        </div>
-                                    )}
-                                </div>
-                            </CardHeader>
-                            <CardContent className="space-y-6">
-                                <div className="grid md:grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="name">Customer Name</Label>
-                                        <Input
-                                            id="name"
-                                            value={formData?.name || ""}
-                                            onChange={(e) => handleInputChange('name', e.target.value)}
-                                            disabled={!isEditing}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="contactPerson">Contact Person</Label>
-                                        <Input
-                                            id="contactPerson"
-                                            value={formData?.contactPerson || ""}
-                                            onChange={(e) => handleInputChange('contactPerson', e.target.value)}
-                                            disabled={!isEditing}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid md:grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="email" className="flex items-center gap-2">
-                                            <Mail className="h-4 w-4" />
-                                            Email
-                                        </Label>
-                                        <Input
-                                            id="email"
-                                            type="email"
-                                            value={formData?.email || ""}
-                                            onChange={(e) => handleInputChange('email', e.target.value)}
-                                            disabled={!isEditing}
-                                            className={emailError ? "border-destructive" : ""}
-                                        />
-                                        {emailError && (
-                                            <div className="flex items-center gap-1 text-xs text-destructive">
-                                                <AlertCircle className="h-3 w-3" />
-                                                <span>{emailError}</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="phone" className="flex items-center gap-2">
-                                            <Phone className="h-4 w-4" />
-                                            Phone
-                                        </Label>
-                                        <Input
-                                            id="phone"
-                                            value={formData?.phone || ""}
-                                            onChange={(e) => handleInputChange('phone', e.target.value)}
-                                            disabled={!isEditing}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="address" className="flex items-center gap-2">
-                                        <MapPin className="h-4 w-4" />
-                                        Address
-                                    </Label>
-                                    <Input
-                                        id="address"
-                                        value={formData?.address || ""}
-                                        onChange={(e) => handleInputChange('address', e.target.value)}
-                                        disabled={!isEditing}
-                                    />
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        {/* Associated Items */}
-                        <Card className="border-border/50">
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <Package className="h-5 w-5 text-primary" />
-                                            Associated Items
-                                        </CardTitle>
-                                        <CardDescription>Items linked to this customer</CardDescription>
-                                    </div>
-                                    <Badge variant="secondary">{customerItems.length} items</Badge>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="w-full overflow-x-auto">
-                                    {customerItems.length > 0 ? (
-                                        <>
-                                            <Table>
-                                                <TableHeader>
-                                                    <TableRow className="bg-muted/50">
-                                                        <TableHead className="font-semibold whitespace-nowrap">Item Number</TableHead>
-                                                        <TableHead className="font-semibold whitespace-nowrap">Name</TableHead>
-                                                        <TableHead className="text-right font-semibold whitespace-nowrap">Quantity</TableHead>
-                                                        <TableHead className="text-right font-semibold whitespace-nowrap">Unit Price</TableHead>
-                                                        <TableHead className="text-right font-semibold whitespace-nowrap">Total Value</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {paginatedItems.map((itemCustomer) => (
-                                                        <TableRow key={itemCustomer.id} className="hover:bg-muted/30 transition-colors">
-                                                            <TableCell className="font-mono text-sm whitespace-nowrap">{itemCustomer.item.itemNumber}</TableCell>
-                                                            <TableCell className="whitespace-nowrap">
-                                                                <Link href={`/dashboard/items/${itemCustomer.item.id}`}>
-                                                                    <Button variant="link" className="p-0 h-auto font-medium text-primary hover:underline">
-                                                                        {itemCustomer.item.name}
-                                                                    </Button>
-                                                                </Link>
-                                                            </TableCell>
-                                                            <TableCell className="text-right whitespace-nowrap">{itemCustomer.item.onHand}</TableCell>
-                                                            <TableCell className="text-right whitespace-nowrap">${itemCustomer.item.cost?.toFixed(2) || "0.00"}</TableCell>
-                                                            <TableCell className="text-right font-medium whitespace-nowrap">
-                                                                ${((itemCustomer.item.onHand || 0) * (itemCustomer.item.cost || 0)).toFixed(2)}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    ))}
-                                                </TableBody>
-                                            </Table>
-
-                                            {/* Pagination Controls for Items */}
-                                            {customerItems.length > 5 && (
-                                                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t">
-                                                    <div className="text-sm text-muted-foreground">
-                                                        Showing {startIndex + 1}-{Math.min(endIndex, customerItems.length)} of {customerItems.length} {customerItems.length === 1 ? 'item' : 'items'}
-                                                    </div>
-
-                                                    <div className="flex items-center gap-6">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page:</span>
-                                                            <Select
-                                                                value={itemsPerPage.toString()}
-                                                                onValueChange={(value) => {
-                                                                    setItemsPerPage(Number(value))
-                                                                    setCurrentPage(1)
-                                                                }}
-                                                            >
-                                                                <SelectTrigger className="h-9 w-[70px]">
-                                                                    <SelectValue />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    <SelectItem value="5">5</SelectItem>
-                                                                    <SelectItem value="10">10</SelectItem>
-                                                                    <SelectItem value="25">25</SelectItem>
-                                                                    <SelectItem value="50">50</SelectItem>
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-1">
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                                                                disabled={currentPage === 1}
-                                                                className="h-9 w-9 p-0"
-                                                            >
-                                                                <ChevronLeft className="h-4 w-4" />
-                                                            </Button>
-
-                                                            <div className="flex items-center gap-1">
-                                                                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                                                                    .filter((page) => {
-                                                                        return (
-                                                                            page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)
-                                                                        )
-                                                                    })
-                                                                    .map((page, index, array) => (
-                                                                        <div key={page} className="flex items-center">
-                                                                            {index > 0 && array[index - 1] !== page - 1 && (
-                                                                                <span className="px-2 text-muted-foreground">...</span>
-                                                                            )}
-                                                                            <Button
-                                                                                variant={currentPage === page ? "default" : "outline"}
-                                                                                size="sm"
-                                                                                onClick={() => setCurrentPage(page)}
-                                                                                className="h-9 w-9 p-0"
-                                                                            >
-                                                                                {page}
-                                                                            </Button>
-                                                                        </div>
-                                                                    ))}
-                                                            </div>
-
-                                                            <Button
-                                                                variant="outline"
-                                                                size="sm"
-                                                                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                                                                disabled={currentPage === totalPages}
-                                                                className="h-9 w-9 p-0"
-                                                            >
-                                                                <ChevronRight className="h-4 w-4" />
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <div className="p-8 text-center text-muted-foreground">
-                                            <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                                            <p>No items linked to this customer yet</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Sidebar - 1 column */}
-                    <div className="space-y-6">
-                        {/* Quick Stats */}
-                        <Card className="border-border/50 bg-gradient-to-br from-card to-card/50">
-                            <CardHeader>
-                                <CardTitle>Quick Stats</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                                    <span className="text-sm text-muted-foreground">Status</span>
-                                    <Badge variant={customer.status === "ACTIVE" ? "default" : "secondary"}>
-                                        {customer.status}
-                                    </Badge>
-                                </div>
-
-                                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                                    <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                        <Package className="h-4 w-4" />
-                                        Linked Items
-                                    </span>
-                                    <span className="font-semibold text-2xl">{customerItems.length}</span>
-                                </div>
-
-                                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                                    <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                        <DollarSign className="h-4 w-4" />
-                                        Total Inventory Value
-                                    </span>
-                                    <span className="font-semibold text-2xl">
-                                        ${customerItems.reduce((sum, ic) =>
-                                            sum + ((ic.item.onHand || 0) * (ic.item.cost || 0)), 0
-                                        ).toFixed(2)}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                                    <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                        <Package className="h-4 w-4" />
-                                        Total Units
-                                    </span>
-                                    <span className="font-semibold">
-                                        {customerItems.reduce((sum, ic) => sum + (ic.item.onHand || 0), 0)}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center justify-between py-2 border-b border-border/50">
-                                    <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                        <Calendar className="h-4 w-4" />
-                                        Customer Since
-                                    </span>
-                                    <span className="text-sm">
-                                        {new Date(customer.createdAt).toLocaleDateString("en-US", {
-                                            year: 'numeric',
-                                            month: 'short',
-                                            day: 'numeric'
-                                        })}
-                                    </span>
-                                </div>
-
-                                <div className="flex items-center justify-between py-2">
-                                    <span className="text-sm text-muted-foreground flex items-center gap-2">
-                                        <Clock className="h-4 w-4" />
-                                        Last Updated
-                                    </span>
-                                    <span className="text-sm">
-                                        {new Date(customer.updatedAt).toLocaleDateString("en-US", {
-                                            year: 'numeric',
-                                            month: 'short',
-                                            day: 'numeric'
-                                        })}
-                                    </span>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
+function UnlinkButton({ name, onClick, className }: { name: string; onClick: () => void; className?: string }) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={cn("size-10 text-muted-foreground hover:text-destructive md:size-9", className)}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      aria-label={`Unlink ${name}`}
+      title="Unlink from this customer"
+    >
+      <Unlink />
+    </Button>
+  )
 }

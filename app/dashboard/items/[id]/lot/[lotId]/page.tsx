@@ -1,883 +1,422 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
-import { AddLocationToLotDialog } from "@/components/addLocationToLotDialog"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import Link from "next/link"
+import { useParams } from "next/navigation"
 import {
-    ArrowLeft,
-    Save,
-    Edit2,
-    Loader2,
-    MapPin,
-    Plus,
-    Calendar,
-    PackageCheck,
-    AlertTriangle,
-    Clock,
-    Building2,
-    Hash,
-    FileText,
-    TrendingUp,
-    TrendingDown,
-    Package,
+  AlertTriangle,
+  ArrowLeft,
+  Boxes,
+  CalendarClock,
+  CalendarDays,
+  Diff,
+  History,
+  Info,
+  MapPin,
+  PackageX,
+  Pencil,
+  Plus,
+  ShieldAlert,
+  type LucideIcon,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
+import { PageContainer, PageHeader, SectionHeader } from "@/components/common/page"
+import { StatCard } from "@/components/common/stat-card"
+import { EmptyState } from "@/components/common/empty-state"
+import { ErrorState, PageSkeleton } from "@/components/common/states"
+import { LotStatusBadge } from "@/components/common/status-badge"
+import { AddLocationToLotDialog } from "@/components/addLocationToLotDialog"
 import { AdjustLocationDialog } from "@/components/adjustlocationdialog"
-import { ImagePreviewDialog } from "@/components/imagePreviewDialog"
-import { toast } from "sonner"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { getLotByIdApi, updateLotApi, type LotWithDetails } from "@/lib/api/lots.api"
+import { EditLotDialog } from "@/components/items/edit-lot-dialog"
+import { TransactionList } from "@/components/items/transaction-list"
+import { formatDateOnly, getExpiry, testIdSlug } from "@/components/items/item-utils"
+import { EXISTING_STOCK_LOT_NUMBER, lotDisplayName } from "@/components/items/items-data"
+import { STOCK_CHANGED_EVENT } from "@/components/stock/stock-utils"
+import { getLotByIdApi, type LotWithDetails } from "@/lib/api/lots.api"
 import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
-import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
-import { getItemImagesApi, type ItemImage as APIItemImage } from "@/lib/api/itemImages.api"
+import type { TransactionEntry } from "@/lib/api/transactions.api"
+import { ApiError, getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
+import { formatDateTime, formatNumber, formatQuantity, formatRelativeTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
-type LotStatus = 'ACTIVE' | 'DEPLETED' | 'EXPIRED' | 'QUARANTINED' | 'RECALLED'
+type NoticeTone = "info" | "warning" | "danger"
+
+const NOTICE_STYLE: Record<NoticeTone, { box: string; icon: string }> = {
+  info: { box: "border-info/30 bg-info/10", icon: "text-info" },
+  warning: { box: "border-warning/40 bg-warning/10", icon: "text-warning-foreground dark:text-warning" },
+  danger: { box: "border-destructive/30 bg-destructive/5", icon: "text-destructive" },
+}
+
+function Notice({ tone, icon: Icon, children }: { tone: NoticeTone; icon: LucideIcon; children: ReactNode }) {
+  const style = NOTICE_STYLE[tone]
+  return (
+    <div className={cn("flex gap-3 rounded-xl border px-4 py-3 text-sm", style.box)} role={tone === "info" ? undefined : "alert"}>
+      <Icon className={cn("mt-0.5 size-4 shrink-0", style.icon)} />
+      <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
+function Detail({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("min-w-0 space-y-1", className)}>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="text-sm">{children}</dd>
+    </div>
+  )
+}
+
+const EXPIRY_TONE = { danger: "danger", warning: "warning", default: "default" } as const
 
 export default function LotDetailPage() {
-    const params = useParams()
-    const router = useRouter()
-    const itemId = params.id as string
-    const lotId = params.lotId as string
+  const { id: itemId, lotId } = useParams<{ id: string; lotId: string }>()
+  const { workspaceId } = useWorkspace()
 
-    const [lot, setLot] = useState<LotWithDetails | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [isEditing, setIsEditing] = useState(false)
-    const [isSaving, setIsSaving] = useState(false)
-    const [locations, setLocations] = useState<LocationWithCount[]>([])
-    const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
-    const [images, setImages] = useState<APIItemImage[]>([])
-    const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [lot, setLot] = useState<LotWithDetails | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<{ message: string; notFound: boolean } | null>(null)
+  const [locations, setLocations] = useState<LocationWithCount[]>([])
+  const [dialog, setDialog] = useState<"edit" | "add-location" | null>(null)
+  const [adjusting, setAdjusting] = useState<{
+    open: boolean
+    location: { locationId: string; locationCode: string; currentQuantity: number } | null
+  }>({ open: false, location: null })
 
-    const [formData, setFormData] = useState({
-        lotNumber: "",
-        receivedDate: "",
-        manufactureDate: "",
-        expirationDate: "",
-        supplierId: "",
-        poNumber: "",
-        notes: "",
-        status: "ACTIVE" as LotStatus,
-    })
-
-    // Add/Adjust location dialog
-    const [isAddLocationOpen, setIsAddLocationOpen] = useState(false)
-
-    // Adjust existing location dialog
-    const [isAdjustLocationOpen, setIsAdjustLocationOpen] = useState(false)
-    const [adjustingLocation, setAdjustingLocation] = useState<{
-        locationId: string
-        locationCode: string
-        currentQuantity: number
-    } | null>(null)
-
-    useEffect(() => {
-        const storedWorkspaceId = localStorage.getItem("currentWorkspaceId")
-        if (storedWorkspaceId) {
-            loadLocations(storedWorkspaceId)
-            loadSuppliers(storedWorkspaceId)
-        }
-    }, [])
-
-    useEffect(() => {
-        loadLot()
-    }, [lotId])
-
-    useEffect(() => {
-        if (itemId) {
-            loadImages(itemId)
-        }
-    }, [itemId])
-
-    const loadImages = async (itemId: string) => {
-        try {
-            const response = await getItemImagesApi(itemId)
-            if (response.data?.images) {
-                setImages(response.data.images as APIItemImage[])
-            }
-        } catch (err) {
-            console.error("Failed to load images:", err)
-        }
+  const loadLot = useCallback(async () => {
+    try {
+      const res = await getLotByIdApi(lotId)
+      const data = res.data?.lot as LotWithDetails | undefined
+      if (!data) throw new ApiError("Lot not found", 404)
+      setLot(data)
+      setError(null)
+    } catch (err) {
+      setError({
+        message: getErrorMessage(err, "Couldn't load this lot"),
+        notFound: err instanceof ApiError && (err.status === 404 || err.status === 403),
+      })
+    } finally {
+      setLoading(false)
     }
+  }, [lotId])
 
-    const loadLot = async () => {
-        try {
-            setLoading(true)
-            const response = await getLotByIdApi(lotId)
+  useEffect(() => {
+    loadLot()
+  }, [loadLot])
 
-            if (response.data?.lot) {
-                const lotData = response.data.lot as LotWithDetails
-                setLot(lotData)
+  // Stock moved elsewhere (e.g. the global scanner) — refresh quietly
+  useEffect(() => {
+    const onStockChanged = () => loadLot()
+    window.addEventListener(STOCK_CHANGED_EVENT, onStockChanged)
+    return () => window.removeEventListener(STOCK_CHANGED_EVENT, onStockChanged)
+  }, [loadLot])
 
-                setFormData({
-                    lotNumber: lotData.lotNumber,
-                    receivedDate: lotData.receivedDate ? new Date(lotData.receivedDate).toISOString().split('T')[0] : "",
-                    manufactureDate: lotData.manufactureDate ? new Date(lotData.manufactureDate).toISOString().split('T')[0] : "",
-                    expirationDate: lotData.expirationDate ? new Date(lotData.expirationDate).toISOString().split('T')[0] : "",
-                    supplierId: lotData.supplierId || "",
-                    poNumber: lotData.poNumber || "",
-                    notes: lotData.notes || "",
-                    status: lotData.status as LotStatus,
-                })
-            }
-        } catch (error) {
-            console.error("Failed to load lot:", error)
-            toast.error("Failed to load lot")
-        } finally {
-            setLoading(false)
-        }
+  useEffect(() => {
+    let cancelled = false
+    getLocationsApi(workspaceId)
+      .then((res) => {
+        if (!cancelled) setLocations(res.data?.locations ?? [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
     }
+  }, [workspaceId])
 
-    const loadLocations = async (workspaceId: string) => {
-        try {
-            const response = await getLocationsApi(workspaceId)
-            if (response.data?.locations) {
-                setLocations(response.data.locations)
-            }
-        } catch (err) {
-            console.error("Failed to load locations:", err)
-        }
-    }
+  const transactions = useMemo<TransactionEntry[]>(() => {
+    if (!lot) return []
+    const codes = new Map<string, string>(locations.map((l) => [l.id, l.code]))
+    for (const l of lot.locations) codes.set(l.locationId, l.locationCode ?? l.location?.code)
+    const ref = (id: string | null) => (id ? { id, code: codes.get(id) ?? "Unknown" } : null)
+    return (lot.transactions ?? []).map((tx) => ({
+      id: tx.id,
+      type: tx.type,
+      quantity: tx.quantity,
+      reason: tx.reason,
+      previousStock: tx.previousStock,
+      newStock: tx.newStock,
+      createdAt: new Date(tx.createdAt).toISOString(),
+      item: null,
+      lot: { id: lot.id, lotNumber: lot.lotNumber },
+      fromLocation: ref(tx.fromLocationId),
+      toLocation: ref(tx.toLocationId),
+      user: tx.user ? { id: tx.user.id, name: tx.user.name ?? tx.user.email } : null,
+    }))
+  }, [lot, locations])
 
-    const loadSuppliers = async (workspaceId: string) => {
-        try {
-            const response = await getSuppliersApi(workspaceId)
-            if (response.data?.suppliers) {
-                setSuppliers(response.data.suppliers)
-            }
-        } catch (err) {
-            console.error("Failed to load suppliers:", err)
-        }
-    }
+  const itemHref = `/dashboard/items/${itemId}?tab=lots`
 
-    const handleSave = async () => {
-        if (!formData.lotNumber.trim()) {
-            toast.error("Lot number is required")
-            return
-        }
+  if (loading) return <PageSkeleton stats={4} />
 
-        setIsSaving(true)
-        try {
-            await updateLotApi(lotId, {
-                lotNumber: formData.lotNumber,
-                receivedDate: formData.receivedDate || undefined,
-                manufactureDate: formData.manufactureDate || undefined,
-                expirationDate: formData.expirationDate || undefined,
-                supplierId: formData.supplierId || undefined,
-                poNumber: formData.poNumber || undefined,
-                notes: formData.notes || undefined,
-                status: formData.status,
-            })
-
-            await loadLot()
-            setIsEditing(false)
-            toast.success("Lot updated successfully")
-        } catch (error) {
-            console.error("Failed to update lot:", error)
-            toast.error(error instanceof Error ? error.message : "Failed to update lot")
-        } finally {
-            setIsSaving(false)
-        }
-    }
-
-    const handleCancel = () => {
-        if (lot) {
-            setFormData({
-                lotNumber: lot.lotNumber,
-                receivedDate: lot.receivedDate ? new Date(lot.receivedDate).toISOString().split('T')[0] : "",
-                manufactureDate: lot.manufactureDate ? new Date(lot.manufactureDate).toISOString().split('T')[0] : "",
-                expirationDate: lot.expirationDate ? new Date(lot.expirationDate).toISOString().split('T')[0] : "",
-                supplierId: lot.supplierId || "",
-                poNumber: lot.poNumber || "",
-                notes: lot.notes || "",
-                status: lot.status as LotStatus,
-            })
-        }
-        setIsEditing(false)
-    }
-
-    const handleOpenAdjustLocation = (locationId: string, locationCode: string, currentQuantity: number) => {
-        setAdjustingLocation({ locationId, locationCode, currentQuantity })
-        setIsAdjustLocationOpen(true)
-    }
-
-    const getLotStatusBadge = (status: LotStatus) => {
-        switch (status) {
-            case 'ACTIVE':
-                return <Badge className="bg-green-500">Active</Badge>
-            case 'DEPLETED':
-                return <Badge variant="secondary">Depleted</Badge>
-            case 'EXPIRED':
-                return <Badge variant="destructive">Expired</Badge>
-            case 'QUARANTINED':
-                return <Badge className="bg-yellow-500">Quarantined</Badge>
-            case 'RECALLED':
-                return <Badge variant="destructive">Recalled</Badge>
-            default:
-                return <Badge variant="outline">{status}</Badge>
-        }
-    }
-
-    const getDaysUntilExpiration = (expirationDate: string | Date | null) => {
-        if (!expirationDate) return null
-        const now = new Date()
-        const expDate = new Date(expirationDate)
-        const diffTime = expDate.getTime() - now.getTime()
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-        return diffDays
-    }
-
-    const getExpirationWarning = (expirationDate: string | Date | null) => {
-        const days = getDaysUntilExpiration(expirationDate)
-        if (days === null) return null
-
-        if (days < 0) return { color: 'text-red-600 bg-red-50 border-red-200', text: 'Expired', icon: AlertTriangle }
-        if (days <= 7) return { color: 'text-orange-600 bg-orange-50 border-orange-200', text: `Expires in ${days} days`, icon: AlertTriangle }
-        if (days <= 30) return { color: 'text-yellow-600 bg-yellow-50 border-yellow-200', text: `Expires in ${days} days`, icon: Clock }
-        return null
-    }
-
-    if (loading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="h-12 w-12 animate-spin text-accent mx-auto mb-4" />
-                    <p className="text-muted-foreground">Loading lot details...</p>
-                </div>
-            </div>
-        )
-    }
-
-    if (!lot) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <Card className="max-w-md">
-                    <CardHeader>
-                        <CardTitle>Lot Not Found</CardTitle>
-                        <CardDescription>The lot you&apos;re looking for doesn&apos;t exist.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <Button onClick={() => router.push(`/dashboard/items/${itemId}`)}>
-                            <ArrowLeft className="h-4 w-4 mr-2" />
-                            Back to Item
-                        </Button>
-                    </CardContent>
-                </Card>
-            </div>
-        )
-    }
-
-    const expirationWarning = getExpirationWarning(lot.expirationDate)
-    const availableLocations = locations.filter(
-        loc => !lot.locations.some(lotLoc => lotLoc.locationId === loc.id)
-    )
-    const isSystemLot = lot.isSystem || lot.lotNumber === "EXISTING-STOCK"
-
-    // Get primary image
-    const primaryImage = images.find((img) => img.isPrimary)
-    const primaryImageUrl = primaryImage ? `/api/items/images/image/${primaryImage.id}` : null
-
+  if (!lot) {
     return (
-        <div className="min-h-screen bg-muted/30 sm:bg-background pb-6">
-            {/* Sticky Header */}
-            <div className="sticky top-0 z-10 bg-background">
-                <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b">
-                    <button
-                        type="button"
-                        onClick={() => router.push(`/dashboard/items/${itemId}`)}
-                        className="flex items-center justify-center h-9 w-9 -ml-1 rounded-full active:bg-muted sm:w-auto sm:px-3 sm:gap-2 sm:rounded-md sm:hover:bg-muted"
-                    >
-                        <ArrowLeft className="h-5 w-5 sm:h-4 sm:w-4" />
-                        <span className="hidden sm:inline text-sm font-medium">Back to Item</span>
-                    </button>
-
-                    <h1 className="text-sm font-semibold font-mono truncate max-w-[180px] sm:hidden">{lot.lotNumber}</h1>
-
-                    <div className="flex items-center gap-1 sm:gap-2">
-                        {isEditing ? (
-                            <>
-                                <Button variant="ghost" size="sm" onClick={handleCancel} className="h-9 px-3 text-sm">
-                                    Cancel
-                                </Button>
-                                <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-9 px-4 gap-1.5">
-                                    {isSaving ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                            <span className="hidden sm:inline">Saving...</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Save className="h-4 w-4" />
-                                            <span className="hidden sm:inline">Save</span>
-                                        </>
-                                    )}
-                                </Button>
-                            </>
-                        ) : (
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setIsEditing(true)}
-                                className="h-9 w-9 p-0 sm:w-auto sm:px-3 sm:gap-2"
-                            >
-                                <Edit2 className="h-4 w-4" />
-                                <span className="hidden sm:inline">Edit</span>
-                            </Button>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            <div className="sm:px-4 sm:pt-3">
-                {/* Hero Section */}
-                <div className="bg-card sm:border sm:rounded-lg overflow-hidden">
-                    {/* Large Product Image - Mobile Only */}
-                    <div
-                        className="sm:hidden relative w-full aspect-[35/10] bg-muted cursor-pointer overflow-hidden"
-                        onClick={() => {
-                            if (primaryImageUrl) {
-                                setSelectedImageUrl(primaryImageUrl)
-                            }
-                        }}
-                    >
-                        {primaryImageUrl ? (
-                            <img
-                                src={primaryImageUrl}
-                                alt={lot.item?.name || "Item"}
-                                className="w-full h-full object-cover"
-                            />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-muted to-muted/50">
-                                <Package className="h-16 w-16 text-muted-foreground/50" />
-                            </div>
-                        )}
-
-                        {/* Image count badge */}
-                        {images.length > 1 && (
-                            <div className="absolute bottom-3 right-3 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
-                                1/{images.length}
-                            </div>
-                        )}
-
-                        {/* Status badge overlay */}
-                        <div className="absolute top-3 left-3">
-                            {getLotStatusBadge(lot.status)}
-                        </div>
-                    </div>
-
-                    <div className="p-4 sm:p-6 pb-0">
-                        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
-                            {/* Product Image - Desktop Only */}
-                            <div className="hidden sm:block flex-shrink-0">
-                                <div
-                                    className={`relative w-24 h-24 sm:w-32 sm:h-32 rounded-lg overflow-hidden bg-muted flex items-center justify-center ${primaryImageUrl ? "cursor-pointer hover:ring-2 hover:ring-primary transition-all" : ""
-                                        }`}
-                                    onClick={() => {
-                                        if (primaryImageUrl) {
-                                            setSelectedImageUrl(primaryImageUrl)
-                                        }
-                                    }}
-                                >
-                                    {primaryImageUrl ? (
-                                        <img
-                                            src={primaryImageUrl}
-                                            alt={lot.item?.name || "Item"}
-                                            className="w-full h-full object-cover"
-                                        />
-                                    ) : (
-                                        <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                                            <Package className="h-8 w-8" />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Lot Info - Desktop */}
-                            <div className="hidden sm:block flex-1 min-w-0">
-                                {isEditing && !isSystemLot ? (
-                                    <Input
-                                        value={formData.lotNumber}
-                                        onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })}
-                                        className="text-2xl font-bold h-auto py-2 mb-3 border-dashed font-mono"
-                                        placeholder="Enter lot number"
-                                    />
-                                ) : (
-                                    <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2 font-mono">{lot.lotNumber}</h1>
-                                )}
-
-                                <div className="flex flex-wrap gap-2 mb-4">
-                                    {getLotStatusBadge(lot.status)}
-                                    {isSystemLot && (
-                                        <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
-                                            <Package className="h-3 w-3 mr-1" />
-                                            Pre-existing Stock
-                                        </Badge>
-                                    )}
-                                    {expirationWarning && (
-                                        <Badge variant="outline" className={expirationWarning.color}>
-                                            {React.createElement(expirationWarning.icon, { className: "h-3 w-3 mr-1" })}
-                                            {expirationWarning.text}
-                                        </Badge>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                                    <div>
-                                        <p className="text-xs text-muted-foreground mb-1">Total Quantity</p>
-                                        <p className="text-sm font-semibold text-primary">{lot.quantity} units</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-muted-foreground mb-1">Initial Quantity</p>
-                                        <p className="text-sm font-semibold">{lot.initialQuantity} units</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-muted-foreground mb-1">Remaining</p>
-                                        <p className="text-sm font-semibold">
-                                            {Math.round((lot.quantity / lot.initialQuantity) * 100)}%
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs text-muted-foreground mb-1">Locations</p>
-                                        <p className="text-sm font-semibold">{lot.locations.length}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Lot Info - Mobile */}
-                            <div className="sm:hidden">
-                                {isEditing && !isSystemLot ? (
-                                    <Input
-                                        value={formData.lotNumber}
-                                        onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })}
-                                        className="text-lg font-bold h-10 mb-2 border-dashed font-mono"
-                                        placeholder="Lot number"
-                                    />
-                                ) : (
-                                    <h1 className="text-lg font-bold text-foreground leading-tight font-mono">{lot.lotNumber}</h1>
-                                )}
-
-                                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                    {isSystemLot && (
-                                        <Badge variant="secondary" className="text-xs gap-0.5">
-                                            <Package className="h-2.5 w-2.5" />
-                                            Pre-existing
-                                        </Badge>
-                                    )}
-                                    {expirationWarning && (
-                                        <Badge variant="outline" className={`text-xs ${expirationWarning.color}`}>
-                                            {React.createElement(expirationWarning.icon, { className: "h-2.5 w-2.5" })}
-                                        </Badge>
-                                    )}
-                                </div>
-
-                                {/* Stats Row */}
-                                <div className="flex items-center justify-between mt-4 py-3 border-t border-b">
-                                    <div className="text-center flex-1">
-                                        <p className="text-2xl font-bold text-primary">{lot.quantity}</p>
-                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Current</p>
-                                    </div>
-                                    <div className="w-px h-10 bg-border" />
-                                    <div className="text-center flex-1">
-                                        <p className="text-lg font-semibold">{lot.initialQuantity}</p>
-                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Initial</p>
-                                    </div>
-                                    <div className="w-px h-10 bg-border" />
-                                    <div className="text-center flex-1">
-                                        <p className="text-lg font-semibold">{lot.locations.length}</p>
-                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Locations</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Expiration Warning Alert */}
-                {expirationWarning && (
-                    <Alert className={`mt-4 ${expirationWarning.color}`}>
-                        {React.createElement(expirationWarning.icon, { className: "h-4 w-4" })}
-                        <AlertDescription>
-                            {expirationWarning.text}
-                            {lot.expirationDate && ` - ${new Date(lot.expirationDate).toLocaleDateString()}`}
-                        </AlertDescription>
-                    </Alert>
-                )}
-
-                {isSystemLot && (
-                    <Alert className="mt-4 bg-blue-50 border-blue-200">
-                        <Package className="h-4 w-4 text-blue-600" />
-                        <AlertDescription className="text-blue-900">
-                            This lot represents inventory that existed before lot tracking was enabled. You can adjust it normally.
-                        </AlertDescription>
-                    </Alert>
-                )}
-
-                {/* Tabs Section */}
-                <Tabs defaultValue="details" className="mt-2 sm:mt-4 gap-0">
-                    <div className="bg-card sm:border sm:rounded-t-lg">
-                        <TabsList className="w-full grid grid-cols-3 h-12 p-0 bg-transparent rounded-none">
-                            <TabsTrigger
-                                value="details"
-                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
-                            >
-                                Details
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="locations"
-                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
-                            >
-                                Locations ({lot.locations.length})
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="history"
-                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
-                            >
-                                History
-                            </TabsTrigger>
-                        </TabsList>
-                    </div>
-
-                    {/* Details Tab */}
-                    <TabsContent value="details" className="mt-0">
-                        <div className="bg-card p-4 sm:border-x sm:border-b sm:rounded-b-lg">
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="lotNumber" className="text-xs text-muted-foreground">Lot Number</Label>
-                                        {isEditing && !isSystemLot ? (
-                                            <Input
-                                                id="lotNumber"
-                                                value={formData.lotNumber}
-                                                onChange={(e) => setFormData({ ...formData, lotNumber: e.target.value })}
-                                                className="font-mono h-9"
-                                                placeholder="Enter lot number"
-                                            />
-                                        ) : (
-                                            <div className="text-sm font-medium font-mono flex items-center gap-2">
-                                                {lot.lotNumber}
-                                                {isSystemLot && <span className="text-xs text-muted-foreground">(System-managed)</span>}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="status" className="text-xs text-muted-foreground">Status</Label>
-                                        {isEditing ? (
-                                            <Select value={formData.status} onValueChange={(value: LotStatus) => setFormData({ ...formData, status: value })}>
-                                                <SelectTrigger id="status" className="h-9">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="ACTIVE">Active</SelectItem>
-                                                    <SelectItem value="DEPLETED">Depleted</SelectItem>
-                                                    <SelectItem value="EXPIRED">Expired</SelectItem>
-                                                    <SelectItem value="QUARANTINED">Quarantined</SelectItem>
-                                                    <SelectItem value="RECALLED">Recalled</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        ) : (
-                                            <div className="text-sm font-medium">{getLotStatusBadge(lot.status)}</div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="receivedDate" className="text-xs text-muted-foreground">Received Date</Label>
-                                        {isEditing ? (
-                                            <Input
-                                                id="receivedDate"
-                                                type="date"
-                                                value={formData.receivedDate}
-                                                onChange={(e) => setFormData({ ...formData, receivedDate: e.target.value })}
-                                                className="h-9"
-                                            />
-                                        ) : (
-                                            <div className="text-sm font-medium flex items-center gap-1.5">
-                                                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                                                {lot.receivedDate ? new Date(lot.receivedDate).toLocaleDateString() : "—"}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="manufactureDate" className="text-xs text-muted-foreground">Manufacture Date</Label>
-                                        {isEditing ? (
-                                            <Input
-                                                id="manufactureDate"
-                                                type="date"
-                                                value={formData.manufactureDate}
-                                                onChange={(e) => setFormData({ ...formData, manufactureDate: e.target.value })}
-                                                className="h-9"
-                                            />
-                                        ) : (
-                                            <div className="text-sm font-medium flex items-center gap-1.5">
-                                                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                                                {lot.manufactureDate ? new Date(lot.manufactureDate).toLocaleDateString() : "—"}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="expirationDate" className="text-xs text-muted-foreground">Expiration Date</Label>
-                                        {isEditing ? (
-                                            <Input
-                                                id="expirationDate"
-                                                type="date"
-                                                value={formData.expirationDate}
-                                                onChange={(e) => setFormData({ ...formData, expirationDate: e.target.value })}
-                                                className="h-9"
-                                            />
-                                        ) : (
-                                            <div className="text-sm font-medium flex items-center gap-1.5">
-                                                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                                                {lot.expirationDate ? new Date(lot.expirationDate).toLocaleDateString() : "—"}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="supplier" className="text-xs text-muted-foreground">Supplier</Label>
-                                        {isEditing ? (
-                                            <Select
-                                                value={formData.supplierId || "__none__"}
-                                                onValueChange={(value) => setFormData({ ...formData, supplierId: value === "__none__" ? "" : value })}
-                                            >
-                                                <SelectTrigger id="supplier" className="h-9">
-                                                    <SelectValue placeholder="Select supplier" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="__none__">None</SelectItem>
-                                                    {suppliers.map((supplier) => (
-                                                        <SelectItem key={supplier.id} value={supplier.id}>
-                                                            {supplier.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        ) : (
-                                            <div className="text-sm font-medium flex items-center gap-1.5">
-                                                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                                {lot.supplier?.name || "—"}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <Label htmlFor="poNumber" className="text-xs text-muted-foreground">PO Number</Label>
-                                        {isEditing ? (
-                                            <Input
-                                                id="poNumber"
-                                                value={formData.poNumber}
-                                                onChange={(e) => setFormData({ ...formData, poNumber: e.target.value })}
-                                                className="h-9"
-                                                placeholder="PO-12345"
-                                            />
-                                        ) : (
-                                            <div className="text-sm font-medium flex items-center gap-1.5">
-                                                <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-                                                {lot.poNumber || "—"}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label htmlFor="notes" className="text-xs text-muted-foreground">Notes</Label>
-                                    {isEditing ? (
-                                        <Textarea
-                                            id="notes"
-                                            value={formData.notes}
-                                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                                            rows={3}
-                                            placeholder="Enter notes about this lot..."
-                                        />
-                                    ) : (
-                                        <div className="text-sm flex items-start gap-1.5">
-                                            <FileText className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
-                                            <span>{lot.notes || "—"}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </TabsContent>
-
-                    {/* Locations Tab */}
-                    <TabsContent value="locations" className="mt-0">
-                        <div className="bg-card p-4 sm:border-x sm:border-b sm:rounded-b-lg">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-base font-semibold">Storage Locations</h3>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setIsAddLocationOpen(true)}
-                                    className="gap-2 h-8"
-                                    disabled={availableLocations.length === 0}
-                                >
-                                    <Plus className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Add Location</span>
-                                </Button>
-                            </div>
-
-                            {lot.locations.length === 0 ? (
-                                <div className="text-center py-12 px-4 border border-dashed rounded-lg">
-                                    <MapPin className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                                    <p className="text-sm font-medium text-muted-foreground">No locations assigned</p>
-                                    <p className="text-xs text-muted-foreground mt-1">Add this lot to storage locations</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {lot.locations
-                                        .sort((a, b) => b.quantity - a.quantity)
-                                        .map((lotLocation) => (
-                                            <div
-                                                key={lotLocation.id}
-                                                className="group flex items-center justify-between p-4 rounded-lg border border-border/50 bg-card hover:bg-muted/30 hover:border-accent/50 transition-all"
-                                            >
-                                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                    <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
-                                                        <MapPin className="h-5 w-5 text-accent" />
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <h3 className="font-semibold font-mono text-sm">
-                                                            {lotLocation.locationCode}
-                                                        </h3>
-                                                        {lotLocation.quantity === 0 && (
-                                                            <p className="text-xs text-muted-foreground">Empty</p>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <div className="text-right">
-                                                        <p className="text-xs text-muted-foreground mb-0">Quantity</p>
-                                                        <p className="text-xl font-bold text-accent">{lotLocation.quantity}</p>
-                                                    </div>
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() => handleOpenAdjustLocation(
-                                                            lotLocation.locationId,
-                                                            lotLocation.locationCode,
-                                                            lotLocation.quantity
-                                                        )}
-                                                    >
-                                                        Adjust
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                </div>
-                            )}
-                        </div>
-                    </TabsContent>
-
-                    {/* History Tab */}
-                    <TabsContent value="history" className="mt-0">
-                        <div className="bg-card overflow-hidden sm:border-x sm:border-b sm:rounded-b-lg">
-                            <div className="p-4 border-b">
-                                <h3 className="text-base font-semibold">Transaction History</h3>
-                            </div>
-                            {lot.transactions && lot.transactions.length > 0 ? (
-                                <div className="overflow-x-auto">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead className="text-xs">Type</TableHead>
-                                                <TableHead className="text-xs text-right">Qty</TableHead>
-                                                <TableHead className="text-xs">Reason</TableHead>
-                                                <TableHead className="text-xs hidden sm:table-cell">User</TableHead>
-                                                <TableHead className="text-xs">Date</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {lot.transactions.map((transaction) => (
-                                                <TableRow key={transaction.id}>
-                                                    <TableCell>
-                                                        <div className="flex items-center gap-2">
-                                                            <div className={`p-1.5 rounded ${transaction.type === "INPUT" ? "bg-green-50" : "bg-red-50"}`}>
-                                                                {transaction.type === "INPUT" ? (
-                                                                    <TrendingUp className="h-3.5 w-3.5 text-green-600" />
-                                                                ) : (
-                                                                    <TrendingDown className="h-3.5 w-3.5 text-red-600" />
-                                                                )}
-                                                            </div>
-                                                            <span className="text-sm hidden sm:inline">
-                                                                {transaction.type === "INPUT" ? "Added" : "Removed"}
-                                                            </span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <span
-                                                            className={`text-sm font-semibold ${transaction.type === "INPUT" ? "text-green-600" : "text-red-600"
-                                                                }`}
-                                                        >
-                                                            {transaction.type === "INPUT" ? "+" : "-"}
-                                                            {transaction.quantity}
-                                                        </span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span className="text-sm">{transaction.reason}</span>
-                                                    </TableCell>
-                                                    <TableCell className="hidden sm:table-cell">
-                                                        <span className="text-sm text-muted-foreground">
-                                                            {transaction.user?.name || "Unknown"}
-                                                        </span>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {new Date(transaction.createdAt).toLocaleDateString()}
-                                                        </span>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </div>
-                            ) : (
-                                <div className="text-center py-12 px-4">
-                                    <FileText className="h-12 w-12 mx-auto mb-4 opacity-20" />
-                                    <p className="text-sm font-medium text-muted-foreground">No transaction history</p>
-                                    <p className="text-xs text-muted-foreground mt-1">Transactions will appear here</p>
-                                </div>
-                            )}
-                        </div>
-                    </TabsContent>
-                </Tabs>
-            </div>
-
-            {/* Add Location Dialog */}
-            <AddLocationToLotDialog
-                open={isAddLocationOpen}
-                onOpenChange={setIsAddLocationOpen}
-                lotId={lotId}
-                availableLocations={availableLocations}
-                onSuccess={loadLot}
-            />
-
-            {/* Adjust Location Dialog */}
-            <AdjustLocationDialog
-                open={isAdjustLocationOpen}
-                onOpenChange={setIsAdjustLocationOpen}
-                lotId={lotId}
-                adjustingLocation={adjustingLocation}
-                onSuccess={loadLot}
-            />
-
-            {/* Image Preview Dialog */}
-            <ImagePreviewDialog
-                imageUrl={selectedImageUrl}
-                onClose={() => setSelectedImageUrl(null)}
-            />
-        </div>
+      <PageContainer>
+        {error?.notFound ? (
+          <EmptyState
+            icon={PackageX}
+            title="Lot not found"
+            description="It may have been removed, or it belongs to another workspace."
+            action={
+              <Button asChild>
+                <Link href={itemHref}>
+                  <ArrowLeft /> Back to item
+                </Link>
+              </Button>
+            }
+          />
+        ) : (
+          <ErrorState
+            title="Couldn't load this lot"
+            message={error?.message}
+            onRetry={() => {
+              setLoading(true)
+              loadLot()
+            }}
+          />
+        )}
+      </PageContainer>
     )
+  }
+
+  const unit = lot.item?.unit
+  const isPreExisting = lot.isSystem || lot.lotNumber === EXISTING_STOCK_LOT_NUMBER
+  const expiry = getExpiry(lot.expirationDate)
+  const showExpiryWarning = lot.status === "ACTIVE" && expiry !== null && expiry.tone !== "default"
+  const remaining = lot.initialQuantity > 0 ? Math.round((lot.quantity / lot.initialQuantity) * 100) : 0
+  const lotLocations = [...lot.locations].sort((a, b) => b.quantity - a.quantity)
+  const stockedCount = lotLocations.filter((l) => l.quantity > 0).length
+  const availableLocations = locations.filter((loc) => !lot.locations.some((l) => l.locationId === loc.id))
+
+  return (
+    <PageContainer>
+      <PageHeader
+        back={{ href: itemHref, label: lot.item?.name ?? "Back to item" }}
+        title={isPreExisting ? lotDisplayName(lot.lotNumber) : <span className="font-mono">{lot.lotNumber}</span>}
+        description={
+          <>
+            Lot of{" "}
+            <Link href={itemHref} className="font-medium text-foreground hover:underline">
+              {lot.item?.name ?? "item"}
+            </Link>
+            {lot.item?.itemNumber && <span className="ml-1.5 font-mono text-sm">{lot.item.itemNumber}</span>}
+          </>
+        }
+        meta={
+          <>
+            <LotStatusBadge status={lot.status} />
+            {showExpiryWarning && <Badge variant={expiry.tone === "danger" ? "danger" : "warning"}>{expiry.label}</Badge>}
+            {isPreExisting && <Badge variant="info">Pre-existing stock</Badge>}
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setDialog("add-location")}
+              disabled={availableLocations.length === 0}
+              data-testid="lot-add-location-button"
+            >
+              <Plus /> Add to location
+            </Button>
+            <Button variant="outline" onClick={() => setDialog("edit")} data-testid="lot-edit-button">
+              <Pencil /> Edit lot
+            </Button>
+          </>
+        }
+      />
+
+      <div className="space-y-6">
+        {(isPreExisting || showExpiryWarning || lot.status === "QUARANTINED" || lot.status === "RECALLED") && (
+          <div className="space-y-3">
+            {lot.status === "RECALLED" && (
+              <Notice tone="danger" icon={ShieldAlert}>
+                <span className="font-medium">This lot has been recalled.</span> Don&apos;t ship or use it.
+              </Notice>
+            )}
+            {lot.status === "QUARANTINED" && (
+              <Notice tone="warning" icon={ShieldAlert}>
+                <span className="font-medium">This lot is quarantined.</span> Hold it until it passes inspection.
+              </Notice>
+            )}
+            {showExpiryWarning && (
+              <Notice tone={expiry.tone === "danger" ? "danger" : "warning"} icon={AlertTriangle}>
+                <span className="font-medium">{expiry.label}</span> ({formatDateOnly(lot.expirationDate)}).{" "}
+                {expiry.tone === "danger" ? "Consider marking it as expired." : "Use this lot first."}
+              </Notice>
+            )}
+            {isPreExisting && (
+              <Notice tone="info" icon={Info}>
+                This lot holds the stock that existed before lot tracking was turned on. Adjust and transfer it like any other lot.
+              </Notice>
+            )}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+          <StatCard
+            label="Quantity"
+            icon={Boxes}
+            tone={lot.quantity > 0 ? "primary" : "default"}
+            value={
+              <>
+                {formatNumber(lot.quantity)}
+                {unit && <span className="ml-1.5 text-sm font-normal text-muted-foreground">{unit}</span>}
+              </>
+            }
+            hint={`${remaining}% of ${formatNumber(lot.initialQuantity)} received`}
+          />
+          <StatCard
+            label="Locations"
+            icon={MapPin}
+            value={formatNumber(stockedCount)}
+            hint={stockedCount === 0 ? "Not stored anywhere" : stockedCount === 1 ? `In ${lotLocations[0].locationCode}` : `Most in ${lotLocations[0].locationCode}`}
+          />
+          <StatCard
+            label={expiry && expiry.days < 0 ? "Expired" : "Expires"}
+            icon={CalendarClock}
+            tone={expiry ? EXPIRY_TONE[expiry.tone] : "default"}
+            value={<span className="text-xl sm:text-2xl">{lot.expirationDate ? formatDateOnly(lot.expirationDate) : "No expiry"}</span>}
+            hint={expiry ? expiry.label : "No expiration date set"}
+          />
+          <StatCard
+            label="Received"
+            icon={CalendarDays}
+            value={<span className="text-xl sm:text-2xl">{formatDateOnly(lot.receivedDate)}</span>}
+            hint={lot.supplier ? `From ${lot.supplier.name}` : lot.creator?.name ? `By ${lot.creator.name}` : undefined}
+          />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-3 lg:items-start lg:gap-6">
+          <section className="overflow-hidden rounded-xl border bg-card lg:col-span-2">
+            <SectionHeader
+              className="border-b px-4 py-3"
+              title="Locations"
+              description={
+                lotLocations.length > 0
+                  ? `${formatQuantity(lot.quantity, unit)} across ${stockedCount} ${stockedCount === 1 ? "location" : "locations"}`
+                  : "Where this lot is stored"
+              }
+            />
+            {lotLocations.length === 0 ? (
+              <EmptyState
+                bare
+                icon={MapPin}
+                title="Not stored anywhere"
+                description="Add this lot to a location to record where it's kept."
+                action={
+                  availableLocations.length > 0 && (
+                    <Button onClick={() => setDialog("add-location")}>
+                      <Plus /> Add to location
+                    </Button>
+                  )
+                }
+              />
+            ) : (
+              <ul className="divide-y">
+                {lotLocations.map((l) => {
+                  const code = l.locationCode ?? l.location?.code ?? "Unknown"
+                  const share = lot.quantity > 0 ? Math.round((l.quantity / lot.quantity) * 100) : 0
+                  return (
+                    <li key={l.id} className="flex items-center gap-3 px-4 py-3" data-testid={`lot-location-row-${testIdSlug(code)}`}>
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <MapPin className="size-4" />
+                      </span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <Link href={`/dashboard/locations/${l.locationId}`} className="block truncate font-mono text-sm font-medium hover:underline">
+                          {code}
+                        </Link>
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 w-full max-w-40 overflow-hidden rounded-full bg-muted" aria-hidden>
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${share}%` }} />
+                          </div>
+                          <span className="shrink-0 text-xs text-muted-foreground">{l.quantity === 0 ? "Empty" : `${share}%`}</span>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right tabular-nums">
+                        <span className="text-lg font-semibold" data-testid="lot-location-quantity">
+                          {formatNumber(l.quantity)}
+                        </span>
+                        {unit && <span className="ml-1 text-xs text-muted-foreground">{unit}</span>}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() =>
+                          setAdjusting({
+                            open: true,
+                            location: { locationId: l.locationId, locationCode: code, currentQuantity: l.quantity },
+                          })
+                        }
+                        aria-label={`Adjust stock in ${code}`}
+                      >
+                        <Diff />
+                        <span className="hidden sm:inline">Adjust</span>
+                      </Button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+
+          <section className="rounded-xl border bg-card">
+            <SectionHeader className="border-b px-4 py-3" title="Details" />
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-5 p-4">
+              <Detail label="Lot number">
+                <span className="break-all font-mono">{lot.lotNumber}</span>
+              </Detail>
+              <Detail label="Status">
+                <LotStatusBadge status={lot.status} />
+              </Detail>
+              <Detail label="Received">{formatDateOnly(lot.receivedDate)}</Detail>
+              <Detail label="Manufactured">{formatDateOnly(lot.manufactureDate)}</Detail>
+              <Detail label="Expires">{formatDateOnly(lot.expirationDate)}</Detail>
+              <Detail label="Supplier">{lot.supplier?.name ?? <span className="text-muted-foreground">—</span>}</Detail>
+              <Detail label="PO number">
+                {lot.poNumber ? <span className="break-all font-mono">{lot.poNumber}</span> : <span className="text-muted-foreground">—</span>}
+              </Detail>
+              <Detail label="Created">
+                <span title={formatDateTime(lot.createdAt)}>{formatRelativeTime(lot.createdAt)}</span>
+                <span className="block text-xs text-muted-foreground">{lot.creator?.name ?? "Unknown user"}</span>
+              </Detail>
+              <Detail label="Notes" className="col-span-full">
+                {lot.notes ? <p className="whitespace-pre-line leading-relaxed">{lot.notes}</p> : <span className="text-muted-foreground">No notes</span>}
+              </Detail>
+            </dl>
+          </section>
+        </div>
+
+        <section className="overflow-hidden rounded-xl border bg-card">
+          <SectionHeader className="border-b px-4 py-3" title="Movements" description="Every change to this lot, newest first" />
+          {transactions.length === 0 ? (
+            <EmptyState bare icon={History} title="No movements yet" description="Adjustments and transfers of this lot will show up here." />
+          ) : (
+            <TransactionList transactions={transactions} unit={unit} />
+          )}
+        </section>
+      </div>
+
+      <EditLotDialog open={dialog === "edit"} onOpenChange={(open) => !open && setDialog(null)} lot={lot} onSaved={loadLot} />
+
+      <AddLocationToLotDialog
+        open={dialog === "add-location"}
+        onOpenChange={(open) => !open && setDialog(null)}
+        lotId={lot.id}
+        availableLocations={availableLocations}
+        unit={unit}
+        onSuccess={loadLot}
+      />
+
+      <AdjustLocationDialog
+        open={adjusting.open}
+        onOpenChange={(open) => setAdjusting((s) => ({ ...s, open }))}
+        lotId={lot.id}
+        adjustingLocation={adjusting.location}
+        unit={unit}
+        onSuccess={loadLot}
+      />
+    </PageContainer>
+  )
 }

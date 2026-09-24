@@ -1,39 +1,40 @@
 "use client"
 
-import * as React from "react"
+import { useSyncExternalStore } from "react"
 import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
-export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
-  const [mounted, setMounted] = React.useState(false)
+const subscribe = () => () => {}
 
-  React.useEffect(() => {
-    setMounted(true)
-  }, [])
+/** True once hydrated on the client — the theme is unknown during SSR. */
+function useMounted() {
+  return useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false
+  )
+}
 
-  if (!mounted) {
-    return (
-      <Button variant="ghost" size="icon" className="h-9 w-9">
-        <Sun className="h-5 w-5" />
-      </Button>
-    )
-  }
+/** Icon button that flips between light and dark (resolves "system" to what's actually showing). */
+export function ThemeToggle({ className }: { className?: string }) {
+  const { resolvedTheme, setTheme } = useTheme()
+  const mounted = useMounted()
+  const isDark = mounted && resolvedTheme === "dark"
+  const label = isDark ? "Switch to light theme" : "Switch to dark theme"
 
   return (
     <Button
+      type="button"
       variant="ghost"
       size="icon"
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      className="h-9 w-9"
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className={cn("text-muted-foreground hover:text-foreground", className)}
+      aria-label={label}
+      title={mounted ? label : undefined}
     >
-      {theme === "dark" ? (
-        <Sun className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
-      ) : (
-        <Moon className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
-      )}
-      <span className="sr-only">Toggle theme</span>
+      {isDark ? <Sun className="size-5" /> : <Moon className="size-5" />}
     </Button>
   )
 }

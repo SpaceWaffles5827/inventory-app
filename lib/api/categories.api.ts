@@ -1,5 +1,6 @@
 // Client-side API helper functions for categories
 import type { Category, Item } from "@prisma/client";
+import { apiRequest } from "./client";
 
 // ============================================
 // Use Prisma's generated types directly
@@ -62,24 +63,10 @@ export type CategoryApiResponse = ApiResponse<{
 export async function getCategoriesApi(
   workspaceId: string
 ): Promise<CategoryApiResponse> {
-  const response = await fetch(
-    `/api/categories?workspaceId=${encodeURIComponent(workspaceId)}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch categories");
-  }
-
-  return result;
+  return apiRequest<CategoryApiResponse>("/api/categories", {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch categories",
+  });
 }
 
 /**
@@ -89,26 +76,10 @@ export async function getCategoryByIdApi(
   categoryId: string,
   workspaceId: string
 ): Promise<CategoryApiResponse> {
-  const response = await fetch(
-    `/api/categories/${categoryId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch category");
-  }
-
-  return result;
+  return apiRequest<CategoryApiResponse>(`/api/categories/${categoryId}`, {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch category",
+  });
 }
 
 /**
@@ -117,22 +88,11 @@ export async function getCategoryByIdApi(
 export async function createCategoryApi(
   data: CreateCategoryRequest
 ): Promise<CategoryApiResponse> {
-  const response = await fetch("/api/categories", {
+  return apiRequest<CategoryApiResponse>("/api/categories", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create category",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create category");
-  }
-
-  return result;
 }
 
 /**
@@ -142,22 +102,11 @@ export async function updateCategoryApi(
   categoryId: string,
   data: UpdateCategoryRequest
 ): Promise<CategoryApiResponse> {
-  const response = await fetch(`/api/categories/${categoryId}`, {
+  return apiRequest<CategoryApiResponse>(`/api/categories/${categoryId}`, {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update category",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update category");
-  }
-
-  return result;
 }
 
 /**
@@ -167,24 +116,9 @@ export async function deleteCategoryApi(
   categoryId: string,
   workspaceId: string
 ): Promise<CategoryApiResponse> {
-  const response = await fetch(
-    `/api/categories/${categoryId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
-    {
-      method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to delete category");
-  }
-
-  return result;
+  return apiRequest<CategoryApiResponse>(`/api/categories/${categoryId}`, {
+    method: "DELETE",
+    query: { workspaceId },
+    errorMessage: "Failed to delete category",
+  });
 }

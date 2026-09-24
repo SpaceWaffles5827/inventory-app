@@ -1,200 +1,123 @@
 "use client"
 
+import type { MouseEvent } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
+import { PackageSearch } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Diff, ArrowRightLeft, Trash2, MoreVertical } from "lucide-react"
+import { EmptyState } from "@/components/common/empty-state"
+import { StockStatusBadge } from "@/components/common/status-badge"
 import { ItemImage } from "@/components/imageItem"
-import { ItemWithRelations } from "@/lib/api/items.api"
+import { AdjustStockButton, ItemActionsMenu, type ItemRowActions } from "@/components/items/item-actions-menu"
 import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  getItemStatus,
+  getItemValue,
+  itemHref,
+  locationsSummary,
+  stockedLocations,
+  type InventoryItem,
+} from "@/components/items/item-utils"
+import { formatCurrency, formatNumber } from "@/lib/format"
 
-interface ItemTableViewProps {
-    items: ItemWithRelations[]
-    onAdjustmentClick: (item: ItemWithRelations) => void
-    onTransferClick: (item: ItemWithRelations) => void
-    onDeleteClick: (item: ItemWithRelations) => void
+interface ItemTableViewProps extends ItemRowActions {
+  items: InventoryItem[]
 }
 
-export function ItemTableView({
-    items,
-    onAdjustmentClick,
-    onTransferClick,
-    onDeleteClick
-}: ItemTableViewProps) {
-    const router = useRouter()
+/** Desktop inventory table. Rows open the item; actions live in the last column. */
+export function ItemTableView({ items, onAdjustmentClick, onTransferClick, onDeleteClick }: ItemTableViewProps) {
+  const router = useRouter()
 
-    if (items.length === 0) {
-        return (
-            <div className="rounded-lg border border-border/50 overflow-hidden">
-                <Table>
-                    <TableHeader>
-                        <TableRow className="bg-muted/50 hover:bg-muted/50">
-                            <TableHead className="w-[60px]"></TableHead>
-                            <TableHead className="font-semibold">Item #</TableHead>
-                            <TableHead className="font-semibold">Product Name</TableHead>
-                            <TableHead className="text-center font-semibold">Stock</TableHead>
-                            <TableHead className="text-right font-semibold">Cost</TableHead>
-                            <TableHead className="font-semibold">Status</TableHead>
-                            <TableHead className="text-center font-semibold">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        <TableRow>
-                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                                No items found matching your filters
-                            </TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-            </div>
-        )
-    }
+  if (items.length === 0) {
+    return <EmptyState icon={PackageSearch} title="No items to show" />
+  }
 
-    return (
-        <TooltipProvider delayDuration={1500}>
-            <div className="rounded-lg border border-border/50 overflow-hidden">
-                <Table>
-                    <TableHeader>
-                        <TableRow className="bg-muted/50 hover:bg-muted/50">
-                            <TableHead className="w-[60px]"></TableHead>
-                            <TableHead className="font-semibold">Item #</TableHead>
-                            <TableHead className="font-semibold">Product Name</TableHead>
-                            <TableHead className="text-center font-semibold">Stock</TableHead>
-                            <TableHead className="text-right font-semibold">Cost</TableHead>
-                            <TableHead className="font-semibold">Status</TableHead>
-                            <TableHead className="text-center font-semibold">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {items.map((item) => (
-                            <TableRow
-                                key={item.id}
-                                className="hover:bg-muted/30 transition-colors cursor-pointer"
-                                onClick={() => router.push(`/dashboard/items/${item.id}`)}
-                                data-testid={`item-row-${item.id}`}
-                            >
-                                <TableCell>
-                                    <div className="w-12 h-12 rounded-md bg-muted/50 border border-border flex items-center justify-center overflow-hidden">
-                                        <ItemImage
-                                            itemId={item.id}
-                                            alt={item.name}
-                                            className="w-full h-full object-cover"
-                                        />
-                                    </div>
-                                </TableCell>
-                                <TableCell className="font-mono text-sm text-muted-foreground">{item.itemNumber}</TableCell>
-                                <TableCell className="max-w-0 w-full">
-                                    <div className="min-w-0">
-                                        {item.name.length > 30 ? (
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <span className="font-medium truncate cursor-default inline-block max-w-full">
-                                                        {item.name}
-                                                    </span>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p>{item.name}</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        ) : (
-                                            <p className="font-medium truncate">{item.name}</p>
-                                        )}
-                                        <p className="text-xs text-muted-foreground font-mono truncate">{item.barcode || "—"}</p>
-                                    </div>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                    <div className="flex items-baseline justify-center gap-1">
-                                        <span className="font-semibold text-lg tabular-nums" data-testid="item-stock-value">
-                                            {item.onHand}
-                                        </span>
-                                        <span className="text-[11px] text-muted-foreground font-mono uppercase tracking-tight">{item.unit || "EA"}</span>
-                                    </div>
-                                </TableCell>
-                                <TableCell className="text-right font-medium">${item.cost.toFixed(2)}</TableCell>
-                                <TableCell>
-                                    <Badge
-                                        variant={item.status === "IN_STOCK" ? "default" : "destructive"}
-                                        className={
-                                            item.status === "IN_STOCK"
-                                                ? "bg-accent/10 text-accent hover:bg-accent/20"
-                                                : "bg-destructive/10 text-destructive hover:bg-destructive/20"
-                                        }
-                                    >
-                                        {item.status === "IN_STOCK" ? "In Stock" : item.status === "LOW_STOCK" ? "Low Stock" : "Out of Stock"}
-                                    </Badge>
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex gap-2 justify-center" onClick={(e) => e.stopPropagation()}>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="h-8 w-8 hover:bg-accent/10 hover:text-accent"
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                onAdjustmentClick(item)
-                                            }}
-                                            data-testid="item-adjust-button"
-                                        >
-                                            <Diff className="h-4 w-4" />
-                                        </Button>
+  const openRow = (e: MouseEvent, id: string) => {
+    const href = itemHref(id)
+    if (e.metaKey || e.ctrlKey) window.open(href, "_blank", "noopener")
+    else router.push(href)
+  }
 
-                                        <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-8 w-8"
-                                                onClick={(e) => e.stopPropagation()}
-                                                data-testid="item-actions-button"
-                                            >
-                                                <MoreVertical className="h-4 w-4" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                <DropdownMenuItem
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        onTransferClick(item)
-                                                    }}
-                                                    data-testid="item-transfer-button"
-                                                >
-                                                    <ArrowRightLeft className="h-4 w-4 mr-2" />
-                                                    Transfer Stock
-                                                </DropdownMenuItem>
-                                                <DropdownMenuSeparator />
-                                                <DropdownMenuItem
-                                                    className="text-destructive focus:text-destructive"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        onDeleteClick(item)
-                                                    }}
-                                                    data-testid="item-delete-button"
-                                                >
-                                                    <Trash2 className="h-4 w-4 mr-2" />
-                                                    Delete Item
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </div>
-        </TooltipProvider>
-    )
+  return (
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <Table>
+        <TableHeader className="bg-muted/40">
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="w-14 pl-4">
+              <span className="sr-only">Image</span>
+            </TableHead>
+            <TableHead>Item</TableHead>
+            <TableHead className="hidden lg:table-cell">Category</TableHead>
+            <TableHead className="hidden xl:table-cell">Locations</TableHead>
+            <TableHead className="text-right">On hand</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="hidden text-right lg:table-cell">Value</TableHead>
+            <TableHead className="w-24 pr-4">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {items.map((item) => {
+            const stocked = stockedLocations(item)
+            return (
+              <TableRow
+                key={item.id}
+                className="cursor-pointer"
+                onClick={(e) => openRow(e, item.id)}
+                data-testid={`item-row-${item.id}`}
+              >
+                <TableCell className="py-2.5 pl-4">
+                  <ItemImage itemId={item.id} alt="" className="size-10 rounded-lg border" sizes="40px" />
+                </TableCell>
+                <TableCell className="w-full max-w-0 py-2.5">
+                  <Link
+                    href={itemHref(item.id)}
+                    className="block truncate font-medium hover:underline"
+                    title={item.name}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {item.name}
+                  </Link>
+                  <p className="truncate font-mono text-xs text-muted-foreground">{item.itemNumber}</p>
+                </TableCell>
+                <TableCell className="hidden max-w-40 truncate text-muted-foreground lg:table-cell">
+                  {item.category?.name ?? "—"}
+                </TableCell>
+                <TableCell
+                  className="hidden font-mono text-xs text-muted-foreground xl:table-cell"
+                  title={stocked.map((l) => `${l.location.code}: ${formatNumber(l.quantity)}`).join("\n") || undefined}
+                >
+                  {locationsSummary(item)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <span className="font-semibold" data-testid="item-stock-value">
+                    {formatNumber(item.onHand)}
+                  </span>
+                  {item.unit && <span className="ml-1 text-xs text-muted-foreground">{item.unit}</span>}
+                </TableCell>
+                <TableCell>
+                  <StockStatusBadge status={getItemStatus(item)} />
+                </TableCell>
+                <TableCell className="hidden text-right tabular-nums lg:table-cell">
+                  <div className="font-medium">{formatCurrency(getItemValue(item))}</div>
+                  <div className="text-xs text-muted-foreground">{formatCurrency(item.cost)} each</div>
+                </TableCell>
+                <TableCell className="pr-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-1">
+                    {onAdjustmentClick && <AdjustStockButton item={item} onClick={onAdjustmentClick} />}
+                    <ItemActionsMenu
+                      item={item}
+                      onAdjustmentClick={onAdjustmentClick}
+                      onTransferClick={onTransferClick}
+                      onDeleteClick={onDeleteClick}
+                    />
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  )
 }

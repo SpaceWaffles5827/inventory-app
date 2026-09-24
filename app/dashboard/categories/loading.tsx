@@ -1,3 +1,5 @@
-export default function Loading() {
-  return null
+import { PageSkeleton } from "@/components/common/states"
+
+export default function CategoriesLoading() {
+  return <PageSkeleton stats={4} />
 }

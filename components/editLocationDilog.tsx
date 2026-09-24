@@ -1,270 +1,265 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useRef, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import { Plus, Settings2, MapPin, X } from "lucide-react"
+import { updateLocationApi, type LocationWithCount, type UpdateLocationRequest } from "@/lib/api/locations.api"
+import { ApiError, getErrorMessage } from "@/lib/api/client"
+import { BarcodeField } from "@/components/locations/barcode-field"
+import { CodePreview, LocationLevelsEditor } from "@/components/locations/location-levels-editor"
+import { useLocationCodes } from "@/components/locations/use-location-codes"
+import { toLocationWithCount, type EditableLocation } from "@/components/locations/types"
 import {
-    updateLocationApi,
-    LocationStructure,
-    LocationWithCount,
-} from "@/lib/api/locations.api"
-
-interface LocationLevel {
-    id: string
-    label: string
-    value: string
-}
+  barcodeForCodeChange,
+  composeLocationCode,
+  draftsFromStructure,
+  isGeneratedBarcode,
+  newLevelId,
+  parseCapacity,
+  parseLocationStructure,
+  structureFromDrafts,
+  validateBarcode,
+  validateLocationLevels,
+  type LevelDraft,
+} from "@/components/locations/structure"
 
 interface EditLocationDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    workspaceId: string
-    location: LocationWithCount | null
-    onSuccess: (location: LocationWithCount) => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  workspaceId: string
+  location: EditableLocation | null
+  onSuccess: (location: LocationWithCount) => void
+  /** Existing codes for instant duplicate checks; fetched in the background when omitted */
+  existingCodes?: string[]
 }
 
-export function EditLocationDialog({
-    open,
-    onOpenChange,
-    workspaceId,
-    location,
-    onSuccess,
-}: EditLocationDialogProps) {
-    const [locationLevels, setLocationLevels] = useState<LocationLevel[]>([
-        { id: "1", label: "Zone", value: "" },
-    ])
+export function EditLocationDialog({ open, onOpenChange, location, ...rest }: EditLocationDialogProps) {
+  const [saving, setSaving] = useState(false)
 
-    const [formData, setFormData] = useState({
-        name: "",
-        capacity: "",
-        description: "",
-    })
+  return (
+    <Dialog open={open && location !== null} onOpenChange={(next) => !saving && onOpenChange(next)}>
+      <DialogContent className="sm:max-w-lg" data-testid="edit-location-dialog">
+        <DialogHeader>
+          <DialogTitle>Edit location</DialogTitle>
+          <DialogDescription>
+            Update the code, barcode and details for{" "}
+            <span className="font-mono font-medium text-foreground">{location?.code}</span>.
+          </DialogDescription>
+        </DialogHeader>
+        {location && (
+          <EditLocationForm
+            key={location.id}
+            location={location}
+            onOpenChange={onOpenChange}
+            saving={saving}
+            setSaving={setSaving}
+            {...rest}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-    // Update form data when location changes
-    useEffect(() => {
-        if (location) {
-            const structure = location.structure as LocationStructure
-            const levels: LocationLevel[] = structure.map((item, idx) => ({
-                id: idx.toString(),
-                label: item.label,
-                value: item.value,
-            }))
+function initialLevels(location: EditableLocation): LevelDraft[] {
+  const structure = parseLocationStructure(location.structure)
+  if (structure.length > 0) return draftsFromStructure(structure, true)
+  // Locations created without a structure: edit the whole code as one level
+  return [{ id: newLevelId(), label: "Code", value: location.code, fixed: true }]
+}
 
-            setLocationLevels(levels.length > 0 ? levels : [{ id: "1", label: "Zone", value: "" }])
+function EditLocationForm({
+  location,
+  workspaceId,
+  onOpenChange,
+  onSuccess,
+  existingCodes,
+  saving,
+  setSaving,
+}: Omit<EditLocationDialogProps, "open" | "location"> & {
+  location: EditableLocation
+  saving: boolean
+  setSaving: (saving: boolean) => void
+}) {
+  const formRef = useRef<HTMLFormElement>(null)
+  const [levels, setLevels] = useState<LevelDraft[]>(() => initialLevels(location))
+  const [barcode, setBarcode] = useState(location.barcode ?? "")
+  const [capacity, setCapacity] = useState(String(location.capacity ?? ""))
+  const [description, setDescription] = useState(location.description ?? "")
+  const [submitted, setSubmitted] = useState(false)
+  const [serverError, setServerError] = useState<{ field: "code" | "barcode"; key: string; message: string } | null>(
+    null
+  )
 
-            setFormData({
-                name: location.code,
-                capacity: location.capacity.toString() || "100",
-                description: location.description || "",
-            })
-        }
-    }, [location])
+  const knownCodes = useLocationCodes(workspaceId, existingCodes)
+  const originalStructure = parseLocationStructure(location.structure)
 
-    const generateLocationCode = () => {
-        const parts = locationLevels.map((level) => {
-            const value = level.value.trim()
-            if (value) {
-                return value.toUpperCase()
-            }
-            // Use first letter of label as default
-            const label = level.label.trim()
-            return label ? label.charAt(0).toUpperCase() + "0" : "00"
-        })
-        return parts.join("-")
+  const code = composeLocationCode(levels.map((l) => l.value))
+  const codeChanged = code !== location.code
+  const structure = structureFromDrafts(levels)
+  const structureChanged = JSON.stringify(structure) !== JSON.stringify(originalStructure)
+  const levelCheck = validateLocationLevels(levels)
+  const isDuplicate =
+    Boolean(code) && code.toUpperCase() !== location.code.toUpperCase() && Boolean(knownCodes?.has(code))
+
+  const codeError =
+    (serverError?.field === "code" && serverError.key === code ? serverError.message : undefined) ??
+    (isDuplicate ? `A location with code ${code} already exists` : undefined) ??
+    (submitted ? levelCheck.form : undefined)
+
+  const trimmedBarcode = barcode.trim()
+  const barcodeUnchanged = trimmedBarcode === (location.barcode ?? "")
+  const barcodeWillRegenerate =
+    barcodeUnchanged && codeChanged && isGeneratedBarcode(location.barcode, location.code)
+  const barcodeError =
+    (serverError?.field === "barcode" && serverError.key === trimmedBarcode ? serverError.message : undefined) ??
+    validateBarcode(barcode)
+
+  const capacityCheck = capacity.trim() ? parseCapacity(capacity) : { error: "Enter a capacity" }
+
+  const barcodeHint = barcodeWillRegenerate
+    ? "Will be regenerated from the new code — reprint the label after saving"
+    : trimmedBarcode
+      ? "Printed labels encode this value"
+      : "Leave blank to generate one from the code"
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+    if (!levelCheck.valid || isDuplicate || capacityCheck.error || barcodeError) {
+      requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
+      return
     }
 
-    const addLocationLevel = () => {
-        setLocationLevels([...locationLevels, { id: Date.now().toString(), label: "", value: "" }])
+    const payload: UpdateLocationRequest = {
+      workspaceId,
+      capacity: capacityCheck.value,
+      description: description.trim(),
+    }
+    if (codeChanged || structureChanged) {
+      payload.code = code
+      payload.structure = structure
     }
 
-    const removeLocationLevel = (id: string) => {
-        if (locationLevels.length > 1) {
-            setLocationLevels(locationLevels.filter((level) => level.id !== id))
-        }
+    // Barcode rules: the server regenerates it when the code changes and no barcode is sent.
+    if (!barcodeUnchanged && trimmedBarcode) {
+      payload.barcode = trimmedBarcode
+    } else if (!barcodeUnchanged) {
+      // Cleared → use the generated form. With a new code the server generates it for us.
+      if (!codeChanged && !isGeneratedBarcode(location.barcode, code)) payload.barcode = `LOC-${code}`
+    } else if (codeChanged) {
+      const keep = barcodeForCodeChange(location.barcode, location.code, code)
+      if (keep !== undefined) payload.barcode = keep
     }
 
-    const updateLocationLevel = (id: string, field: "label" | "value", newValue: string) => {
-        setLocationLevels(locationLevels.map((level) => (level.id === id ? { ...level, [field]: newValue } : level)))
+    setSaving(true)
+    try {
+      const res = await updateLocationApi(location.id, payload)
+      const updated = res.data?.location
+      if (!updated) throw new Error("The server didn't return the updated location")
+      onSuccess(toLocationWithCount(updated))
+      toast.success(`Location ${updated.code} updated`)
+      onOpenChange(false)
+    } catch (err) {
+      const message = getErrorMessage(err, "Couldn't update the location")
+      const conflict = err instanceof ApiError && err.status === 409
+      if (/barcode/i.test(message)) {
+        setServerError({ field: "barcode", key: trimmedBarcode, message })
+      } else if (conflict || (/code/i.test(message) && /exist/i.test(message))) {
+        setServerError({ field: "code", key: code, message })
+      } else {
+        toast.error(message)
+      }
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const handleEdit = async () => {
-        if (!location) return
+  return (
+    <form ref={formRef} onSubmit={handleSubmit} noValidate className="space-y-5">
+      <section className="space-y-3" aria-labelledby="edit-location-code-heading">
+        <h3 id="edit-location-code-heading" className="text-sm font-medium">
+          Code
+        </h3>
+        <LocationLevelsEditor
+          mode="location"
+          idPrefix="edit-location"
+          levels={levels}
+          onChange={setLevels}
+          errors={submitted ? levelCheck.byId : undefined}
+          disabled={saving}
+        />
+        <CodePreview code={code} error={codeError} previousCode={location.code} />
+      </section>
 
-        const code = generateLocationCode()
-        if (!code) return
+      <div className="space-y-1.5">
+        <Label htmlFor="edit-location-description">
+          Description <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <Textarea
+          id="edit-location-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="e.g. Cold storage, top shelf — forklift access only"
+          rows={2}
+          maxLength={191}
+          disabled={saving}
+          className="min-h-16 resize-none"
+        />
+      </div>
 
-        try {
-            const structure: LocationStructure = locationLevels
-                .filter((level) => level.value.trim())
-                .map((level) => ({
-                    label: level.label || "Level",
-                    value: level.value.trim().toUpperCase(),
-                }))
+      <div className="grid gap-4 sm:grid-cols-2">
+        <BarcodeField
+          id="edit-location-barcode"
+          value={barcode}
+          onChange={setBarcode}
+          error={barcodeError}
+          hint={barcodeHint}
+          disabled={saving}
+          placeholder={code ? `LOC-${code}` : "Generated automatically"}
+        />
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-location-capacity">Capacity</Label>
+          <Input
+            id="edit-location-capacity"
+            inputMode="numeric"
+            value={capacity}
+            onChange={(e) => setCapacity(e.target.value)}
+            aria-invalid={Boolean(capacityCheck.error) || undefined}
+            aria-describedby="edit-location-capacity-help"
+            disabled={saving}
+            className="h-10 tabular-nums"
+          />
+          <p
+            id="edit-location-capacity-help"
+            className={capacityCheck.error ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
+          >
+            {capacityCheck.error ?? "Max units this location holds"}
+          </p>
+        </div>
+      </div>
 
-            const response = await updateLocationApi(location.id, {
-                code,
-                structure,
-                capacity: Number.parseInt(formData.capacity) || 100,
-                description: formData.description,
-                workspaceId: workspaceId,
-            })
-
-            if (response.data?.location) {
-                onSuccess(response.data.location)
-                onOpenChange(false)
-            }
-        } catch (error) {
-            console.error("Failed to update location:", error)
-            alert(error instanceof Error ? error.message : "Failed to update location")
-        }
-    }
-
-    const isFormValid = locationLevels.some((level) => level.value.trim())
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0">
-                <DialogHeader className="flex-shrink-0 px-6 pt-5 pb-3 border-b border-border/50">
-                    <DialogTitle className="flex items-center gap-2 text-lg">
-                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <Settings2 className="h-4 w-4 text-primary" />
-                        </div>
-                        Edit Location
-                    </DialogTitle>
-                    <DialogDescription className="text-sm mt-1">
-                        Modify your location structure and details
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-                    <div className="grid lg:grid-cols-2 gap-6 h-full">
-                        <div className="space-y-3 flex flex-col">
-                            <div className="flex items-center justify-between pb-2 border-b border-border/30">
-                                <div>
-                                    <h3 className="text-sm font-semibold text-foreground">Location Structure</h3>
-                                    <p className="text-xs text-muted-foreground mt-0.5">Update your location hierarchy</p>
-                                </div>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={addLocationLevel}
-                                    className="h-7 text-xs bg-background hover:bg-accent/10 hover:border-accent/50 transition-all"
-                                >
-                                    <Plus className="h-3 w-3 mr-1" />
-                                    Add
-                                </Button>
-                            </div>
-
-                            <div className="space-y-2 flex-1 overflow-y-auto">
-                                {locationLevels.map((level, index) => (
-                                    <div
-                                        key={level.id}
-                                        className="group flex items-center gap-2 p-2 rounded-lg border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all"
-                                    >
-                                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 text-primary font-bold text-xs flex-shrink-0">
-                                            {index + 1}
-                                        </div>
-                                        <div className="flex-1 flex gap-2">
-                                            <div className="flex-1">
-                                                <Input
-                                                    placeholder="Level name"
-                                                    value={level.label}
-                                                    onChange={(e) => updateLocationLevel(level.id, "label", e.target.value)}
-                                                    className="h-8 text-sm bg-background border-border/50 focus:border-primary/50 transition-colors"
-                                                />
-                                            </div>
-                                            <div className="w-24">
-                                                <Input
-                                                    placeholder="Code"
-                                                    value={level.value}
-                                                    onChange={(e) => updateLocationLevel(level.id, "value", e.target.value)}
-                                                    maxLength={10}
-                                                    className="h-8 text-sm font-mono bg-background border-border/50 focus:border-primary/50 transition-colors"
-                                                />
-                                            </div>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => removeLocationLevel(level.id)}
-                                            disabled={locationLevels.length === 1}
-                                            className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive flex-shrink-0 transition-all opacity-0 group-hover:opacity-100"
-                                        >
-                                            <X className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="relative overflow-hidden rounded-lg border border-primary/30 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent p-2.5 flex-shrink-0">
-                                <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full blur-3xl -mr-12 -mt-12" />
-                                <div className="relative flex items-center gap-2">
-                                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10 flex-shrink-0">
-                                        <MapPin className="h-4 w-4 text-primary" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-xs text-muted-foreground">Updated Code</p>
-                                        <p className={`text-base font-mono font-bold truncate ${isFormValid ? 'text-primary' : 'text-muted-foreground/50'}`}>
-                                            {isFormValid ? generateLocationCode() : locationLevels.map(() => '--').join(' ')}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col space-y-3 min-h-0">
-                            <div className="pb-2 border-b border-border/30 flex-shrink-0">
-                                <h3 className="text-sm font-semibold text-foreground">Description</h3>
-                                <p className="text-xs text-muted-foreground mt-0.5">Add notes or details about this location</p>
-                            </div>
-
-                            <div className="flex flex-col flex-1 space-y-1.5 min-h-0">
-                                <Label htmlFor="edit-description" className="text-xs font-medium text-foreground flex-shrink-0">
-                                    Location Notes <span className="text-muted-foreground font-normal">(Optional)</span>
-                                </Label>
-                                <Textarea
-                                    id="edit-description"
-                                    placeholder="Add any relevant information about this location, such as storage conditions, access restrictions, or special handling requirements..."
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    className="flex-1 resize-none bg-background border-border/50 focus:border-primary/50 transition-colors text-sm min-h-0"
-                                />
-                                <p className="text-xs text-muted-foreground flex-shrink-0">
-                                    This information will be visible to all team members with access to this location
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <DialogFooter className="flex-shrink-0 px-6 pb-5 pt-3 border-t border-border/50">
-                    <Button
-                        variant="outline"
-                        onClick={() => onOpenChange(false)}
-                        className="h-9 px-5 hover:bg-accent/10 transition-all"
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleEdit}
-                        disabled={!isFormValid}
-                        className="h-9 px-5 shadow-md hover:shadow-lg transition-all"
-                    >
-                        Save Changes
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={saving} data-testid="edit-location-submit">
+          {saving && <Loader2 className="animate-spin" />}
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
 }

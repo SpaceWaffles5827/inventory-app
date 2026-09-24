@@ -1,569 +1,368 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { CreateLotDialog } from "@/components/createLotDialog"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { ArrowLeft, PackageX } from "lucide-react"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { PageContainer } from "@/components/common/page"
+import { EmptyState } from "@/components/common/empty-state"
+import { ErrorState, PageSkeleton } from "@/components/common/states"
+import { ItemHeroSection } from "@/components/itemHeroSection"
 import { ItemDetailsTab } from "@/components/itemDetailsTab"
 import { ItemLocationsTab } from "@/components/itemLocationsTab"
-import { ItemHistoryTab } from "@/components/itemHistoryTab"
-import { ItemHeroSection } from "@/components/itemHeroSection"
 import { ItemLotsTab } from "@/components/itemLotsTab"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ItemHistoryTab } from "@/components/itemHistoryTab"
 import { ItemLabelGenerator } from "@/components/itemLabelGenerator"
-import { ManageCustomersDialog } from "@/components/manageCustomersDialog"
 import { ImagePreviewDialog } from "@/components/imagePreviewDialog"
+import { itemImageUrl } from "@/components/imageItem"
 import { ManageImagesDialog } from "@/components/manageImagesDialog"
+import { ManageCustomersDialog } from "@/components/manageCustomersDialog"
 import { ManageLocationsDialog } from "@/components/manageLocationsDialog"
-import { ArrowLeft, Save, Edit2, Loader2 } from "lucide-react"
-import { getItemByIdApi, updateItemApi, type ItemWithDetails } from "@/lib/api/items.api"
-import { getLotsByItemApi, type LotWithRelations } from "@/lib/api/lots.api"
-import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
-import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
-import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
-import { getCustomersApi, type CustomerWithCount } from "@/lib/api/customers.api"
-import { BarcodeScannerDialog } from "@/components/barcodeScannerDialog"
-import { getItemImagesApi, type ItemImage as APIItemImage } from "@/lib/api/itemImages.api"
-import { toast } from "sonner"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { CreateLotDialog } from "@/components/createLotDialog"
+import { DeleteItemDialog } from "@/components/deleteItemDialog"
+import { StockAdjustmentWizard } from "@/components/stockAdjustmentWizard"
 import { StockLocationAdjustmentDialog } from "@/components/stockLocationAdjustmentDialog"
+import { TransferStockWizard } from "@/components/transferStockWizard"
+import { EditItemDialog } from "@/components/items/edit-item-dialog"
+import { STOCK_CHANGED_EVENT } from "@/components/stock/stock-utils"
+import { isHiddenLot } from "@/components/items/items-data"
+import { replaceSearchParams, type InventoryItemDetails } from "@/components/items/item-utils"
+import { getItemByIdApi, type ItemWithDetails } from "@/lib/api/items.api"
+import { getItemImagesApi, type ItemImage as APIItemImage } from "@/lib/api/itemImages.api"
+import { getLotsByItemApi, type LotWithRelations } from "@/lib/api/lots.api"
+import { getLocationsApi, type LocationWithCount } from "@/lib/api/locations.api"
+import { ApiError, getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
+
+type TabValue = "details" | "locations" | "lots" | "history"
+type DialogName = "edit" | "adjust" | "transfer" | "delete" | "labels" | "images" | "customers" | "locations" | "lot"
+
+const TAB_TRIGGER =
+  "-mb-px h-10 flex-none gap-1.5 rounded-none border-0 border-b-2 border-transparent px-3 text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:text-muted-foreground dark:data-[state=active]:border-primary dark:data-[state=active]:bg-transparent dark:data-[state=active]:text-foreground"
+
+function TabCount({ value }: { value: number }) {
+  return <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{value}</span>
+}
+
+function parseTab(value: string | null): TabValue {
+  return value === "locations" || value === "lots" || value === "history" ? value : "details"
+}
 
 export default function ItemDetailPage() {
-  const params = useParams()
+  // useSearchParams needs a Suspense boundary so the route can still be prerendered
+  return (
+    <Suspense fallback={<PageSkeleton stats={4} />}>
+      <ItemDetailView />
+    </Suspense>
+  )
+}
+
+function ItemDetailView() {
+  const { id: itemId } = useParams<{ id: string }>()
+  const searchParams = useSearchParams()
   const router = useRouter()
-  const itemId = params.id as string
+  const { workspaceId, isAdmin } = useWorkspace()
 
-  const [item, setItem] = useState<ItemWithDetails | null>(null)
+  const [item, setItem] = useState<InventoryItemDetails | null>(null)
   const [loading, setLoading] = useState(true)
-  const [isEditing, setIsEditing] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [categories, setCategories] = useState<CategoryWithCount[]>([])
-  const [locations, setLocations] = useState<LocationWithCount[]>([])
-  const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
-  const [customers, setCustomers] = useState<CustomerWithCount[]>([])
-  const [isManageCustomersOpen, setIsManageCustomersOpen] = useState(false)
-  const [isManageLocationsOpen, setIsManageLocationsOpen] = useState(false)
-  const [isManageImagesOpen, setIsManageImagesOpen] = useState(false)
-  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [error, setError] = useState<{ message: string; notFound: boolean } | null>(null)
   const [images, setImages] = useState<APIItemImage[]>([])
+  const [lots, setLots] = useState<LotWithRelations[]>([])
+  const [lotsLoading, setLotsLoading] = useState(false)
+  const [locations, setLocations] = useState<LocationWithCount[]>([])
 
-  // Barcode scanning state
-  const [isBarcodeScanOpen, setIsBarcodeScanOpen] = useState(false)
-
-  // Stock adjustment state
-  const [adjustmentDialog, setAdjustmentDialog] = useState<{
-    open: boolean
-    locationId: string | null
-    currentQuantity: number
-    lotId?: string | null
-  }>({
+  const [tab, setTab] = useState<TabValue>(() => parseTab(searchParams.get("tab")))
+  const [dialog, setDialog] = useState<DialogName | null>(null)
+  const [locationAdjust, setLocationAdjust] = useState<{ open: boolean; locationId: string | null }>({
     open: false,
     locationId: null,
-    currentQuantity: 0,
-    lotId: null,
   })
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
-  const [lots, setLots] = useState<LotWithRelations[]>([])
-  const [lotTracking, setLotTracking] = useState(false)
-  const [isCreateLotOpen, setIsCreateLotOpen] = useState(false)
+  // ---- data -----------------------------------------------------------------
 
-  const [formData, setFormData] = useState({
-    itemNumber: "",
-    name: "",
-    barcode: "",
-    description: "",
-    cost: "",
-    unit: "",
-    categoryId: "",
-    supplierId: "",
-  })
-
-  useEffect(() => {
-    const storedWorkspaceId = localStorage.getItem("currentWorkspaceId")
-    if (storedWorkspaceId) {
-      loadCategories(storedWorkspaceId)
-      loadLocations(storedWorkspaceId)
-      loadSuppliers(storedWorkspaceId)
-      loadCustomers(storedWorkspaceId)
-    }
-  }, [])
-
-  useEffect(() => {
-    const loadItem = async () => {
-      try {
-        setLoading(true)
-        const response = await getItemByIdApi(itemId)
-
-        if (response.data?.item) {
-          const itemData = response.data.item as ItemWithDetails
-          setItem(itemData)
-
-          // Set lot tracking from item data
-          setLotTracking(itemData.lotTracking || false)
-
-          setFormData({
-            itemNumber: itemData.itemNumber,
-            name: itemData.name,
-            barcode: itemData.barcode || "",
-            description: itemData.description || "",
-            cost: itemData.cost.toString(),
-            unit: itemData.unit || "",
-            categoryId: itemData.categoryId || "",
-            supplierId: itemData.supplierId || "",
-          })
-
-          loadImages(itemId)
-
-          // Load lots if lot tracking is enabled
-          if (itemData.lotTracking) {
-            loadLots(itemId)
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load item:", error)
-        toast.error("Failed to load item")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    if (itemId) {
-      loadItem()
+  const loadItem = useCallback(async () => {
+    try {
+      const res = await getItemByIdApi(itemId)
+      const data = res.data?.item as ItemWithDetails | undefined
+      if (!data) throw new ApiError("Item not found", 404)
+      setItem(data)
+      setError(null)
+    } catch (err) {
+      setError({
+        message: getErrorMessage(err, "Couldn't load this item"),
+        notFound: err instanceof ApiError && (err.status === 404 || err.status === 403),
+      })
+    } finally {
+      setLoading(false)
     }
   }, [itemId])
 
-  const loadImages = async (itemId: string) => {
+  const loadLots = useCallback(async () => {
+    setLotsLoading(true)
     try {
-      const response = await getItemImagesApi(itemId)
-      if (response.data?.images) {
-        setImages(response.data.images as APIItemImage[])
-      }
+      const res = await getLotsByItemApi(itemId)
+      setLots(res.data?.lots ?? [])
     } catch (err) {
-      console.error("Failed to load images:", err)
-    }
-  }
-
-  const loadCategories = async (workspaceId: string) => {
-    try {
-      const response = await getCategoriesApi(workspaceId)
-      if (response.data?.categories) {
-        setCategories(response.data.categories)
-      }
-    } catch (err) {
-      console.error("Failed to load categories:", err)
-    }
-  }
-
-  const loadLocations = async (workspaceId: string) => {
-    try {
-      const response = await getLocationsApi(workspaceId)
-      if (response.data?.locations) {
-        setLocations(response.data.locations)
-      }
-    } catch (err) {
-      console.error("Failed to load locations:", err)
-    }
-  }
-
-  const loadSuppliers = async (workspaceId: string) => {
-    try {
-      const response = await getSuppliersApi(workspaceId)
-      if (response.data?.suppliers) {
-        setSuppliers(response.data.suppliers)
-      }
-    } catch (err) {
-      console.error("Failed to load suppliers:", err)
-    }
-  }
-
-  const loadCustomers = async (workspaceId: string) => {
-    try {
-      const response = await getCustomersApi({ workspaceId, status: "ACTIVE" })
-      if (response.data?.customers) {
-        setCustomers(response.data.customers)
-      }
-    } catch (err) {
-      console.error("Failed to load customers:", err)
-    }
-  }
-
-  const loadLots = async (itemId: string) => {
-    try {
-      const response = await getLotsByItemApi(itemId)
-      if (response.data?.lots) {
-        setLots(response.data.lots)
-      }
-    } catch (err) {
-      console.error("Failed to load lots:", err)
-      toast.error("Failed to load lots")
-    }
-  }
-
-  const refreshItemData = async () => {
-    try {
-      const response = await getItemByIdApi(itemId)
-      if (response.data?.item) {
-        setItem(response.data.item as ItemWithDetails)
-      }
-      if (lotTracking) {
-        await loadLots(itemId)
-      }
-    } catch (error) {
-      console.error("Failed to refresh item data:", error)
-    }
-  }
-
-  const handleOpenBarcodeScanner = () => {
-    setIsBarcodeScanOpen(true)
-  }
-
-  const openAdjustmentDialog = (locationId: string, currentQuantity: number) => {
-    setAdjustmentDialog({ open: true, locationId, currentQuantity, lotId: null })
-  }
-
-  const handleSave = async () => {
-    if (!formData.name.trim() || !formData.cost || !formData.itemNumber.trim()) {
-      toast.error("Item number, name, and cost are required")
-      return
-    }
-
-    setIsSaving(true)
-    try {
-      const updateData = {
-        itemNumber: formData.itemNumber,
-        name: formData.name,
-        barcode: formData.barcode || undefined,
-        description: formData.description || undefined,
-        cost: parseFloat(formData.cost),
-        unit: formData.unit || undefined,
-        categoryId: formData.categoryId || undefined,
-        supplierId: formData.supplierId || undefined,
-        customerIds: item?.customers?.map(c => c.customerId) || [],
-        lotTracking: lotTracking,
-      }
-
-      const response = await updateItemApi(itemId, updateData)
-
-      if (response.data?.item) {
-        setItem(response.data.item as ItemWithDetails)
-        setIsEditing(false)
-        toast.success("Item updated successfully")
-      }
-    } catch (error) {
-      console.error("Failed to update item:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to update item")
+      toast.error(getErrorMessage(err, "Couldn't load lots"))
     } finally {
-      setIsSaving(false)
+      setLotsLoading(false)
     }
-  }
+  }, [itemId])
 
-  const handleCancel = () => {
-    if (item) {
-      setFormData({
-        itemNumber: item.itemNumber,
-        name: item.name,
-        barcode: item.barcode || "",
-        description: item.description || "",
-        cost: item.cost.toString(),
-        unit: item.unit || "",
-        categoryId: item.categoryId || "",
-        supplierId: item.supplierId || "",
+  useEffect(() => {
+    loadItem()
+  }, [loadItem])
+
+  useEffect(() => {
+    let cancelled = false
+    getItemImagesApi(itemId)
+      .then((res) => {
+        if (!cancelled) setImages((res.data?.images ?? []) as APIItemImage[])
       })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
     }
-    setIsEditing(false)
+  }, [itemId])
+
+  // Workspace locations feed the transfer wizard and the "manage locations" dialog
+  useEffect(() => {
+    let cancelled = false
+    getLocationsApi(workspaceId)
+      .then((res) => {
+        if (!cancelled) setLocations(res.data?.locations ?? [])
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId])
+
+  const lotTracking = item?.lotTracking ?? false
+  useEffect(() => {
+    if (lotTracking) loadLots()
+  }, [lotTracking, loadLots])
+
+  /** Reload everything a stock movement can change */
+  const refresh = useCallback(async () => {
+    await Promise.all([loadItem(), lotTracking ? loadLots() : Promise.resolve()])
+  }, [loadItem, loadLots, lotTracking])
+
+  // Stock moved elsewhere (e.g. the global scanner) — refresh quietly
+  useEffect(() => {
+    const onStockChanged = () => refresh()
+    window.addEventListener(STOCK_CHANGED_EVENT, onStockChanged)
+    return () => window.removeEventListener(STOCK_CHANGED_EVENT, onStockChanged)
+  }, [refresh])
+
+  const retry = () => {
+    setLoading(true)
+    loadItem()
   }
 
-  const handleOpenManageCustomers = () => {
-    setIsManageCustomersOpen(true)
+  const visibleLots = useMemo(() => lots.filter((l) => !isHiddenLot(l)), [lots])
+  const imageUrls = useMemo(
+    () =>
+      [...images]
+        .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || a.displayOrder - b.displayOrder)
+        .map((img) => itemImageUrl(img.id)),
+    [images]
+  )
+  const quantities = useMemo(
+    () => Object.fromEntries((item?.locations ?? []).map((l) => [l.locationId, l.quantity ?? 0])),
+    [item]
+  )
+
+  const changeTab = (value: string) => {
+    const next = parseTab(value)
+    setTab(next)
+    replaceSearchParams({ tab: next === "details" ? null : next })
   }
 
-  const handleOpenManageLocations = () => {
-    setIsManageLocationsOpen(true)
-  }
+  const closeDialog = () => setDialog(null)
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-accent mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading item details...</p>
-        </div>
-      </div>
-    )
-  }
+  // ---- states ---------------------------------------------------------------
+
+  if (loading) return <PageSkeleton stats={4} />
 
   if (!item) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle>Item Not Found</CardTitle>
-            <CardDescription>The item you&apos;re looking for doesn&apos;t exist.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/dashboard">
-              <Button>
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
+      <PageContainer>
+        {error?.notFound ? (
+          <EmptyState
+            icon={PackageX}
+            title="Item not found"
+            description="It may have been deleted, or it belongs to another workspace."
+            action={
+              <Button asChild>
+                <Link href="/dashboard/items">
+                  <ArrowLeft /> Back to inventory
+                </Link>
               </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
+            }
+          />
+        ) : (
+          <ErrorState title="Couldn't load this item" message={error?.message} onRetry={retry} />
+        )}
+      </PageContainer>
     )
   }
 
-  const itemLocationsWithDetails = item.locations?.map(itemLoc => {
-    const locationDetails = locations.find(l => l.id === itemLoc.locationId)
-    return {
-      ...itemLoc,
-      location: locationDetails || itemLoc.location
-    }
-  }) || []
-
-  const totalQuantity = itemLocationsWithDetails.reduce((sum, loc) => sum + (loc.quantity || 0), 0)
+  const activeTab: TabValue = tab === "lots" && !item.lotTracking ? "details" : tab
+  const activeLotCount = visibleLots.filter((l) => l.status === "ACTIVE").length
 
   return (
-    <div className="min-h-screen bg-muted/30 sm:bg-background pb-6">
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-10 bg-background">
-        <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="flex items-center justify-center h-9 w-9 -ml-1 rounded-full active:bg-muted sm:w-auto sm:px-3 sm:gap-2 sm:rounded-md sm:hover:bg-muted"
-          >
-            <ArrowLeft className="h-5 w-5 sm:h-4 sm:w-4" />
-            <span className="hidden sm:inline text-sm font-medium">Back</span>
-          </button>
-
-          <h1 className="text-sm font-semibold truncate max-w-[180px] sm:hidden">{item.name}</h1>
-
-          <div className="flex items-center gap-1 sm:gap-2">
-            {isEditing ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancel}
-                  className="h-9 px-3 text-sm"
-                  data-testid="cancel-item-edit-button"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="h-9 px-4 gap-1.5"
-                  data-testid="save-item-button"
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="hidden sm:inline">Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" />
-                      <span className="hidden sm:inline">Save</span>
-                    </>
-                  )}
-                </Button>
-              </>
-            ) : (
-              <>
-                <ItemLabelGenerator item={item} />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsEditing(true)}
-                  className="h-9 w-9 p-0 sm:w-auto sm:px-3 sm:gap-2"
-                  data-testid="edit-item-button"
-                >
-                  <Edit2 className="h-4 w-4" />
-                  <span className="hidden sm:inline">Edit</span>
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="sm:px-4 sm:pt-3">
-        {/* Hero Section */}
-        <ItemHeroSection
-          item={item}
-          isEditing={isEditing}
-          formData={{ name: formData.name }}
-          lotTracking={lotTracking}
-          images={images}
-          totalQuantity={totalQuantity}
-          itemLocationsCount={itemLocationsWithDetails.length}
-          onFormDataChange={(updatedData) => setFormData({ ...formData, ...updatedData })}
-          onImageClick={(imageUrl) => setSelectedImageUrl(imageUrl)}
-          onManageImagesOpen={() => setIsManageImagesOpen(true)}
-        />
-
-        {/* Tabs Section */}
-        <Tabs defaultValue="details" className="mt-2 sm:mt-4 gap-0">
-          <div className="bg-card sm:border sm:rounded-t-lg">
-            <TabsList className={`w-full grid ${lotTracking ? 'grid-cols-4' : 'grid-cols-3'} h-12 p-0 bg-transparent rounded-none`}>
-              <TabsTrigger
-                value="details"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
-              >
-                Details
-              </TabsTrigger>
-              <TabsTrigger
-                value="locations"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
-                data-testid="item-locations-tab-trigger"
-              >
-                Locations
-              </TabsTrigger>
-              {lotTracking && (
-                <TabsTrigger
-                  value="lots"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
-                  data-testid="item-lots-tab-trigger"
-                >
-                  Lots ({lots.filter(l => l.status === 'ACTIVE').length})
-                </TabsTrigger>
-              )}
-              <TabsTrigger
-                value="history"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none h-full text-xs sm:text-sm font-medium"
-              >
-                History
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          {/* Details Tab */}
-          <TabsContent value="details" className="mt-0">
-            <ItemDetailsTab
-              item={item}
-              isEditing={isEditing}
-              formData={formData}
-              lotTracking={lotTracking}
-              categories={categories}
-              suppliers={suppliers}
-              images={images}
-              totalQuantity={totalQuantity}
-              itemLocationsCount={itemLocationsWithDetails.length}
-              onFormDataChange={setFormData}
-              onLotTrackingChange={setLotTracking}
-              onOpenBarcodeScanner={handleOpenBarcodeScanner}
-              onOpenManageImages={() => setIsManageImagesOpen(true)}
-              onImageClick={(imageUrl) => setSelectedImageUrl(imageUrl)}
-              onOpenManageCustomers={handleOpenManageCustomers}
-            />
-          </TabsContent>
-
-          {/* Locations Tab */}
-          <TabsContent value="locations" className="mt-0" data-testid="item-locations-tab-content">
-            <ItemLocationsTab
-              itemId={itemId}
-              itemLocations={item.locations || []}
-              locations={locations}
-              itemUnit={item.unit}
-              onManageLocations={handleOpenManageLocations}
-              onAdjustStock={openAdjustmentDialog}
-              onItemUpdate={(updatedItem) => setItem(updatedItem)}
-              onNavigateToLocation={(locationId) => router.push(`/dashboard/locations/${locationId}`)}
-            />
-          </TabsContent>
-
-          {/* Lots Tab */}
-          {lotTracking && (
-            <TabsContent value="lots" className="mt-0" data-testid="item-lots-tab-content">
-              <ItemLotsTab
-                itemId={itemId}
-                lots={lots}
-                itemUnit={item.unit}
-                onCreateLot={() => setIsCreateLotOpen(true)}
-                onNavigateToLot={(lotId) => router.push(`/dashboard/items/${itemId}/lot/${lotId}`)}
-              />
-            </TabsContent>
-          )}
-
-          {/* History Tab */}
-          <TabsContent value="history" className="mt-0">
-            <ItemHistoryTab transactions={item.transactions || []} />
-          </TabsContent>
-        </Tabs>
-      </div>
-
-      {/* Barcode Scanner Dialog */}
-      <BarcodeScannerDialog
-        isOpen={isBarcodeScanOpen}
-        onClose={() => setIsBarcodeScanOpen(false)}
-        currentBarcode={formData.barcode}
-        onBarcodeScanned={(barcode) => {
-          setFormData({ ...formData, barcode })
-        }}
-      />
-
-      {/* Stock Adjustment Dialog */}
-      <StockLocationAdjustmentDialog
-        isOpen={adjustmentDialog.open}
-        onClose={() => setAdjustmentDialog({ open: false, locationId: null, currentQuantity: 0 })}
-        itemId={itemId}
-        locationId={adjustmentDialog.locationId}
-        currentQuantity={adjustmentDialog.currentQuantity}
-        lotTracking={lotTracking}
-        lots={lots}
-        onSuccess={refreshItemData}
-      />
-
-      {/* Manage Customers Dialog */}
-      <ManageCustomersDialog
-        isOpen={isManageCustomersOpen}
-        onClose={() => setIsManageCustomersOpen(false)}
-        itemId={itemId}
-        currentCustomerIds={item?.customers?.map(c => c.customerId) || []}
-        customers={customers}
-        onSuccess={(updatedItem) => setItem(updatedItem)}
-      />
-
-      {/* Manage Locations Dialog */}
-      <ManageLocationsDialog
-        isOpen={isManageLocationsOpen}
-        onClose={() => setIsManageLocationsOpen(false)}
-        itemId={itemId}
-        currentLocationIds={item?.locations?.map(loc => loc.locationId) || []}
-        locations={locations}
-        onSuccess={(updatedItem) => setItem(updatedItem)}
-      />
-
-      {/* Manage Images Dialog */}
-      <ManageImagesDialog
-        isOpen={isManageImagesOpen}
-        onClose={() => setIsManageImagesOpen(false)}
-        itemId={itemId}
+    <PageContainer>
+      <ItemHeroSection
+        item={item}
         images={images}
-        onImagesChange={(updatedImages) => setImages(updatedImages)}
-        onImageClick={(imageUrl) => setSelectedImageUrl(imageUrl)}
+        lots={lots}
+        isAdmin={isAdmin}
+        onAdjust={() => setDialog("adjust")}
+        onTransfer={() => setDialog("transfer")}
+        onEdit={() => setDialog("edit")}
+        onPrintLabels={() => setDialog("labels")}
+        onManageImages={() => setDialog("images")}
+        onDelete={() => setDialog("delete")}
+        onImageClick={setPreviewUrl}
       />
 
-      <ImagePreviewDialog
-        imageUrl={selectedImageUrl}
-        onClose={() => setSelectedImageUrl(null)}
+      <Tabs value={activeTab} onValueChange={changeTab} className="mt-6 gap-4">
+        <div className="-mx-4 overflow-x-auto px-4 scrollbar-none sm:mx-0 sm:px-0">
+          <TabsList className="h-auto w-full min-w-max justify-start gap-1 rounded-none border-b bg-transparent p-0">
+            <TabsTrigger value="details" className={TAB_TRIGGER}>
+              Details
+            </TabsTrigger>
+            <TabsTrigger value="locations" className={TAB_TRIGGER} data-testid="item-locations-tab-trigger">
+              Locations <TabCount value={item.locations?.length ?? 0} />
+            </TabsTrigger>
+            {item.lotTracking && (
+              <TabsTrigger value="lots" className={TAB_TRIGGER} data-testid="item-lots-tab-trigger">
+                Lots <TabCount value={activeLotCount} />
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="history" className={TAB_TRIGGER} data-testid="item-history-tab-trigger">
+              History
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="details">
+          <ItemDetailsTab
+            item={item}
+            images={images}
+            onOpenManageImages={() => setDialog("images")}
+            onImageClick={setPreviewUrl}
+            onOpenManageCustomers={() => setDialog("customers")}
+          />
+        </TabsContent>
+
+        <TabsContent value="locations" data-testid="item-locations-tab-content">
+          <ItemLocationsTab
+            item={item}
+            onManageLocations={() => setDialog("locations")}
+            onAdjustStock={(locationId) => setLocationAdjust({ open: true, locationId })}
+            onItemUpdate={setItem}
+          />
+        </TabsContent>
+
+        {item.lotTracking && (
+          <TabsContent value="lots" data-testid="item-lots-tab-content">
+            <ItemLotsTab
+              itemId={item.id}
+              lots={lots}
+              loading={lotsLoading}
+              itemUnit={item.unit}
+              onCreateLot={() => setDialog("lot")}
+            />
+          </TabsContent>
+        )}
+
+        <TabsContent value="history">
+          <ItemHistoryTab item={item} lots={lots} />
+        </TabsContent>
+      </Tabs>
+
+      {/* ---- dialogs ---- */}
+
+      <EditItemDialog
+        open={dialog === "edit"}
+        onOpenChange={(open) => !open && closeDialog()}
+        item={item}
+        onSaved={setItem}
+        canToggleLotTracking={isAdmin}
       />
 
-      {/* Create Lot Dialog */}
-      <CreateLotDialog
-        isOpen={isCreateLotOpen}
-        onClose={() => setIsCreateLotOpen(false)}
-        itemId={itemId}
-        itemLocations={item?.locations || []}
-        suppliers={suppliers}
+      <StockAdjustmentWizard item={item} open={dialog === "adjust"} onClose={closeDialog} onSuccess={refresh} />
+
+      <TransferStockWizard
+        item={item}
+        open={dialog === "transfer"}
+        onClose={closeDialog}
+        onSuccess={refresh}
         locations={locations}
-        onSuccess={(updatedItem) => setItem(updatedItem)}
-        onLotsReload={() => loadLots(itemId)}
       />
-    </div>
+
+      <StockLocationAdjustmentDialog
+        isOpen={locationAdjust.open}
+        onClose={() => setLocationAdjust((s) => ({ ...s, open: false }))}
+        itemId={item.id}
+        locationId={locationAdjust.locationId}
+        onSuccess={refresh}
+      />
+
+      <DeleteItemDialog
+        item={item}
+        open={dialog === "delete"}
+        onOpenChange={(open) => !open && closeDialog()}
+        onSuccess={() => router.push("/dashboard/items")}
+      />
+
+      <ItemLabelGenerator item={item} open={dialog === "labels"} onOpenChange={(open) => !open && closeDialog()} />
+
+      <ManageImagesDialog
+        isOpen={dialog === "images"}
+        onClose={closeDialog}
+        itemId={item.id}
+        images={images}
+        onImagesChange={setImages}
+        onImageClick={setPreviewUrl}
+        canDelete={isAdmin}
+      />
+
+      <ManageCustomersDialog
+        isOpen={dialog === "customers"}
+        onClose={closeDialog}
+        itemId={item.id}
+        currentCustomerIds={item.customers?.map((c) => c.customerId) ?? []}
+        onSuccess={setItem}
+      />
+
+      <ManageLocationsDialog
+        isOpen={dialog === "locations"}
+        onClose={closeDialog}
+        itemId={item.id}
+        currentLocationIds={item.locations?.map((l) => l.locationId) ?? []}
+        locations={locations}
+        quantities={quantities}
+        unit={item.unit}
+        onSuccess={setItem}
+      />
+
+      <CreateLotDialog
+        isOpen={dialog === "lot"}
+        onClose={closeDialog}
+        itemId={item.id}
+        itemLocations={item.locations ?? []}
+        unit={item.unit}
+        onSuccess={refresh}
+      />
+
+      <ImagePreviewDialog imageUrl={previewUrl} onClose={() => setPreviewUrl(null)} images={imageUrls} alt={item.name} />
+    </PageContainer>
   )
 }

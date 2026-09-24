@@ -1,3 +1,5 @@
+import { PageSkeleton } from "@/components/common/states"
+
 export default function Loading() {
-  return null
+  return <PageSkeleton stats={4} />
 }

@@ -1,6 +1,7 @@
 // Client-side API helper functions for customers
 import type { Customer, Item } from "@prisma/client";
 import type { ApiResponse } from "./types";
+import { apiRequest } from "./client";
 
 // ============================================
 // Use Prisma's generated types directly
@@ -111,33 +112,14 @@ export type ItemCustomerApiResponse = ApiResponse<{
 export async function getCustomersApi(
   params: GetCustomersParams
 ): Promise<CustomerApiResponse> {
-  const queryParams = new URLSearchParams({
-    workspaceId: params.workspaceId,
-  });
-
-  if (params.status) {
-    queryParams.append("status", params.status);
-  }
-
-  if (params.search) {
-    queryParams.append("search", params.search);
-  }
-
-  const response = await fetch(`/api/customers?${queryParams.toString()}`, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
+  return apiRequest<CustomerApiResponse>("/api/customers", {
+    query: {
+      workspaceId: params.workspaceId,
+      status: params.status,
+      search: params.search,
     },
+    errorMessage: "Failed to fetch customers",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch customers");
-  }
-
-  return result;
 }
 
 /**
@@ -147,26 +129,10 @@ export async function getCustomerByIdApi(
   customerId: string,
   workspaceId: string
 ): Promise<CustomerApiResponse> {
-  const response = await fetch(
-    `/api/customers/${customerId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch customer");
-  }
-
-  return result;
+  return apiRequest<CustomerApiResponse>(`/api/customers/${customerId}`, {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch customer",
+  });
 }
 
 /**
@@ -175,22 +141,11 @@ export async function getCustomerByIdApi(
 export async function createCustomerApi(
   data: CreateCustomerRequest
 ): Promise<CustomerApiResponse> {
-  const response = await fetch("/api/customers", {
+  return apiRequest<CustomerApiResponse>("/api/customers", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create customer",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create customer");
-  }
-
-  return result;
 }
 
 /**
@@ -200,22 +155,11 @@ export async function updateCustomerApi(
   customerId: string,
   data: UpdateCustomerRequest
 ): Promise<CustomerApiResponse> {
-  const response = await fetch(`/api/customers/${customerId}`, {
+  return apiRequest<CustomerApiResponse>(`/api/customers/${customerId}`, {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update customer",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update customer");
-  }
-
-  return result;
 }
 
 /**
@@ -225,28 +169,11 @@ export async function deleteCustomerApi(
   customerId: string,
   workspaceId: string
 ): Promise<CustomerApiResponse> {
-  const queryParams = new URLSearchParams({
-    workspaceId: workspaceId,
+  return apiRequest<CustomerApiResponse>(`/api/customers/${customerId}`, {
+    method: "DELETE",
+    query: { workspaceId },
+    errorMessage: "Failed to delete customer",
   });
-
-  const response = await fetch(
-    `/api/customers/${customerId}?${queryParams.toString()}`,
-    {
-      method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to delete customer");
-  }
-
-  return result;
 }
 
 /**
@@ -255,28 +182,10 @@ export async function deleteCustomerApi(
 export async function getCustomerStatsApi(
   workspaceId: string
 ): Promise<CustomerStatsApiResponse> {
-  const queryParams = new URLSearchParams({
-    workspaceId: workspaceId,
+  return apiRequest<CustomerStatsApiResponse>("/api/customers/stats", {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch customer statistics",
   });
-
-  const response = await fetch(
-    `/api/customers/stats?${queryParams.toString()}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch customer statistics");
-  }
-
-  return result;
 }
 
 /**
@@ -285,22 +194,11 @@ export async function getCustomerStatsApi(
 export async function attachItemToCustomerApi(
   data: AttachItemToCustomerRequest
 ): Promise<ItemCustomerApiResponse> {
-  const response = await fetch("/api/customers/attach-item", {
+  return apiRequest<ItemCustomerApiResponse>("/api/customers/attach-item", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to attach item to customer",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to attach item to customer");
-  }
-
-  return result;
 }
 
 /**
@@ -310,19 +208,11 @@ export async function detachItemFromCustomerApi(
   customerId: string,
   itemId: string
 ): Promise<ApiResponse<undefined>> {
-  const response = await fetch(`/api/customers/${customerId}/items/${itemId}`, {
-    method: "DELETE",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to detach item from customer");
-  }
-
-  return result;
+  return apiRequest<ApiResponse<undefined>>(
+    `/api/customers/${customerId}/items/${itemId}`,
+    {
+      method: "DELETE",
+      errorMessage: "Failed to detach item from customer",
+    }
+  );
 }

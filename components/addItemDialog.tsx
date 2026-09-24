@@ -1,719 +1,476 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useCallback, useEffect, useState, type FormEvent } from "react"
+import { Loader2, Plus, ScanLine } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { toast } from "sonner"
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
-import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-} from "@/components/ui/command"
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover"
-import { Check, ChevronsUpDown, Plus } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { createItemApi } from "@/lib/api/items.api"
-import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
-import { getLocationsApi, getWorkspaceStructureApi, type LocationWithCount, type LocationTemplate } from "@/lib/api/locations.api"
-import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
 import { AddCategoryDialog } from "@/components/addCategoryDialog"
 import { AddSupplierDialog } from "@/components/addSupplierDialog"
 import { AddLocationDialog } from "@/components/addLocationDialog"
+import { BarcodeScannerDialog } from "@/components/barcodeScannerDialog"
+import { EntityCombobox } from "@/components/items/entity-combobox"
+import { Field, invalidProps } from "@/components/items/form-field"
+import { DEFAULT_REORDER_POINT, testIdSlug, type ReorderPointFields } from "@/components/items/item-utils"
+import { createItemApi, type CreateItemRequest } from "@/lib/api/items.api"
+import { getCategoriesApi, type CategoryWithCount } from "@/lib/api/categories.api"
+import {
+  getLocationsApi,
+  getWorkspaceStructureApi,
+  type LocationTemplate,
+  type LocationWithCount,
+} from "@/lib/api/locations.api"
+import { getSuppliersApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
 
 interface AddItemDialogProps {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    workspaceId: string
-    onSuccess?: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Defaults to the current workspace */
+  workspaceId?: string
+  onSuccess?: () => void
+  /** Preselect a category (e.g. when adding from a category page) */
+  defaultCategoryId?: string
+  /** Prefill the barcode (e.g. an unknown code from the scanner) */
+  defaultBarcode?: string
 }
 
-interface ItemFormData {
-    name: string
-    unit: string
-    category: string
-    description: string
-    supplier: string
-    onHand: string
-    storageLocation: string
-    cost: string
+/** Create an item with its starting stock, cost, reorder point and storage location */
+export function AddItemDialog({
+  open,
+  onOpenChange,
+  workspaceId,
+  onSuccess,
+  defaultCategoryId,
+  defaultBarcode,
+}: AddItemDialogProps) {
+  const { workspaceId: currentWorkspaceId } = useWorkspace()
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl" data-testid="add-item-dialog">
+        <DialogHeader>
+          <DialogTitle data-testid="dialog-title">Add item</DialogTitle>
+          <DialogDescription>Add a product to your inventory. You can add photos and more details afterwards.</DialogDescription>
+        </DialogHeader>
+        {/* Mounted only while open, so every open starts with a fresh form */}
+        <AddItemForm
+          workspaceId={workspaceId || currentWorkspaceId}
+          defaultCategoryId={defaultCategoryId}
+          defaultBarcode={defaultBarcode}
+          onCancel={() => onOpenChange(false)}
+          onCreated={() => {
+            onSuccess?.()
+            onOpenChange(false)
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  )
 }
 
-const initialFormState: ItemFormData = {
+interface FormState {
+  name: string
+  unit: string
+  barcode: string
+  categoryId: string
+  supplierId: string
+  description: string
+  onHand: string
+  cost: string
+  reorderPoint: string
+  locationId: string
+}
+
+type FormErrors = Partial<Record<keyof FormState, string>>
+
+const WHOLE_NUMBER = /^\d+$/
+
+function validate(form: FormState): FormErrors {
+  const errors: FormErrors = {}
+  if (!form.name.trim()) errors.name = "Enter a name for the item"
+
+  if (form.onHand.trim() === "") errors.onHand = "Enter the starting quantity (0 is fine)"
+  else if (!WHOLE_NUMBER.test(form.onHand.trim())) errors.onHand = "Use a whole number, 0 or more"
+
+  const cost = Number(form.cost)
+  if (form.cost.trim() === "") errors.cost = "Enter the unit cost"
+  else if (!Number.isFinite(cost) || cost < 0) errors.cost = "Enter a valid amount, 0 or more"
+
+  if (form.reorderPoint.trim() !== "" && !WHOLE_NUMBER.test(form.reorderPoint.trim())) {
+    errors.reorderPoint = "Use a whole number, 0 or more"
+  }
+
+  if (!errors.onHand && Number(form.onHand) > 0 && !form.locationId) {
+    errors.locationId = "Storage location is required when initial stock is above 0"
+  }
+  return errors
+}
+
+// DOM ids, in form order — used to focus the first invalid field
+const FIELD_IDS: Record<keyof FormState, string> = {
+  name: "item-name",
+  unit: "item-unit",
+  barcode: "item-barcode",
+  categoryId: "item-category",
+  supplierId: "item-supplier",
+  description: "item-description",
+  onHand: "item-onhand",
+  cost: "item-cost",
+  reorderPoint: "item-reorder-point",
+  locationId: "item-location",
+}
+
+function AddItemForm({
+  workspaceId,
+  defaultCategoryId,
+  defaultBarcode,
+  onCancel,
+  onCreated,
+}: {
+  workspaceId: string
+  defaultCategoryId?: string
+  defaultBarcode?: string
+  onCancel: () => void
+  onCreated: () => void
+}) {
+  const [form, setForm] = useState<FormState>({
     name: "",
     unit: "",
-    category: "",
+    barcode: defaultBarcode ?? "",
+    categoryId: defaultCategoryId ?? "",
+    supplierId: "",
     description: "",
-    supplier: "",
     onHand: "",
-    storageLocation: "",
     cost: "",
-}
+    reorderPoint: String(DEFAULT_REORDER_POINT),
+    locationId: "",
+  })
+  const [submitted, setSubmitted] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-export function AddItemDialog({
-    open,
-    onOpenChange,
-    workspaceId,
-    onSuccess,
-}: AddItemDialogProps) {
-    const [formData, setFormData] = useState<ItemFormData>(initialFormState)
-    const [isCreating, setIsCreating] = useState(false)
-    const [error, setError] = useState("")
-    const [categoryOpen, setCategoryOpen] = useState(false)
-    const [supplierOpen, setSupplierOpen] = useState(false)
-    const [locationOpen, setLocationOpen] = useState(false)
+  const [categories, setCategories] = useState<CategoryWithCount[]>([])
+  const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
+  const [locations, setLocations] = useState<LocationWithCount[]>([])
+  const [structure, setStructure] = useState<LocationTemplate | null>(null)
+  const [loadingLookups, setLoadingLookups] = useState(true)
 
-    // Self-managed data
-    const [categories, setCategories] = useState<CategoryWithCount[]>([])
-    const [locations, setLocations] = useState<LocationWithCount[]>([])
-    const [suppliers, setSuppliers] = useState<SupplierWithCount[]>([])
-    const [defaultLocationStructure, setDefaultLocationStructure] = useState<LocationTemplate | null>(null)
-    const [isLoadingData, setIsLoadingData] = useState(false)
+  const [createOpen, setCreateOpen] = useState<"category" | "supplier" | "location" | null>(null)
+  const [scannerOpen, setScannerOpen] = useState(false)
 
-    // Sub-dialog states
-    const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
-    const [isAddSupplierOpen, setIsAddSupplierOpen] = useState(false)
-    const [isAddLocationOpen, setIsAddLocationOpen] = useState(false)
+  const loadCategories = useCallback(
+    () => getCategoriesApi(workspaceId).then((res) => setCategories(res.data?.categories ?? [])),
+    [workspaceId]
+  )
+  const loadSuppliers = useCallback(
+    () => getSuppliersApi(workspaceId).then((res) => setSuppliers(res.data?.suppliers ?? [])),
+    [workspaceId]
+  )
+  const loadLocations = useCallback(
+    () => getLocationsApi(workspaceId).then((res) => setLocations(res.data?.locations ?? [])),
+    [workspaceId]
+  )
 
-    // Refs
-    const scrollContainerRef = useRef<HTMLDivElement>(null)
-    const focusedInputRef = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!workspaceId) return
+    Promise.allSettled([
+      loadCategories(),
+      loadSuppliers(),
+      loadLocations(),
+      getWorkspaceStructureApi(workspaceId).then((res) => setStructure(res.data?.structure ?? null)),
+    ]).then((results) => {
+      // the location structure is only a default for new locations — ignore its failure
+      if (results.slice(0, 3).some((r) => r.status === "rejected")) {
+        toast.error("Some lists couldn't be loaded", { description: "Categories, suppliers or locations may be missing." })
+      }
+      setLoadingLookups(false)
+    })
+  }, [workspaceId, loadCategories, loadSuppliers, loadLocations])
 
-    // Handle focused input tracking and scrolling
-    useEffect(() => {
-        if (!open) return
+  const errors = submitted ? validate(form) : {}
 
-        const handleFocus = (e: FocusEvent) => {
-            const target = e.target as HTMLElement
-            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-                focusedInputRef.current = target
+  const set = (field: keyof FormState, value: string) => setForm((prev) => ({ ...prev, [field]: value }))
 
-                // On mobile, scroll the input into view after a short delay
-                setTimeout(() => {
-                    if (scrollContainerRef.current && focusedInputRef.current) {
-                        const container = scrollContainerRef.current
-                        const input = focusedInputRef.current
-
-                        const containerRect = container.getBoundingClientRect()
-                        const inputRect = input.getBoundingClientRect()
-
-                        // Calculate how much to scroll
-                        const scrollTop = container.scrollTop
-                        const inputTop = inputRect.top - containerRect.top
-                        const targetScroll = scrollTop + inputTop - 100 // 100px from top
-
-                        container.scrollTo({
-                            top: Math.max(0, targetScroll),
-                            behavior: 'smooth'
-                        })
-                    }
-                }, 300) // Wait for keyboard to appear
-            }
-        }
-
-        const handleBlur = () => {
-            setTimeout(() => {
-                if (document.activeElement?.tagName !== 'INPUT' &&
-                    document.activeElement?.tagName !== 'TEXTAREA') {
-                    focusedInputRef.current = null
-                }
-            }, 100)
-        }
-
-        document.addEventListener('focusin', handleFocus, true)
-        document.addEventListener('focusout', handleBlur, true)
-
-        return () => {
-            document.removeEventListener('focusin', handleFocus, true)
-            document.removeEventListener('focusout', handleBlur, true)
-        }
-    }, [open])
-
-    // Load all data when dialog opens
-    useEffect(() => {
-        if (open && workspaceId) {
-            loadAllData()
-        }
-    }, [open, workspaceId])
-
-    const loadAllData = async () => {
-        if (!workspaceId) return
-
-        setIsLoadingData(true)
-        try {
-            await Promise.all([
-                loadCategories(),
-                loadLocations(),
-                loadSuppliers(),
-                loadLocationStructure(),
-            ])
-        } catch (error) {
-            console.error("Failed to load data:", error)
-        } finally {
-            setIsLoadingData(false)
-        }
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setSubmitted(true)
+    const found = validate(form)
+    const firstInvalid = (Object.keys(FIELD_IDS) as (keyof FormState)[]).find((key) => found[key])
+    if (firstInvalid) {
+      document.getElementById(FIELD_IDS[firstInvalid])?.focus()
+      return
     }
 
-    const loadCategories = async () => {
-        try {
-            const response = await getCategoriesApi(workspaceId)
-            if (response.data?.categories) {
-                setCategories(response.data.categories)
-            }
-        } catch (err) {
-            console.error("Failed to load categories:", err)
-        }
+    setSaving(true)
+    try {
+      const payload: CreateItemRequest & ReorderPointFields = {
+        workspaceId,
+        name: form.name.trim(),
+        barcode: form.barcode.trim() || undefined,
+        unit: form.unit.trim() || undefined,
+        description: form.description.trim() || undefined,
+        onHand: Number(form.onHand),
+        cost: Number(form.cost),
+        reorderPoint: form.reorderPoint.trim() === "" ? DEFAULT_REORDER_POINT : Number(form.reorderPoint),
+        categoryId: form.categoryId || undefined,
+        supplierId: form.supplierId || undefined,
+        locationId: form.locationId || undefined,
+      }
+      await createItemApi(payload)
+      toast.success("Item created successfully", { description: payload.name })
+      onCreated()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't create the item"))
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const loadLocations = async () => {
-        try {
-            const response = await getLocationsApi(workspaceId)
-            if (response.data?.locations) {
-                setLocations(response.data.locations)
-            }
-        } catch (err) {
-            console.error("Failed to load locations:", err)
-        }
-    }
+  const stockAboveZero = WHOLE_NUMBER.test(form.onHand.trim()) && Number(form.onHand) > 0
 
-    const loadSuppliers = async () => {
-        try {
-            const response = await getSuppliersApi(workspaceId)
-            if (response.data?.suppliers) {
-                setSuppliers(response.data.suppliers)
-            }
-        } catch (err) {
-            console.error("Failed to load suppliers:", err)
-        }
-    }
-
-    const loadLocationStructure = async () => {
-        try {
-            const response = await getWorkspaceStructureApi(workspaceId)
-            if (response.data?.structure) {
-                setDefaultLocationStructure(response.data.structure)
-            }
-        } catch (err) {
-            console.error("Failed to load location structure:", err)
-        }
-    }
-
-    // Reset form when dialog closes
-    const handleOpenChange = (newOpen: boolean) => {
-        if (!newOpen) {
-            setFormData(initialFormState)
-            setError("")
-            setCategoryOpen(false)
-            setSupplierOpen(false)
-            setLocationOpen(false)
-        }
-        onOpenChange(newOpen)
-    }
-
-    const updateFormField = (field: keyof ItemFormData, value: string) => {
-        setFormData(prev => ({ ...prev, [field]: value }))
-        if (error) setError("")
-    }
-
-    const validateForm = (): boolean => {
-        if (!formData.name.trim()) {
-            setError("Item name is required")
-            return false
-        }
-        if (!formData.onHand) {
-            setError("Initial stock is required")
-            return false
-        }
-        if (!formData.cost) {
-            setError("Unit cost is required")
-            return false
-        }
-
-        const onHand = Number.parseInt(formData.onHand)
-        if (onHand > 0 && !formData.storageLocation) {
-            setError("Storage location is required when initial stock is greater than 0")
-            return false
-        }
-
-        return true
-    }
-
-    const handleSubmit = async () => {
-        if (!validateForm()) return
-        if (!workspaceId) {
-            setError("No workspace selected. Please select a workspace first.")
-            return
-        }
-
-        setIsCreating(true)
-        setError("")
-
-        try {
-            const onHand = Number.parseInt(formData.onHand)
-            const cost = Number.parseFloat(formData.cost)
-
-            if (isNaN(onHand) || onHand < 0) {
-                setError("Initial stock must be a valid positive number")
-                return
-            }
-
-            if (isNaN(cost) || cost < 0) {
-                setError("Unit cost must be a valid positive number")
-                return
-            }
-
-            const response = await createItemApi({
-                workspaceId: workspaceId,
-                name: formData.name,
-                barcode: undefined,
-                unit: formData.unit || undefined,
-                description: formData.description || undefined,
-                onHand: onHand,
-                cost: cost,
-                categoryId: formData.category || undefined,
-                locationId: formData.storageLocation || undefined,
-                supplierId: formData.supplier || undefined,
-            })
-
-            if (response.data?.item) {
-                toast.success("Item created successfully")
-                setFormData(initialFormState)
-                onSuccess?.()
-                onOpenChange(false)
-            }
-        } catch (err) {
-            console.error("Create item error:", err)
-            setError(err instanceof Error ? err.message : "Failed to create item")
-        } finally {
-            setIsCreating(false)
-        }
-    }
-
-    const handleCategoryCreated = async (category: CategoryWithCount) => {
-        await loadCategories()
-        updateFormField("category", category.id)
-        setCategoryOpen(false)
-    }
-
-    const handleSupplierCreated = async (supplier: SupplierWithCount) => {
-        await loadSuppliers()
-        updateFormField("supplier", supplier.id)
-        setSupplierOpen(false)
-    }
-
-    const handleLocationCreated = async (location: LocationWithCount) => {
-        await loadLocations()
-        updateFormField("storageLocation", location.id)
-        setLocationOpen(false)
-    }
-
-    const handleLocationStructureUpdate = async (structure: LocationTemplate) => {
-        setDefaultLocationStructure(structure)
-    }
-
-    const isFormValid = formData.name.trim() && formData.onHand && formData.cost
-
-    return (
-        <>
-            <Dialog open={open} onOpenChange={handleOpenChange}>
-                <DialogContent
-                    enableKeyboardAvoidance={true}
-                    hideClose={true}
-                    className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
-                    data-testid="add-item-dialog"
-                >
-                    {/* Header */}
-                    <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
-                        {/* Mobile Header with Actions */}
-                        <div className="flex items-center justify-between gap-2 sm:hidden">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleOpenChange(false)}
-                                disabled={isCreating}
-                                className="h-9"
-                                data-testid="cancel-button-mobile"
-                            >
-                                Cancel
-                            </Button>
-                            <DialogTitle className="text-base font-semibold">Add New Item</DialogTitle>
-                            <Button
-                                size="sm"
-                                onClick={handleSubmit}
-                                disabled={isCreating || !isFormValid || isLoadingData}
-                                className="h-9"
-                                data-testid="submit-button-mobile"
-                            >
-                                {isCreating ? "Adding..." : "Add"}
-                            </Button>
-                        </div>
-
-                        {/* Desktop Header */}
-                        <div className="hidden sm:block">
-                            <DialogTitle data-testid="dialog-title">Add New Item</DialogTitle>
-                            <DialogDescription className="mt-1.5">
-                                Add a new item to your inventory with all required details.
-                            </DialogDescription>
-                        </div>
-                    </DialogHeader>
-
-                    {/* Scrollable Form Content */}
-                    <div
-                        ref={scrollContainerRef}
-                        className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-0"
-                        style={{
-                            WebkitOverflowScrolling: 'touch',
-                        }}
-                    >
-                        <div className="space-y-4">
-                            {/* Item Name & Unit */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="item-name">
-                                        Item Name <span className="text-destructive">*</span>
-                                    </Label>
-                                    <Input
-                                        id="item-name"
-                                        placeholder="e.g., Wireless Mouse"
-                                        value={formData.name}
-                                        onChange={(e) => updateFormField("name", e.target.value)}
-                                        autoComplete="off"
-                                        autoCorrect="off"
-                                        autoCapitalize="off"
-                                        spellCheck="false"
-                                        data-testid="item-name-input"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="item-unit">Unit</Label>
-                                    <Input
-                                        id="item-unit"
-                                        placeholder="e.g., EA, BOX, LB, KG, GAL"
-                                        value={formData.unit}
-                                        onChange={(e) => updateFormField("unit", e.target.value)}
-                                        autoComplete="off"
-                                        autoCorrect="off"
-                                        autoCapitalize="off"
-                                        spellCheck="false"
-                                        data-testid="item-unit-input"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Category & Supplier */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="item-category">Category</Label>
-                                    <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                role="combobox"
-                                                aria-expanded={categoryOpen}
-                                                className="w-full justify-between h-9 font-normal bg-transparent"
-                                                disabled={isLoadingData}
-                                                data-testid="category-select-button"
-                                            >
-                                                {formData.category
-                                                    ? categories.find((category) => category.id === formData.category)?.name
-                                                    : "Search categories..."}
-                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-                                            <Command>
-                                                <CommandInput placeholder="Search category..." className="h-9" />
-                                                <CommandList>
-                                                    <CommandEmpty>No category found.</CommandEmpty>
-                                                    <CommandGroup>
-                                                        <CommandItem
-                                                            onSelect={() => {
-                                                                setCategoryOpen(false)
-                                                                setIsAddCategoryOpen(true)
-                                                            }}
-                                                            className="bg-primary/5 border-b"
-                                                            data-testid="create-category-option"
-                                                        >
-                                                            <Plus className="mr-2 h-4 w-4 text-primary" />
-                                                            <span className="font-medium text-primary">Create new category</span>
-                                                        </CommandItem>
-                                                        {categories.map((category) => (
-                                                            <CommandItem
-                                                                key={category.id}
-                                                                value={category.name}
-                                                                onSelect={() => {
-                                                                    updateFormField("category", category.id)
-                                                                    setCategoryOpen(false)
-                                                                }}
-                                                                data-testid={`category-option-${category.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                                            >
-                                                                <Check
-                                                                    className={cn(
-                                                                        "mr-2 h-4 w-4",
-                                                                        formData.category === category.id ? "opacity-100" : "opacity-0"
-                                                                    )}
-                                                                />
-                                                                {category.name}
-                                                            </CommandItem>
-                                                        ))}
-                                                    </CommandGroup>
-                                                </CommandList>
-                                            </Command>
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="item-supplier">Supplier</Label>
-                                    <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                role="combobox"
-                                                aria-expanded={supplierOpen}
-                                                className="w-full justify-between h-9 font-normal bg-transparent"
-                                                disabled={isLoadingData}
-                                                data-testid="supplier-select-button"
-                                            >
-                                                {formData.supplier
-                                                    ? suppliers.find((supplier) => supplier.id === formData.supplier)?.name
-                                                    : "Search suppliers..."}
-                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-                                            <Command>
-                                                <CommandInput placeholder="Search supplier..." className="h-9" />
-                                                <CommandList>
-                                                    <CommandEmpty>No supplier found.</CommandEmpty>
-                                                    <CommandGroup>
-                                                        <CommandItem
-                                                            onSelect={() => {
-                                                                setSupplierOpen(false)
-                                                                setIsAddSupplierOpen(true)
-                                                            }}
-                                                            className="bg-primary/5 border-b"
-                                                            data-testid="create-supplier-option"
-                                                        >
-                                                            <Plus className="mr-2 h-4 w-4 text-primary" />
-                                                            <span className="font-medium text-primary">Create new supplier</span>
-                                                        </CommandItem>
-                                                        {suppliers.map((supplier) => (
-                                                            <CommandItem
-                                                                key={supplier.id}
-                                                                value={supplier.name}
-                                                                onSelect={() => {
-                                                                    updateFormField("supplier", supplier.id)
-                                                                    setSupplierOpen(false)
-                                                                }}
-                                                                data-testid={`supplier-option-${supplier.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                                            >
-                                                                <Check
-                                                                    className={cn(
-                                                                        "mr-2 h-4 w-4",
-                                                                        formData.supplier === supplier.id ? "opacity-100" : "opacity-0"
-                                                                    )}
-                                                                />
-                                                                {supplier.name}
-                                                            </CommandItem>
-                                                        ))}
-                                                    </CommandGroup>
-                                                </CommandList>
-                                            </Command>
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                            </div>
-
-                            {/* Description */}
-                            <div className="space-y-2">
-                                <Label htmlFor="item-description">Description</Label>
-                                <Textarea
-                                    id="item-description"
-                                    placeholder="Brief description of the item..."
-                                    value={formData.description}
-                                    onChange={(e) => updateFormField("description", e.target.value)}
-                                    rows={3}
-                                    autoComplete="off"
-                                    autoCorrect="off"
-                                    autoCapitalize="off"
-                                    spellCheck="false"
-                                    data-testid="item-description-input"
-                                />
-                            </div>
-
-                            {/* Initial Stock, Cost, Location */}
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="item-onhand">
-                                        Initial Stock <span className="text-destructive">*</span>
-                                    </Label>
-                                    <Input
-                                        id="item-onhand"
-                                        type="number"
-                                        min="0"
-                                        placeholder="0"
-                                        value={formData.onHand}
-                                        onChange={(e) => updateFormField("onHand", e.target.value)}
-                                        autoComplete="off"
-                                        inputMode="numeric"
-                                        data-testid="item-stock-input"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="item-cost">
-                                        Unit Cost <span className="text-destructive">*</span>
-                                    </Label>
-                                    <Input
-                                        id="item-cost"
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        placeholder="0.00"
-                                        value={formData.cost}
-                                        onChange={(e) => updateFormField("cost", e.target.value)}
-                                        autoComplete="off"
-                                        inputMode="decimal"
-                                        data-testid="item-cost-input"
-                                    />
-                                </div>
-                                <div className="space-y-2 col-span-2 md:col-span-1">
-                                    <Label htmlFor="item-location">Storage Location</Label>
-                                    <Popover open={locationOpen} onOpenChange={setLocationOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                role="combobox"
-                                                aria-expanded={locationOpen}
-                                                className="w-full justify-between h-9 font-normal bg-transparent"
-                                                disabled={isLoadingData}
-                                                data-testid="location-select-button"
-                                            >
-                                                {formData.storageLocation
-                                                    ? locations.find((location) => location.id === formData.storageLocation)?.code
-                                                    : "Search locations..."}
-                                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-                                            <Command>
-                                            <CommandInput
-                                                placeholder="Search location..."
-                                                className="h-9"
-                                                data-testid="location-search-input"
-                                            />
-                                                <CommandList>
-                                                    <CommandEmpty>No location found.</CommandEmpty>
-                                                    <CommandGroup>
-                                                        <CommandItem
-                                                            onSelect={() => {
-                                                                setLocationOpen(false)
-                                                                setIsAddLocationOpen(true)
-                                                            }}
-                                                            className="bg-primary/5 border-b"
-                                                            data-testid="create-location-option"
-                                                        >
-                                                            <Plus className="mr-2 h-4 w-4 text-primary" />
-                                                            <span className="font-medium text-primary">Create new location</span>
-                                                        </CommandItem>
-                                                        {locations.map((location) => (
-                                                            <CommandItem
-                                                                key={location.id}
-                                                                value={location.code}
-                                                                onSelect={() => {
-                                                                    updateFormField("storageLocation", location.id)
-                                                                    setLocationOpen(false)
-                                                                }}
-                                                                data-testid={`location-option-${location.code.toLowerCase().replace(/\s+/g, '-')}`}
-                                                            >
-                                                                <Check
-                                                                    className={cn(
-                                                                        "mr-2 h-4 w-4",
-                                                                        formData.storageLocation === location.id ? "opacity-100" : "opacity-0"
-                                                                    )}
-                                                                />
-                                                                {location.code}
-                                                            </CommandItem>
-                                                        ))}
-                                                    </CommandGroup>
-                                                </CommandList>
-                                            </Command>
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                            </div>
-
-                            {/* Error Message */}
-                            {error && (
-                                <div
-                                    className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-3"
-                                    data-testid="form-error-message"
-                                >
-                                    {error}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Footer - Desktop Only */}
-                    <DialogFooter className="hidden sm:flex px-4 pb-4 sm:px-0 sm:pb-0 flex-shrink-0 border-t sm:border-0 pt-4 sm:pt-0 bg-background">
-                        <Button
-                            variant="outline"
-                            onClick={() => handleOpenChange(false)}
-                            disabled={isCreating}
-                            data-testid="cancel-button-desktop"
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleSubmit}
-                            disabled={isCreating || !isFormValid || isLoadingData}
-                            data-testid="submit-button-desktop"
-                        >
-                            {isCreating ? "Creating..." : "Add Item"}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Nested Dialogs */}
-            <AddCategoryDialog
-                open={isAddCategoryOpen}
-                onOpenChange={setIsAddCategoryOpen}
-                workspaceId={workspaceId}
-                onSuccess={handleCategoryCreated}
+  return (
+    <>
+      <form onSubmit={handleSubmit} noValidate className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
+          <Field label="Name" htmlFor={FIELD_IDS.name} required error={errors.name} errorTestId="item-name-error">
+            <Input
+              {...invalidProps(FIELD_IDS.name, errors.name)}
+              placeholder="e.g. Wireless mouse"
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              autoComplete="off"
+              data-testid="item-name-input"
             />
-
-            <AddSupplierDialog
-                open={isAddSupplierOpen}
-                onOpenChange={setIsAddSupplierOpen}
-                workspaceId={workspaceId}
-                onSuccess={handleSupplierCreated}
+          </Field>
+          <Field label="Unit" htmlFor={FIELD_IDS.unit} hint="EA, BOX, KG…">
+            <Input
+              {...invalidProps(FIELD_IDS.unit)}
+              placeholder="EA"
+              value={form.unit}
+              onChange={(e) => set("unit", e.target.value)}
+              autoComplete="off"
+              autoCapitalize="characters"
+              data-testid="item-unit-input"
             />
+          </Field>
+        </div>
 
-            <AddLocationDialog
-                open={isAddLocationOpen}
-                onOpenChange={setIsAddLocationOpen}
-                workspaceId={workspaceId}
-                defaultStructure={defaultLocationStructure}
-                onSuccess={handleLocationCreated}
-                onStructureUpdate={handleLocationStructureUpdate}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Category" htmlFor={FIELD_IDS.categoryId}>
+            <EntityCombobox
+              id={FIELD_IDS.categoryId}
+              value={form.categoryId}
+              onChange={(v) => set("categoryId", v)}
+              options={categories.map((c) => ({
+                value: c.id,
+                label: c.name,
+                testId: `category-option-${testIdSlug(c.name)}`,
+              }))}
+              placeholder={loadingLookups ? "Loading…" : "Choose a category"}
+              searchPlaceholder="Search categories…"
+              emptyText="No category found."
+              createLabel="Create new category"
+              onCreate={() => setCreateOpen("category")}
+              createTestId="create-category-option"
+              clearable
+              disabled={loadingLookups}
+              triggerTestId="category-select-button"
             />
-        </>
-    )
+          </Field>
+          <Field label="Supplier" htmlFor={FIELD_IDS.supplierId}>
+            <EntityCombobox
+              id={FIELD_IDS.supplierId}
+              value={form.supplierId}
+              onChange={(v) => set("supplierId", v)}
+              options={suppliers.map((s) => ({
+                value: s.id,
+                label: s.name,
+                testId: `supplier-option-${testIdSlug(s.name)}`,
+              }))}
+              placeholder={loadingLookups ? "Loading…" : "Choose a supplier"}
+              searchPlaceholder="Search suppliers…"
+              emptyText="No supplier found."
+              createLabel="Create new supplier"
+              onCreate={() => setCreateOpen("supplier")}
+              createTestId="create-supplier-option"
+              clearable
+              disabled={loadingLookups}
+              triggerTestId="supplier-select-button"
+            />
+          </Field>
+        </div>
+
+        <Field label="Barcode" htmlFor={FIELD_IDS.barcode} hint="Optional — scan it or type the digits">
+          <div className="flex gap-2">
+            <Input
+              {...invalidProps(FIELD_IDS.barcode)}
+              className="font-mono"
+              placeholder="e.g. 0012345678905"
+              value={form.barcode}
+              onChange={(e) => set("barcode", e.target.value)}
+              autoComplete="off"
+              data-testid="item-barcode-input"
+            />
+            <Button type="button" variant="outline" onClick={() => setScannerOpen(true)} aria-label="Scan barcode">
+              <ScanLine />
+              <span className="hidden sm:inline">Scan</span>
+            </Button>
+          </div>
+        </Field>
+
+        <Field label="Description" htmlFor={FIELD_IDS.description}>
+          <Textarea
+            id={FIELD_IDS.description}
+            placeholder="Size, colour, model or anything that helps identify it"
+            value={form.description}
+            onChange={(e) => set("description", e.target.value)}
+            rows={2}
+            data-testid="item-description-input"
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <Field label="Initial stock" htmlFor={FIELD_IDS.onHand} required error={errors.onHand} errorTestId="item-stock-error">
+            <Input
+              {...invalidProps(FIELD_IDS.onHand, errors.onHand)}
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              placeholder="0"
+              value={form.onHand}
+              onChange={(e) => set("onHand", e.target.value)}
+              data-testid="item-stock-input"
+            />
+          </Field>
+          <Field label="Unit cost" htmlFor={FIELD_IDS.cost} required error={errors.cost} errorTestId="item-cost-error">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+              <Input
+                {...invalidProps(FIELD_IDS.cost, errors.cost)}
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                placeholder="0.00"
+                className="pl-7"
+                value={form.cost}
+                onChange={(e) => set("cost", e.target.value)}
+                data-testid="item-cost-input"
+              />
+            </div>
+          </Field>
+          <Field
+            label="Reorder point"
+            htmlFor={FIELD_IDS.reorderPoint}
+            hint="Low stock at or below this"
+            error={errors.reorderPoint}
+            errorTestId="item-reorder-point-error"
+            className="col-span-2 sm:col-span-1"
+          >
+            <Input
+              {...invalidProps(FIELD_IDS.reorderPoint, errors.reorderPoint)}
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              placeholder={String(DEFAULT_REORDER_POINT)}
+              value={form.reorderPoint}
+              onChange={(e) => set("reorderPoint", e.target.value)}
+              data-testid="item-reorder-point-input"
+            />
+          </Field>
+        </div>
+
+        <Field
+          label="Storage location"
+          htmlFor={FIELD_IDS.locationId}
+          required={stockAboveZero}
+          hint={stockAboveZero ? "Where the initial stock is kept" : "Optional when starting with 0 stock"}
+          error={errors.locationId}
+          // the e2e suite asserts the "location is required" message via this id
+          errorTestId="form-error-message"
+        >
+          <EntityCombobox
+            id={FIELD_IDS.locationId}
+            value={form.locationId}
+            onChange={(v) => set("locationId", v)}
+            options={locations.map((l) => ({
+              value: l.id,
+              label: l.code,
+              testId: `location-option-${testIdSlug(l.code)}`,
+            }))}
+            placeholder={loadingLookups ? "Loading…" : "Choose a location"}
+            searchPlaceholder="Search locations…"
+            emptyText="No location found."
+            createLabel="Create new location"
+            onCreate={() => setCreateOpen("location")}
+            createTestId="create-location-option"
+            clearable
+            mono
+            invalid={!!errors.locationId}
+            disabled={loadingLookups}
+            triggerTestId="location-select-button"
+            searchTestId="location-search-input"
+          />
+        </Field>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onCancel} disabled={saving} data-testid="cancel-button-desktop">
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving || loadingLookups} data-testid="submit-button-desktop">
+            {saving ? <Loader2 className="animate-spin" /> : <Plus />}
+            {saving ? "Adding…" : "Add item"}
+          </Button>
+        </DialogFooter>
+      </form>
+
+      <AddCategoryDialog
+        open={createOpen === "category"}
+        onOpenChange={(o) => setCreateOpen(o ? "category" : null)}
+        workspaceId={workspaceId}
+        onSuccess={async (category) => {
+          await loadCategories().catch(() => undefined)
+          set("categoryId", category.id)
+        }}
+      />
+      <AddSupplierDialog
+        open={createOpen === "supplier"}
+        onOpenChange={(o) => setCreateOpen(o ? "supplier" : null)}
+        workspaceId={workspaceId}
+        onSuccess={async (supplier) => {
+          await loadSuppliers().catch(() => undefined)
+          set("supplierId", supplier.id)
+        }}
+      />
+      <AddLocationDialog
+        open={createOpen === "location"}
+        onOpenChange={(o) => setCreateOpen(o ? "location" : null)}
+        workspaceId={workspaceId}
+        defaultStructure={structure}
+        onSuccess={async (location) => {
+          await loadLocations().catch(() => undefined)
+          set("locationId", location.id)
+        }}
+        onStructureUpdate={setStructure}
+      />
+      <BarcodeScannerDialog
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        currentBarcode={form.barcode}
+        onBarcodeScanned={(code) => set("barcode", code)}
+      />
+    </>
+  )
 }

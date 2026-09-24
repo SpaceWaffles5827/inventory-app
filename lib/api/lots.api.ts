@@ -1,6 +1,7 @@
 // Client-side API helper functions for lot tracking
+import type { Prisma } from "@prisma/client";
 import type { ApiResponse } from "./types";
-import { Prisma } from "@prisma/client";
+import { apiRequest } from "./client";
 
 // ============================================
 // Extended types for location details
@@ -26,71 +27,62 @@ export type LotLocationWithDetails = {
 // Derive types from Prisma queries
 // ============================================
 
-// Base Prisma args for lot with relations
-export const lotWithRelationsArgs = Prisma.validator<Prisma.LotDefaultArgs>()({
+// Base Prisma payload for lot with relations
+type LotWithRelationsPayload = Prisma.LotGetPayload<{
   include: {
-    supplier: true,
+    supplier: true;
     creator: {
       select: {
-        id: true,
-        name: true,
-        email: true,
-      },
-    },
+        id: true;
+        name: true;
+        email: true;
+      };
+    };
     locations: {
       include: {
-        location: true,
-      },
-    },
-  },
-});
+        location: true;
+      };
+    };
+  };
+}>;
 
-// Base Prisma args for lot with full details
-export const lotWithDetailsArgs = Prisma.validator<Prisma.LotDefaultArgs>()({
+// Base Prisma payload for lot with full details
+type LotWithDetailsPayload = Prisma.LotGetPayload<{
   include: {
-    item: true,
-    supplier: true,
+    item: true;
+    supplier: true;
     creator: {
       select: {
-        id: true,
-        name: true,
-        email: true,
-      },
-    },
+        id: true;
+        name: true;
+        email: true;
+      };
+    };
     locations: {
       include: {
-        location: true,
-      },
-    },
+        location: true;
+      };
+    };
     transactions: {
       include: {
         user: {
           select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    },
-  },
-});
+            id: true;
+            name: true;
+            email: true;
+          };
+        };
+      };
+    };
+  };
+}>;
 
 // Extended types with locationCode added by backend
-export type LotWithRelations = Omit<
-  Prisma.LotGetPayload<typeof lotWithRelationsArgs>,
-  "locations"
-> & {
+export type LotWithRelations = Omit<LotWithRelationsPayload, "locations"> & {
   locations: LotLocationWithDetails[];
 };
 
-export type LotWithDetails = Omit<
-  Prisma.LotGetPayload<typeof lotWithDetailsArgs>,
-  "locations"
-> & {
+export type LotWithDetails = Omit<LotWithDetailsPayload, "locations"> & {
   locations: LotLocationWithDetails[];
 };
 
@@ -151,42 +143,18 @@ export type LotsApiResponse = ApiResponse<{
 export async function getLotsByItemApi(
   itemId: string
 ): Promise<LotsApiResponse> {
-  const response = await fetch(`/api/lots/item/${itemId}`, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<LotsApiResponse>(`/api/lots/item/${itemId}`, {
+    errorMessage: "Failed to fetch lots",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch lots");
-  }
-
-  return result;
 }
 
 /**
  * Get a single lot by ID with full details
  */
 export async function getLotByIdApi(id: string): Promise<LotsApiResponse> {
-  const response = await fetch(`/api/lots/${id}`, {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+  return apiRequest<LotsApiResponse>(`/api/lots/${id}`, {
+    errorMessage: "Failed to fetch lot",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch lot");
-  }
-
-  return result;
 }
 
 /**
@@ -196,22 +164,11 @@ export async function createLotApi(
   itemId: string,
   data: CreateLotRequest
 ): Promise<LotsApiResponse> {
-  const response = await fetch(`/api/lots/item/${itemId}`, {
+  return apiRequest<LotsApiResponse>(`/api/lots/item/${itemId}`, {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create lot",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create lot");
-  }
-
-  return result;
 }
 
 /**
@@ -221,22 +178,11 @@ export async function updateLotApi(
   id: string,
   data: UpdateLotRequest
 ): Promise<LotsApiResponse> {
-  const response = await fetch(`/api/lots/${id}`, {
+  return apiRequest<LotsApiResponse>(`/api/lots/${id}`, {
     method: "PUT",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update lot",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update lot");
-  }
-
-  return result;
 }
 
 /**
@@ -246,22 +192,11 @@ export async function updateLotStatusApi(
   id: string,
   data: UpdateLotStatusRequest
 ): Promise<LotsApiResponse> {
-  const response = await fetch(`/api/lots/${id}/status`, {
+  return apiRequest<LotsApiResponse>(`/api/lots/${id}/status`, {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update lot status",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update lot status");
-  }
-
-  return result;
 }
 
 /**
@@ -271,43 +206,21 @@ export async function adjustLotQuantityApi(
   id: string,
   data: AdjustLotQuantityRequest
 ): Promise<LotsApiResponse> {
-  const response = await fetch(`/api/lots/${id}/adjust`, {
+  return apiRequest<LotsApiResponse>(`/api/lots/${id}/adjust`, {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to adjust lot quantity",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to adjust lot quantity");
-  }
-
-  return result;
 }
 
 /**
  * Delete a lot (soft delete by marking as depleted)
  */
 export async function deleteLotApi(id: string): Promise<LotsApiResponse> {
-  const response = await fetch(`/api/lots/${id}`, {
+  return apiRequest<LotsApiResponse>(`/api/lots/${id}`, {
     method: "DELETE",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    errorMessage: "Failed to delete lot",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to delete lot");
-  }
-
-  return result;
 }
 
 /**
@@ -317,22 +230,8 @@ export async function getExpiringLotsApi(
   workspaceId: string,
   daysUntilExpiration: number = 30
 ): Promise<LotsApiResponse> {
-  const response = await fetch(
-    `/api/lots/expiring?workspaceId=${workspaceId}&days=${daysUntilExpiration}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch expiring lots");
-  }
-
-  return result;
+  return apiRequest<LotsApiResponse>("/api/lots/expiring", {
+    query: { workspaceId, days: daysUntilExpiration },
+    errorMessage: "Failed to fetch expiring lots",
+  });
 }

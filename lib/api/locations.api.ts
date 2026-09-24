@@ -1,6 +1,7 @@
 // Client-side API helper functions for locations
 import type { Location, Item, Prisma } from "@prisma/client";
 import type { ApiResponse } from "./types";
+import { apiRequest } from "./client";
 
 // ============================================
 // Location structure type
@@ -102,26 +103,13 @@ export type WorkspaceStructureApiResponse = ApiResponse<{
 export async function getWorkspaceStructureApi(
   workspaceId: string
 ): Promise<WorkspaceStructureApiResponse> {
-  const response = await fetch(
-    `/api/locations/workspace-structure?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
+  return apiRequest<WorkspaceStructureApiResponse>(
+    "/api/locations/workspace-structure",
     {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      query: { workspaceId },
+      errorMessage: "Failed to fetch workspace structure",
     }
   );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch workspace structure");
-  }
-
-  return result;
 }
 
 /**
@@ -130,22 +118,14 @@ export async function getWorkspaceStructureApi(
 export async function updateWorkspaceStructureApi(
   data: UpdateWorkspaceStructureRequest
 ): Promise<WorkspaceStructureApiResponse> {
-  const response = await fetch("/api/locations/workspace-structure", {
-    method: "PUT",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update workspace structure");
-  }
-
-  return result;
+  return apiRequest<WorkspaceStructureApiResponse>(
+    "/api/locations/workspace-structure",
+    {
+      method: "PUT",
+      body: data,
+      errorMessage: "Failed to update workspace structure",
+    }
+  );
 }
 
 /**
@@ -154,24 +134,10 @@ export async function updateWorkspaceStructureApi(
 export async function getLocationsApi(
   workspaceId: string
 ): Promise<LocationApiResponse> {
-  const response = await fetch(
-    `/api/locations?workspaceId=${encodeURIComponent(workspaceId)}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch locations");
-  }
-
-  return result;
+  return apiRequest<LocationApiResponse>("/api/locations", {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch locations",
+  });
 }
 
 /**
@@ -181,26 +147,10 @@ export async function getLocationByIdApi(
   locationId: string,
   workspaceId: string
 ): Promise<LocationApiResponse> {
-  const response = await fetch(
-    `/api/locations/${locationId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
-    {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to fetch location");
-  }
-
-  return result;
+  return apiRequest<LocationApiResponse>(`/api/locations/${locationId}`, {
+    query: { workspaceId },
+    errorMessage: "Failed to fetch location",
+  });
 }
 
 /**
@@ -209,22 +159,11 @@ export async function getLocationByIdApi(
 export async function createLocationApi(
   data: CreateLocationRequest
 ): Promise<LocationApiResponse> {
-  const response = await fetch("/api/locations", {
+  return apiRequest<LocationApiResponse>("/api/locations", {
     method: "POST",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to create location",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to create location");
-  }
-
-  return result;
 }
 
 /**
@@ -234,22 +173,11 @@ export async function updateLocationApi(
   locationId: string,
   data: UpdateLocationRequest
 ): Promise<LocationApiResponse> {
-  const response = await fetch(`/api/locations/${locationId}`, {
+  return apiRequest<LocationApiResponse>(`/api/locations/${locationId}`, {
     method: "PATCH",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
+    body: data,
+    errorMessage: "Failed to update location",
   });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to update location");
-  }
-
-  return result;
 }
 
 /**
@@ -259,24 +187,9 @@ export async function deleteLocationApi(
   locationId: string,
   workspaceId: string
 ): Promise<LocationApiResponse> {
-  const response = await fetch(
-    `/api/locations/${locationId}?workspaceId=${encodeURIComponent(
-      workspaceId
-    )}`,
-    {
-      method: "DELETE",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result.message || "Failed to delete location");
-  }
-
-  return result;
+  return apiRequest<LocationApiResponse>(`/api/locations/${locationId}`, {
+    method: "DELETE",
+    query: { workspaceId },
+    errorMessage: "Failed to delete location",
+  });
 }

@@ -1,19 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import { createSupplierApi, type SupplierWithCount } from "@/lib/api/suppliers.api"
+import { SupplierFormDialog } from "@/components/partners/supplier-form-dialog"
+import type { SupplierWithCount } from "@/lib/api/suppliers.api"
 
 interface AddSupplierDialogProps {
     open: boolean
@@ -22,194 +10,15 @@ interface AddSupplierDialogProps {
     onSuccess: (supplier: SupplierWithCount) => void
 }
 
-export function AddSupplierDialog({
-    open,
-    onOpenChange,
-    workspaceId,
-    onSuccess,
-}: AddSupplierDialogProps) {
-    const [formData, setFormData] = useState({
-        name: "",
-        contactPerson: "",
-        email: "",
-        phone: "",
-        address: "",
-    })
-    const [isCreating, setIsCreating] = useState(false)
-
-    const handleCreate = async () => {
-        if (!formData.name.trim()) return
-
-        setIsCreating(true)
-
-        try {
-            const response = await createSupplierApi({
-                name: formData.name,
-                contactPerson: formData.contactPerson || undefined,
-                email: formData.email || undefined,
-                phone: formData.phone || undefined,
-                address: formData.address || undefined,
-                workspaceId: workspaceId,
-            })
-
-            if (response.data?.supplier) {
-                onSuccess(response.data.supplier)
-                setFormData({ name: "", contactPerson: "", email: "", phone: "", address: "" })
-                onOpenChange(false)
-            }
-        } catch (error) {
-            console.error("Failed to create supplier:", error)
-            alert(error instanceof Error ? error.message : "Failed to create supplier")
-        } finally {
-            setIsCreating(false)
-        }
-    }
-
-    const isFormValid = formData.name.trim()
-
+/** Create a supplier. Also used inline from the Add item dialog. */
+export function AddSupplierDialog({ open, onOpenChange, workspaceId, onSuccess }: AddSupplierDialogProps) {
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent
-                enableKeyboardAvoidance={true}
-                hideClose={true}
-                className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0 sm:p-6 gap-0"
-            >
-                {/* Header */}
-                <DialogHeader className="px-4 pt-3 pb-3 sm:px-0 sm:pt-0 sm:pb-0 space-y-0 sm:space-y-1.5 flex-shrink-0 border-b sm:border-0">
-                    {/* Mobile Header with Actions */}
-                    <div className="flex items-center justify-between gap-2 sm:hidden relative">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onOpenChange(false)}
-                            disabled={isCreating}
-                            className="h-9"
-                        >
-                            Cancel
-                        </Button>
-                        <DialogTitle className="text-base font-semibold absolute left-1/2 -translate-x-1/2">Create Supplier</DialogTitle>
-                        <Button
-                            size="sm"
-                            onClick={handleCreate}
-                            disabled={!isFormValid || isCreating}
-                            className="h-9"
-                        >
-                            {isCreating ? "Creating..." : "Create"}
-                        </Button>
-                    </div>
-
-                    {/* Desktop Header */}
-                    <div className="hidden sm:block">
-                        <DialogTitle>Create New Supplier</DialogTitle>
-                        <DialogDescription className="mt-1.5">
-                            Add a new supplier to your inventory management system.
-                        </DialogDescription>
-                    </div>
-                </DialogHeader>
-
-                {/* Scrollable Form Content */}
-                <div
-                    className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-0"
-                    style={{
-                        WebkitOverflowScrolling: 'touch',
-                    }}
-                >
-                    <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="name">
-                                    Supplier Name <span className="text-destructive">*</span>
-                                </Label>
-                                <Input
-                                    id="name"
-                                    placeholder="e.g., TechSupply Co."
-                                    value={formData.name}
-                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    autoComplete="off"
-                                    autoCorrect="off"
-                                    autoCapitalize="off"
-                                    spellCheck="false"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="contactPerson">Contact Person</Label>
-                                <Input
-                                    id="contactPerson"
-                                    placeholder="e.g., John Smith"
-                                    value={formData.contactPerson}
-                                    onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-                                    autoComplete="off"
-                                    autoCorrect="off"
-                                    autoCapitalize="off"
-                                    spellCheck="false"
-                                />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="email">Email</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    placeholder="contact@supplier.com"
-                                    value={formData.email}
-                                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                    autoComplete="off"
-                                    autoCorrect="off"
-                                    autoCapitalize="off"
-                                    spellCheck="false"
-                                    inputMode="email"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="phone">Phone</Label>
-                                <Input
-                                    id="phone"
-                                    placeholder="+1 (555) 123-4567"
-                                    value={formData.phone}
-                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                    autoComplete="off"
-                                    autoCorrect="off"
-                                    autoCapitalize="off"
-                                    spellCheck="false"
-                                    inputMode="tel"
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="address">Address</Label>
-                            <Textarea
-                                id="address"
-                                placeholder="Full address including street, city, state, and zip code"
-                                value={formData.address}
-                                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                rows={2}
-                                autoComplete="off"
-                                autoCorrect="off"
-                                autoCapitalize="off"
-                                spellCheck="false"
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Footer - Desktop Only */}
-                <DialogFooter className="hidden sm:flex px-4 pb-4 sm:px-0 sm:pb-0 flex-shrink-0 border-t sm:border-0 pt-4 sm:pt-0 bg-background">
-                    <Button
-                        variant="outline"
-                        onClick={() => onOpenChange(false)}
-                        disabled={isCreating}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleCreate}
-                        disabled={!isFormValid || isCreating}
-                    >
-                        {isCreating ? "Creating..." : "Create Supplier"}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        <SupplierFormDialog
+            open={open}
+            onOpenChange={onOpenChange}
+            workspaceId={workspaceId}
+            supplier={null}
+            onSuccess={onSuccess}
+        />
     )
 }

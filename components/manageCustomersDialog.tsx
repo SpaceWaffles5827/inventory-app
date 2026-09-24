@@ -1,210 +1,163 @@
 "use client"
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { Users, Building2, Plus, Trash2, Save, Loader2 } from "lucide-react"
-import { updateItemApi } from "@/lib/api/items.api"
-import { getItemByIdApi, type ItemWithDetails } from "@/lib/api/items.api"
-import { type CustomerWithCount } from "@/lib/api/customers.api"
+import { useEffect, useState } from "react"
+import { Building2, Loader2, Plus, X } from "lucide-react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { EntityCombobox } from "@/components/items/entity-combobox"
+import { getItemByIdApi, updateItemApi, type ItemWithDetails } from "@/lib/api/items.api"
+import { getCustomersApi, type CustomerWithCount } from "@/lib/api/customers.api"
+import { getErrorMessage } from "@/lib/api/client"
+import { useWorkspace } from "@/lib/workspace-context"
 
 interface ManageCustomersDialogProps {
-    isOpen: boolean
-    onClose: () => void
-    itemId: string
-    currentCustomerIds: string[]
-    customers: CustomerWithCount[]
-    onSuccess: (updatedItem: ItemWithDetails) => void
+  isOpen: boolean
+  onClose: () => void
+  itemId: string
+  currentCustomerIds: string[]
+  onSuccess: (updatedItem: ItemWithDetails) => void
 }
 
-export function ManageCustomersDialog({
-    isOpen,
-    onClose,
-    itemId,
-    currentCustomerIds,
-    customers,
-    onSuccess,
-}: ManageCustomersDialogProps) {
-    const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>(currentCustomerIds)
-    const [newCustomerId, setNewCustomerId] = useState("")
-    const [isSaving, setIsSaving] = useState(false)
+/** Link an item to the customers it is kept for */
+export function ManageCustomersDialog({ isOpen, onClose, ...props }: ManageCustomersDialogProps) {
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Customers</DialogTitle>
+          <DialogDescription>Link this item to the customers it is stocked for.</DialogDescription>
+        </DialogHeader>
+        <ManageCustomersForm {...props} onClose={onClose} />
+      </DialogContent>
+    </Dialog>
+  )
+}
 
-    // Update state when dialog opens with new customer IDs
-    useState(() => {
-        if (isOpen) {
-            setSelectedCustomerIds(currentCustomerIds)
-            setNewCustomerId("")
-        }
-    })
+function ManageCustomersForm({ onClose, itemId, currentCustomerIds, onSuccess }: Omit<ManageCustomersDialogProps, "isOpen">) {
+  const { workspaceId } = useWorkspace()
+  const [customers, setCustomers] = useState<CustomerWithCount[]>([])
+  const [loadingCustomers, setLoadingCustomers] = useState(true)
+  const [selectedIds, setSelectedIds] = useState<string[]>(currentCustomerIds)
+  const [pendingId, setPendingId] = useState("")
+  const [saving, setSaving] = useState(false)
 
-    const handleAddCustomer = () => {
-        if (newCustomerId && !selectedCustomerIds.includes(newCustomerId)) {
-            setSelectedCustomerIds([...selectedCustomerIds, newCustomerId])
-            setNewCustomerId("")
-        }
+  useEffect(() => {
+    let cancelled = false
+    getCustomersApi({ workspaceId, status: "ACTIVE" })
+      .then((res) => {
+        if (!cancelled) setCustomers(res.data?.customers ?? [])
+      })
+      .catch((err) => toast.error(getErrorMessage(err, "Couldn't load customers")))
+      .finally(() => {
+        if (!cancelled) setLoadingCustomers(false)
+      })
+    return () => {
+      cancelled = true
     }
+  }, [workspaceId])
 
-    const handleRemoveCustomer = (customerId: string) => {
-        setSelectedCustomerIds(selectedCustomerIds.filter((id) => id !== customerId))
+  const byId = new Map(customers.map((c) => [c.id, c]))
+  const available = customers.filter((c) => !selectedIds.includes(c.id))
+  const changed =
+    selectedIds.length !== currentCustomerIds.length || selectedIds.some((id) => !currentCustomerIds.includes(id))
+
+  const add = () => {
+    if (!pendingId || selectedIds.includes(pendingId)) return
+    setSelectedIds((ids) => [...ids, pendingId])
+    setPendingId("")
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await updateItemApi(itemId, { customerIds: selectedIds })
+      const refreshed = await getItemByIdApi(itemId)
+      if (refreshed.data?.item) onSuccess(refreshed.data.item as ItemWithDetails)
+      toast.success("Customers updated")
+      onClose()
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Couldn't update customers"))
+    } finally {
+      setSaving(false)
     }
+  }
 
-    const handleUpdateCustomers = async () => {
-        setIsSaving(true)
-        try {
-            const updateData = {
-                customerIds: selectedCustomerIds,
-            }
+  return (
+    <>
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <div className="min-w-0 flex-1">
+            <EntityCombobox
+              id="manage-customer-picker"
+              value={pendingId}
+              onChange={setPendingId}
+              options={available.map((c) => ({ value: c.id, label: c.company ? `${c.name} · ${c.company}` : c.name }))}
+              placeholder={loadingCustomers ? "Loading…" : available.length ? "Choose a customer" : "No more customers"}
+              searchPlaceholder="Search customers…"
+              emptyText="No customer found."
+              disabled={loadingCustomers || available.length === 0 || saving}
+            />
+          </div>
+          <Button type="button" onClick={add} disabled={!pendingId || saving}>
+            <Plus /> Add
+          </Button>
+        </div>
 
-            const response = await updateItemApi(itemId, updateData)
-
-            if (response.data?.item) {
-                // Reload the full item data with all relationships including transactions
-                const refreshResponse = await getItemByIdApi(itemId)
-                if (refreshResponse.data?.item) {
-                    onSuccess(refreshResponse.data.item as ItemWithDetails)
-                }
-                onClose()
-                toast.success("Customers updated successfully!")
-            }
-        } catch (error) {
-            console.error("Failed to update customers:", error)
-            toast.error(error instanceof Error ? error.message : "Failed to update customers")
-        } finally {
-            setIsSaving(false)
-        }
-    }
-
-    const selectedCustomers = customers.filter((c) => selectedCustomerIds.includes(c.id))
-
-    return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <Users className="h-4 w-4 text-primary" />
-                        </div>
-                        Manage Customers
-                    </DialogTitle>
-                    <DialogDescription className="text-xs">
-                        Link this item to specific customers. Multiple customers can be assigned to track custom orders or
-                        dedicated inventory.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-3 py-3">
-                    <div className="space-y-1.5">
-                        <Label className="text-xs font-medium">Assigned Customers ({selectedCustomerIds.length})</Label>
-                        {selectedCustomerIds.length === 0 ? (
-                            <div className="text-xs text-muted-foreground py-3 text-center border border-dashed rounded-lg">
-                                No customers assigned yet
-                            </div>
-                        ) : (
-                            <div className="space-y-1.5">
-                                {selectedCustomers.map((customer) => (
-                                    <div
-                                        key={customer.id}
-                                        className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/30"
-                                    >
-                                        <div className="flex items-center gap-1.5">
-                                            <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                            <div>
-                                                <span className="font-medium text-sm">{customer.name}</span>
-                                                {customer.company && (
-                                                    <p className="text-xs text-muted-foreground">{customer.company}</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
-                                            onClick={() => handleRemoveCustomer(customer.id)}
-                                        >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+        <div className="space-y-2">
+          <p className="text-sm font-medium">
+            Linked <span className="text-muted-foreground">({selectedIds.length})</span>
+          </p>
+          {selectedIds.length === 0 ? (
+            <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+              Not linked to any customer.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
+              {selectedIds.map((id) => {
+                const customer = byId.get(id)
+                return (
+                  <li key={id} className="flex items-center gap-3 px-3 py-2">
+                    <Building2 className="size-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{customer?.name ?? (loadingCustomers ? "Loading…" : "Inactive customer")}</p>
+                      {customer?.company && <p className="truncate text-xs text-muted-foreground">{customer.company}</p>}
                     </div>
-
-                    <div className="space-y-1.5">
-                        <Label htmlFor="addCustomer" className="text-xs font-medium">
-                            Add Customer
-                        </Label>
-                        <div className="flex gap-2">
-                            <Select value={newCustomerId} onValueChange={(value) => setNewCustomerId(value)}>
-                                <SelectTrigger id="addCustomer" className="flex-1 h-8">
-                                    <SelectValue placeholder="Select a customer" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {customers
-                                        .filter((c) => !selectedCustomerIds.includes(c.id))
-                                        .map((customer) => (
-                                            <SelectItem key={customer.id} value={customer.id}>
-                                                <div>
-                                                    <div className="text-sm">{customer.name}</div>
-                                                    {customer.company && (
-                                                        <div className="text-xs text-muted-foreground">{customer.company}</div>
-                                                    )}
-                                                </div>
-                                            </SelectItem>
-                                        ))}
-                                </SelectContent>
-                            </Select>
-                            <Button onClick={handleAddCustomer} disabled={!newCustomerId} size="sm" className="h-8">
-                                <Plus className="h-3.5 w-3.5 mr-1" />
-                                Add
-                            </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                            Select from existing customers or create new ones in the Customers page
-                        </p>
-                    </div>
-                </div>
-
-                <DialogFooter>
                     <Button
-                        variant="outline"
-                        onClick={onClose}
-                        disabled={isSaving}
-                        size="sm"
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => setSelectedIds((ids) => ids.filter((x) => x !== id))}
+                      disabled={saving}
+                      aria-label={`Unlink ${customer?.name ?? "customer"}`}
                     >
-                        Cancel
+                      <X />
                     </Button>
-                    <Button onClick={handleUpdateCustomers} disabled={isSaving} size="sm">
-                        {isSaving ? (
-                            <>
-                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                                Saving...
-                            </>
-                        ) : (
-                            <>
-                                <Save className="h-3.5 w-3.5 mr-1.5" />
-                                Save Changes
-                            </>
-                        )}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button type="button" onClick={save} disabled={saving || !changed}>
+          {saving && <Loader2 className="animate-spin" />}
+          {saving ? "Saving…" : "Save changes"}
+        </Button>
+      </DialogFooter>
+    </>
+  )
 }

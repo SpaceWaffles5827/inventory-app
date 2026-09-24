@@ -41,6 +41,9 @@ const eslintConfig = [
       ...nextPlugin.configs["core-web-vitals"].rules,
       "react/react-in-jsx-scope": "off",
       "react/prop-types": "off",
+      // TypeScript already reports undefined identifiers (and understands the global React types namespace)
+      "no-undef": "off",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
     },
     settings: {
       react: {
@@ -68,6 +71,8 @@ const eslintConfig = [
     rules: {
       ...typescriptPlugin.configs.recommended.rules,
       "no-console": "off",
+      "no-undef": "off",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }],
     },
   },
 
@@ -80,6 +85,10 @@ const eslintConfig = [
       "dist/**",
       "next-env.d.ts",
       "node_modules/**",
+      ".next-test/**",
+      "server/dist/**",
+      "test-results/**",
+      "playwright-report/**",
     ],
   },
 ];
