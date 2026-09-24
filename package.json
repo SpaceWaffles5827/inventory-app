@@ -1,6 +1,6 @@
 {
   "name": "stockflow",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "dotenv -e .dev.env -- run-s stack:up db:wait prisma:sync && dotenv -e .dev.env -- run-p dev:front dev:back",
