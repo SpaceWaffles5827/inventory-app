@@ -2,11 +2,20 @@
 -- Overhaul hardening: takes the deployed 0.2.0 schema (init + lots_and_multi_location)
 -- to the overhaul schema. Purely additive for data; nothing is moved or deleted.
 --
---   * invitations.token      - random accept token (links no longer use the row id)
+--   * invitations.token      - accept token. Existing rows get token = id, because
+--                              links already sent use ?token=<id>; they keep working.
+--                              New invitations get random tokens from the app.
 --   * items.reorderPoint     - per-item low-stock threshold (default 10); the cached
 --                              item status is recomputed with the overhaul rule
 --   * lots.createdBy,
 --     stock_transactions.userId - nullable, ON DELETE SET NULL (deleting a user keeps history)
+--   * reason / notes columns widened to the lengths the API accepts (500 / 1000)
+--   * location level values: the old app built `code` from what the user typed
+--     but stored aisle/shelf with padStart(2, "0") (e.g. code WH-M-10-01, aisle
+--     "0M"). The overhaul edit dialog rebuilds `code` from the level values, so an
+--     unrelated edit would silently rename such a location. Where removing that
+--     padding reproduces the existing code exactly, the typed value is restored.
+--     Codes and barcodes are never changed.
 --   * indexes for history queries and password-reset lookups
 --
 -- Existing INPUT/OUTPUT history keeps NULL from/to locations: the old app never
@@ -51,13 +60,25 @@ SELECT
         `isSystem`, `itemId`, COALESCE(`createdBy`, '')))), 0)
         FROM `lots`) AS lots_crc,
     (SELECT COALESCE(BIT_XOR(CRC32(CONCAT_WS('|', `id`, `email`, `role`, `status`, `workspaceId`))), 0)
-        FROM `invitations`) AS invitations_crc;
+        FROM `invitations`) AS invitations_crc,
+    (SELECT COALESCE(BIT_XOR(CRC32(CONCAT_WS('|', `id`, `code`, COALESCE(`barcode`, ''), `capacity`,
+        COALESCE(`description`, ''), `workspaceId`, JSON_LENGTH(`structure`)))), 0)
+        FROM `locations`) AS locations_crc;
+
+-- Locations whose code already matches their level values (these must still match afterwards).
+CREATE TABLE `_overhaul_locations_matching` AS
+SELECT l.`id`
+FROM `locations` l
+WHERE BINARY l.`code` = BINARY (
+    SELECT UPPER(GROUP_CONCAT(jt.`v` ORDER BY jt.`ord` SEPARATOR '-'))
+    FROM JSON_TABLE(l.`structure`, '$[*]' COLUMNS (`ord` FOR ORDINALITY, `v` VARCHAR(191) PATH '$.value')) jt
+);
 
 -- -----------------------------------------------------------------------------
 -- 1. Invitations: accept token
 -- -----------------------------------------------------------------------------
 ALTER TABLE `invitations` ADD COLUMN `token` VARCHAR(64) NULL;
-UPDATE `invitations` SET `token` = LOWER(HEX(RANDOM_BYTES(32))) WHERE `token` IS NULL;
+UPDATE `invitations` SET `token` = `id` WHERE `token` IS NULL;
 ALTER TABLE `invitations` MODIFY `token` VARCHAR(64) NOT NULL;
 CREATE UNIQUE INDEX `invitations_token_key` ON `invitations`(`token`);
 CREATE INDEX `invitations_workspaceId_status_idx` ON `invitations`(`workspaceId`, `status`);
@@ -95,6 +116,60 @@ ALTER TABLE `lots` ADD CONSTRAINT `lots_createdBy_fkey` FOREIGN KEY (`createdBy`
 ALTER TABLE `stock_transactions` ADD CONSTRAINT `stock_transactions_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `users`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- -----------------------------------------------------------------------------
+-- 3b. Widen text columns to what the API accepts (values unchanged)
+-- -----------------------------------------------------------------------------
+ALTER TABLE `stock_transactions` MODIFY `reason` VARCHAR(500) NOT NULL;
+ALTER TABLE `item_locations` MODIFY `notes` VARCHAR(500) NULL;
+ALTER TABLE `item_customers` MODIFY `notes` VARCHAR(1000) NULL;
+
+-- -----------------------------------------------------------------------------
+-- 3c. Restore typed aisle/shelf values that the old app zero-padded, only where
+--     that reproduces the location's existing code exactly (Zone/Aisle/Shelf/Bin
+--     structures). Tried as: both padded, aisle only, shelf only.
+-- -----------------------------------------------------------------------------
+UPDATE `locations`
+SET `structure` = JSON_SET(`structure`,
+    '$[1].value', SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')), 2),
+    '$[2].value', SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), 2))
+WHERE JSON_LENGTH(`structure`) = 4
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].label')) = 'Aisle'
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].label')) = 'Shelf'
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')) REGEXP '^0.$'
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')) REGEXP '^0.$'
+  AND BINARY `code` <> BINARY UPPER(CONCAT_WS('-',
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[0].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')),
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[3].value'))))
+  AND BINARY `code` = BINARY UPPER(CONCAT_WS('-',
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[0].value')), SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')), 2),
+        SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), 2), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[3].value'))));
+
+UPDATE `locations`
+SET `structure` = JSON_SET(`structure`,
+    '$[1].value', SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')), 2))
+WHERE JSON_LENGTH(`structure`) = 4
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].label')) = 'Aisle'
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')) REGEXP '^0.$'
+  AND BINARY `code` <> BINARY UPPER(CONCAT_WS('-',
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[0].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')),
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[3].value'))))
+  AND BINARY `code` = BINARY UPPER(CONCAT_WS('-',
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[0].value')), SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')), 2),
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[3].value'))));
+
+UPDATE `locations`
+SET `structure` = JSON_SET(`structure`,
+    '$[2].value', SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), 2))
+WHERE JSON_LENGTH(`structure`) = 4
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].label')) = 'Shelf'
+  AND JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')) REGEXP '^0.$'
+  AND BINARY `code` <> BINARY UPPER(CONCAT_WS('-',
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[0].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')),
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[3].value'))))
+  AND BINARY `code` = BINARY UPPER(CONCAT_WS('-',
+        JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[0].value')), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[1].value')),
+        SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[2].value')), 2), JSON_UNQUOTE(JSON_EXTRACT(`structure`, '$[3].value'))));
+
+-- -----------------------------------------------------------------------------
 -- 4. Indexes
 -- -----------------------------------------------------------------------------
 CREATE INDEX `stock_transactions_itemId_createdAt_idx` ON `stock_transactions`(`itemId`, `createdAt`);
@@ -105,7 +180,7 @@ CREATE INDEX `users_password_reset_token_idx` ON `users`(`password_reset_token`)
 -- 5. VERIFY - everything this migration must not change is unchanged
 -- -----------------------------------------------------------------------------
 CREATE TABLE `_overhaul_migration_check` (
-    `name` VARCHAR(64) NOT NULL,
+    `name` VARCHAR(191) NOT NULL,
     `ok` TINYINT NOT NULL,
     CONSTRAINT `overhaul_migration_check_must_pass` CHECK (`ok` = 1)
 );
@@ -149,9 +224,22 @@ SELECT 'items, history, lots and invitations unchanged (checksums)',
 FROM `_overhaul_migration_baseline` b;
 
 INSERT INTO `_overhaul_migration_check` (`name`, `ok`)
+SELECT 'locations: codes and barcodes unchanged, matches kept',
+    b.locations_crc = (SELECT COALESCE(BIT_XOR(CRC32(CONCAT_WS('|', `id`, `code`, COALESCE(`barcode`, ''), `capacity`,
+        COALESCE(`description`, ''), `workspaceId`, JSON_LENGTH(`structure`)))), 0) FROM `locations`)
+    AND NOT EXISTS (
+        SELECT 1 FROM `_overhaul_locations_matching` m JOIN `locations` l ON l.`id` = m.`id`
+        WHERE BINARY l.`code` <> BINARY (
+            SELECT UPPER(GROUP_CONCAT(jt.`v` ORDER BY jt.`ord` SEPARATOR '-'))
+            FROM JSON_TABLE(l.`structure`, '$[*]' COLUMNS (`ord` FOR ORDINALITY, `v` VARCHAR(191) PATH '$.value')) jt)
+    )
+FROM `_overhaul_migration_baseline` b;
+
+INSERT INTO `_overhaul_migration_check` (`name`, `ok`)
 SELECT 'every invitation has a unique token',
     NOT EXISTS (SELECT 1 FROM `invitations` WHERE `token` IS NULL OR `token` = '')
     AND (SELECT COUNT(DISTINCT `token`) FROM `invitations`) = (SELECT COUNT(*) FROM `invitations`);
 
 DROP TABLE `_overhaul_migration_check`;
+DROP TABLE `_overhaul_locations_matching`;
 DROP TABLE `_overhaul_migration_baseline`;

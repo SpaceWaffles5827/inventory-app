@@ -223,7 +223,7 @@ model ItemCustomer {
   id          String   @id @default(cuid())
   quantity    Int      @default(0)
   lastOrderDate DateTime?
-  notes       String?
+  notes       String?  @db.VarChar(1000) // API accepts up to 1000 chars
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -246,7 +246,7 @@ model ItemLocation {
   quantity    Int      @default(0)  // CACHED: Derived from SUM(lot.locations.quantity) for this item+location
   minStock    Int      @default(0)  // Minimum stock level for this location
   maxStock    Int      @default(0)  // Maximum stock level for this location
-  notes       String?
+  notes       String?  @db.VarChar(500) // API accepts up to 500 chars
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -396,7 +396,7 @@ model StockTransaction {
   quantity      Int               // Always positive; direction comes from type
   previousStock Int               // Item total on-hand before
   newStock      Int               // Item total on-hand after
-  reason        String
+  reason        String            @db.VarChar(500) // API accepts up to 500 chars
   lotId         String            // REQUIRED: Always references a lot (SYSTEM lot for non-lotted items)
   createdAt     DateTime          @default(now())
 
