@@ -62,6 +62,7 @@ minio/certs/CAs/
 
 # MySql
 mysql/data/
+mysql/data.corrupt-*/
 mysql/_data/
 mysql/config/
 mysql/.env
