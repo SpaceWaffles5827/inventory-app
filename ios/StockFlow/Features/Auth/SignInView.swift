@@ -6,6 +6,9 @@ struct SignInView: View {
     private enum Field: Hashable { case server, email, password }
 
     @State private var server = Preferences.initialServerURL
+    @AppStorage(Preferences.developerModeKey) private var developerMode = false
+    /// The server field is hidden once a server is set up; long-press the logo to show it.
+    @State private var showServer = !Preferences.hasConfiguredServer
     @State private var email = UserDefaults.standard.string(forKey: Preferences.lastEmailKey) ?? ""
     @State private var password = ""
     @State private var working = false
@@ -27,10 +30,13 @@ struct SignInView: View {
                         .padding(.top, 36)
 
                     VStack(spacing: 14) {
-                        ServerField(text: $server)
-                            .focused($focus, equals: .server)
-                            .submitLabel(.next)
-                            .onSubmit { focus = .email }
+                        if showServer || developerMode {
+                            ServerField(text: $server)
+                                .focused($focus, equals: .server)
+                                .submitLabel(.next)
+                                .onSubmit { focus = .email }
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
 
                         VStack(spacing: 0) {
                             AuthField(symbol: "envelope", placeholder: "Email") {
@@ -97,6 +103,7 @@ struct SignInView: View {
                 .frame(maxWidth: 480)
                 .frame(maxWidth: .infinity)
                 .animation(.snappy, value: error)
+                .animation(.snappy, value: showServer || developerMode)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(background)
@@ -115,6 +122,13 @@ struct SignInView: View {
                 .resizable()
                 .frame(width: 88, height: 88)
                 .shadow(color: .accentColor.opacity(0.35), radius: 18, y: 10)
+                .onLongPressGesture(minimumDuration: 1.2) {
+                    // Secret: reveal the server field (developer mode).
+                    developerMode.toggle()
+                    showServer = developerMode || !Preferences.hasConfiguredServer
+                    Haptics.success()
+                }
+                .accessibilityHidden(true)
             VStack(spacing: 6) {
                 Text("StockFlow")
                     .font(.largeTitle.bold())

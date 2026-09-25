@@ -7,6 +7,10 @@ struct SettingsView: View {
     @AppStorage(Preferences.appearanceKey) private var appearance = AppearanceMode.system.rawValue
     @AppStorage(Preferences.scanHapticsKey) private var scanHaptics = true
     @AppStorage(Preferences.scanSoundKey) private var scanSound = true
+    @AppStorage(Preferences.developerModeKey) private var developerMode = false
+    @State private var versionTaps = 0
+    @State private var customServer = ""
+    @State private var switching = false
 
     @State private var editingName = false
     @State private var name = ""
@@ -97,16 +101,13 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("Server") {
-                        Text(serverLabel)
-                            .font(.callout.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
                     Link(destination: webURL) {
                         Label("Open StockFlow on the web", systemImage: "safari")
                     }
-                } header: {
-                    Text("Connection")
+                }
+
+                if developerMode {
+                    developerSection
                 }
 
                 if let error {
@@ -120,6 +121,16 @@ struct SettingsView: View {
                     Text("StockFlow for iOS \(version)")
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
+                        .contentShape(.rect)
+                        .onTapGesture {
+                            // Secret: tap the version 5 times to toggle developer settings.
+                            versionTaps += 1
+                            if versionTaps >= 5 {
+                                versionTaps = 0
+                                withAnimation { developerMode.toggle() }
+                                Haptics.success()
+                            }
+                        }
                 }
             }
             .navigationTitle("Account")
@@ -146,6 +157,60 @@ struct SettingsView: View {
                     Task { await model.signOut() }
                 }
             }
+        }
+    }
+
+    @ViewBuilder private var developerSection: some View {
+        Section {
+            LabeledContent("Connected to") {
+                Text(serverLabel)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Preferences.recentServers.filter { $0 != model.serverURL.absoluteString }, id: \.self) { server in
+                Button {
+                    connect(to: server)
+                } label: {
+                    Label(server, systemImage: "arrow.triangle.swap")
+                        .font(.callout.monospaced())
+                }
+            }
+            HStack {
+                TextField("Other server address", text: $customServer)
+                    .font(.callout.monospaced())
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onSubmit { connect(to: customServer) }
+                if switching {
+                    ProgressView()
+                } else {
+                    Button("Connect") { connect(to: customServer) }
+                        .buttonStyle(.borderless)
+                        .disabled(Preferences.normalizedServerURL(customServer) == nil)
+                }
+            }
+            Button("Hide Developer Settings", role: .destructive) {
+                withAnimation { developerMode = false }
+            }
+        } header: {
+            Text("Developer · Server")
+        } footer: {
+            Text("Switch between servers (e.g. dev and production). Each server remembers its own sign-in.")
+        }
+    }
+
+    private func connect(to raw: String) {
+        guard let url = Preferences.normalizedServerURL(raw) else {
+            error = "That server address isn't valid."
+            return
+        }
+        switching = true
+        Haptics.tap()
+        dismiss()
+        Task {
+            await model.switchServer(to: url)
+            switching = false
         }
     }
 

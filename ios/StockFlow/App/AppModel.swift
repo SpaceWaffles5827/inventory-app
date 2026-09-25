@@ -26,6 +26,7 @@ final class AppModel {
         let url = Preferences.normalizedServerURL(Preferences.initialServerURL) ?? URL(string: "http://localhost:5001")!
         api = APIClient(baseURL: url)
         wireUnauthorizedHandler()
+        if Preferences.hasConfiguredServer { Preferences.remember(server: url) }
     }
 
     var serverURL: URL { api.baseURL }
@@ -94,8 +95,23 @@ final class AppModel {
         user = try await api.updateProfile(name: name)
     }
 
+    /// Point the app at another server (e.g. dev vs prod). Each server keeps its
+    /// own session cookie, so switching back signs you straight back in.
+    func switchServer(to url: URL) async {
+        guard url != api.baseURL else { return }
+        user = nil
+        workspaces = []
+        workspace = nil
+        store = nil
+        signedOutReason = nil
+        useServer(url)
+        phase = .launching
+        await bootstrap()
+    }
+
     private func useServer(_ url: URL) {
         UserDefaults.standard.set(url.absoluteString, forKey: Preferences.serverURLKey)
+        Preferences.remember(server: url)
         guard url != api.baseURL else { return }
         api = APIClient(baseURL: url)
         wireUnauthorizedHandler()

@@ -54,6 +54,7 @@ private struct UnreachableView: View {
     @Environment(AppModel.self) private var model
     let message: String
     @State private var retrying = false
+    @AppStorage(Preferences.developerModeKey) private var developerMode = false
 
     var body: some View {
         ContentUnavailableView {
@@ -79,7 +80,23 @@ private struct UnreachableView: View {
             Button("Sign Out", role: .destructive) {
                 Task { await model.signOut() }
             }
+
+            if developerMode {
+                ForEach(otherServers, id: \.self) { server in
+                    Button {
+                        guard let url = URL(string: server) else { return }
+                        Task { await model.switchServer(to: url) }
+                    } label: {
+                        Label("Switch to \(URL(string: server)?.host(percentEncoded: false) ?? server)\(URL(string: server)?.port.map { ":\($0)" } ?? "")",
+                              systemImage: "arrow.triangle.swap")
+                    }
+                }
+            }
         }
+    }
+
+    private var otherServers: [String] {
+        Preferences.recentServers.filter { $0 != model.serverURL.absoluteString }
     }
 }
 

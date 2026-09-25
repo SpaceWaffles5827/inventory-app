@@ -44,6 +44,16 @@ numeric codes match without leading zeros, so UPC-A, EAN-13 and GTIN-14 forms of
    - Physical iPhone: use your Mac's LAN address (for example `192.168.1.20:5001`), or your
      deployed server's URL.
 
+### Switching servers (dev / prod)
+
+Once a server has been used, the server field is hidden. To switch:
+
+- **Signed in:** Settings → tap the version number at the bottom 5 times → **Developer · Server**.
+  Pick a recent server or type a new one. Each server keeps its own sign-in, so flipping
+  between dev and production doesn't ask for your password again.
+- **Signed out:** press and hold the StockFlow logo on the sign-in screen to show the server field.
+- If a server is down, the "Can't Reach Server" screen offers your other servers (in developer mode).
+
 Debug builds default to `http://localhost:5001` (`STOCKFLOW_DEFAULT_SERVER_URL` in the target's
 build settings). Release builds start blank.
 

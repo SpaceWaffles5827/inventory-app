@@ -24,7 +24,6 @@ struct MainTabView: View {
                 ActivityView()
             }
         }
-        .minimizingTabBarOnScroll()
         .sheet(item: $router.sheet) { sheet in
             switch sheet {
             case .settings:
@@ -80,14 +79,5 @@ extension View {
         navigationDestination(for: ItemRoute.self) { ItemDetailView(itemId: $0.id) }
             .navigationDestination(for: LocationRoute.self) { LocationDetailView(locationId: $0.id) }
             .navigationDestination(for: LotRoute.self) { LotDetailView(lotId: $0.id) }
-    }
-
-    @ViewBuilder
-    func minimizingTabBarOnScroll() -> some View {
-        if #available(iOS 26.0, *) {
-            tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            self
-        }
     }
 }

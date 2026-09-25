@@ -9,6 +9,24 @@ enum Preferences {
     static let scanHapticsKey = "scanHaptics"
     static let scanSoundKey = "scanSound"
     static let inventorySortKey = "inventorySort"
+    static let developerModeKey = "developerMode"
+    static let recentServersKey = "recentServers"
+
+    /// Servers used before, most recent first (for the developer server switcher).
+    static var recentServers: [String] {
+        UserDefaults.standard.stringArray(forKey: recentServersKey) ?? []
+    }
+
+    static func remember(server url: URL) {
+        let value = url.absoluteString
+        let list = [value] + recentServers.filter { $0 != value }
+        UserDefaults.standard.set(Array(list.prefix(6)), forKey: recentServersKey)
+    }
+
+    /// False until a server has been used or one is baked into the build.
+    static var hasConfiguredServer: Bool {
+        normalizedServerURL(initialServerURL) != nil
+    }
 
     /// The server the sign-in screen starts with: last used, else the build's default.
     static var initialServerURL: String {
