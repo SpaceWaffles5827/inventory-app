@@ -19,7 +19,7 @@ import { assignableRoles, canRemoveMember, normalizeRole, ROLE_META } from "./ro
 import { MemberAvatar, RoleBadge } from "./role-badge"
 
 interface MembersListProps {
-  members: WorkspaceMember[]
+  members: readonly WorkspaceMember[]
   currentUserId?: string
   actorRole: WorkspaceRole | null
   ownerCount: number

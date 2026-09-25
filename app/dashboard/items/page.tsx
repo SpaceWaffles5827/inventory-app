@@ -20,6 +20,7 @@ import { StatCard } from "@/components/common/stat-card"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState, ListSkeleton, PageSkeleton, StatsSkeleton } from "@/components/common/states"
 import { SearchInput } from "@/components/common/search-input"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { AddItemDialog } from "@/components/addItemDialog"
 import { DeleteItemDialog } from "@/components/deleteItemDialog"
 import { StockAdjustmentWizard } from "@/components/stockAdjustmentWizard"
@@ -77,8 +78,8 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 
 /** Filter value for items without a category / supplier */
 const NONE = "none"
-/** Rows rendered per "Show more" step */
-const PAGE_SIZE = 100
+/** Rows rendered per page */
+const PAGE_SIZE = 50
 
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" })
 
@@ -660,12 +661,10 @@ function InventoryResults({
   items: InventoryItem[]
   view: InventoryViewMode | "mobile"
   actions: ItemRowActions
-  /** "Show more" starts over whenever this changes (new search / filters / sort) */
+  /** Paging snaps back to page 1 whenever this changes (new search / filters / sort) */
   resetKey: string
 }) {
-  const [paging, setPaging] = useState({ resetKey, visible: PAGE_SIZE })
-  const visible = paging.resetKey === resetKey ? paging.visible : PAGE_SIZE
-  const shown = items.length > visible ? items.slice(0, visible) : items
+  const { page, total, pageRows: shown, setPage } = usePagination(items, PAGE_SIZE, resetKey)
 
   return (
     <div className="space-y-4">
@@ -678,16 +677,16 @@ function InventoryResults({
       ) : (
         <ItemTableView items={shown} {...actions} />
       )}
-      {items.length > shown.length && (
-        <div className="flex flex-col items-center gap-2">
-          <p className="text-xs text-muted-foreground">
-            Showing {formatNumber(shown.length)} of {formatNumber(items.length)}
-          </p>
-          <Button variant="outline" onClick={() => setPaging({ resetKey, visible: visible + PAGE_SIZE })}>
-            Show more
-          </Button>
-        </div>
-      )}
+      <Pagination
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={(next) => {
+          setPage(next)
+          window.scrollTo({ top: 0, behavior: "smooth" })
+        }}
+        noun="items"
+      />
     </div>
   )
 }

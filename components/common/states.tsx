@@ -80,7 +80,7 @@ export function StatsSkeleton({ count = 4 }: { count?: number }) {
 /** Page-level skeleton: header + optional stats + list. Used by loading.tsx files. */
 export function PageSkeleton({ stats = 0 }: { stats?: number }) {
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+    <div className="w-full space-y-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
       <div className="space-y-2">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-4 w-72" />

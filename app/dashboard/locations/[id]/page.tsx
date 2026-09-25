@@ -35,6 +35,7 @@ import { StatCard } from "@/components/common/stat-card"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState } from "@/components/common/states"
 import { SearchInput } from "@/components/common/search-input"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { useConfirm } from "@/components/common/confirm-provider"
 import { StockAdjustmentWizard, type StockAdjustmentWizardProps } from "@/components/stockAdjustmentWizard"
 import { RemoveFromLocationDialog } from "@/components/removeFromLocationDialog"
@@ -102,6 +103,8 @@ async function fetchPageData(locationId: string, workspaceId: string): Promise<P
 
   return result
 }
+
+const ITEMS_PAGE_SIZE = 25
 
 export default function LocationDetailPage() {
   const params = useParams<{ id: string }>()
@@ -226,6 +229,7 @@ export default function LocationDetailPage() {
         ({ row }) => row.name.toLowerCase().includes(q) || row.itemNumber.toLowerCase().includes(q)
       )
     : storedItems
+  const itemsPagination = usePagination(visibleItems, ITEMS_PAGE_SIZE, q)
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -516,11 +520,18 @@ export default function LocationDetailPage() {
           ) : (
             <>
               <div className="md:hidden">
-                <LocationItemsList rows={visibleItems} onAdjust={openAdjust} onRemove={setRemoveRow} />
+                <LocationItemsList rows={itemsPagination.pageRows} onAdjust={openAdjust} onRemove={setRemoveRow} />
               </div>
               <div className="hidden md:block">
-                <LocationItemsTable rows={visibleItems} onAdjust={openAdjust} onRemove={setRemoveRow} />
+                <LocationItemsTable rows={itemsPagination.pageRows} onAdjust={openAdjust} onRemove={setRemoveRow} />
               </div>
+              <Pagination
+                page={itemsPagination.page}
+                pageSize={itemsPagination.pageSize}
+                total={itemsPagination.total}
+                onPageChange={itemsPagination.setPage}
+                noun="items"
+              />
             </>
           )}
           {itemsError && (

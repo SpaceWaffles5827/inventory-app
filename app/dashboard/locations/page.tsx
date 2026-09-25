@@ -30,6 +30,7 @@ import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState, ListSkeleton, StatsSkeleton } from "@/components/common/states"
 import { SearchInput } from "@/components/common/search-input"
 import { useConfirm } from "@/components/common/confirm-provider"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { AddLocationDialog } from "@/components/addLocationDialog"
 import { EditLocationDialog } from "@/components/editLocationDilog"
 import { ConfigureStructureDialog } from "@/components/configureStructuredDialog"
@@ -69,6 +70,8 @@ const SORT_LABELS: Record<SortKey, string> = {
   fullest: "Fullest",
   newest: "Newest",
 }
+
+const PAGE_SIZE = 50
 
 const time = (value: Date | string) => new Date(value).getTime()
 
@@ -175,6 +178,7 @@ export default function LocationsPage() {
     })
     return sortRows(matches, sort)
   }, [rows, activeZone, stockFilter, q, sort])
+  const pagination = usePagination(filtered, PAGE_SIZE, [q, stockFilter, sort, activeZone ?? ""].join("|"))
 
   const stats = useMemo(() => {
     const inUse = rows.filter((r) => r.inUse).length
@@ -438,7 +442,7 @@ export default function LocationsPage() {
               <>
                 <div className="md:hidden">
                   <LocationMobileView
-                    rows={filtered}
+                    rows={pagination.pageRows}
                     canDelete={isAdmin}
                     deletingId={deletingId}
                     onEdit={setEditing}
@@ -463,7 +467,7 @@ export default function LocationsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filtered.map((row) => (
+                      {pagination.pageRows.map((row) => (
                         <LocationTableRow
                           key={row.location.id}
                           row={row}
@@ -478,6 +482,14 @@ export default function LocationsPage() {
                     </TableBody>
                   </Table>
                 </div>
+
+                <Pagination
+                  page={pagination.page}
+                  pageSize={pagination.pageSize}
+                  total={pagination.total}
+                  onPageChange={pagination.setPage}
+                  noun="locations"
+                />
               </>
             )}
           </>

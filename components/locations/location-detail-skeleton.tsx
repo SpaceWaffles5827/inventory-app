@@ -4,7 +4,7 @@ import { ListSkeleton, StatsSkeleton } from "@/components/common/states"
 /** Location detail skeleton: back link, title with meta, stats, items list */
 export function LocationDetailSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-8" aria-busy="true">
+    <div className="w-full space-y-6 px-4 py-5 sm:px-6 lg:px-8 lg:py-8" aria-busy="true">
       <div className="space-y-3">
         <Skeleton className="h-4 w-28" />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

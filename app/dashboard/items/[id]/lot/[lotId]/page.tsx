@@ -25,6 +25,7 @@ import { PageContainer, PageHeader, SectionHeader } from "@/components/common/pa
 import { StatCard } from "@/components/common/stat-card"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState, PageSkeleton } from "@/components/common/states"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { LotStatusBadge } from "@/components/common/status-badge"
 import { AddLocationToLotDialog } from "@/components/addLocationToLotDialog"
 import { AdjustLocationDialog } from "@/components/adjustlocationdialog"
@@ -69,6 +70,8 @@ function Detail({ label, children, className }: { label: string; children: React
 }
 
 const EXPIRY_TONE = { danger: "danger", warning: "warning", default: "default" } as const
+
+const PAGE_SIZE = 25
 
 export default function LotDetailPage() {
   const { id: itemId, lotId } = useParams<{ id: string; lotId: string }>()
@@ -145,6 +148,10 @@ export default function LotDetailPage() {
     }))
   }, [lot, locations])
 
+  const lotLocations = useMemo(() => [...(lot?.locations ?? [])].sort((a, b) => b.quantity - a.quantity), [lot])
+  const locationPager = usePagination(lotLocations, PAGE_SIZE, lotId)
+  const movementPager = usePagination(transactions, PAGE_SIZE, lotId)
+
   const itemHref = `/dashboard/items/${itemId}?tab=lots`
 
   if (loading) return <PageSkeleton stats={4} />
@@ -184,7 +191,6 @@ export default function LotDetailPage() {
   const expiry = getExpiry(lot.expirationDate)
   const showExpiryWarning = lot.status === "ACTIVE" && expiry !== null && expiry.tone !== "default"
   const remaining = lot.initialQuantity > 0 ? Math.round((lot.quantity / lot.initialQuantity) * 100) : 0
-  const lotLocations = [...lot.locations].sort((a, b) => b.quantity - a.quantity)
   const stockedCount = lotLocations.filter((l) => l.quantity > 0).length
   const availableLocations = locations.filter((loc) => !lot.locations.some((l) => l.locationId === loc.id))
 
@@ -313,51 +319,61 @@ export default function LotDetailPage() {
                 }
               />
             ) : (
-              <ul className="divide-y">
-                {lotLocations.map((l) => {
-                  const code = l.locationCode ?? l.location?.code ?? "Unknown"
-                  const share = lot.quantity > 0 ? Math.round((l.quantity / lot.quantity) * 100) : 0
-                  return (
-                    <li key={l.id} className="flex items-center gap-3 px-4 py-3" data-testid={`lot-location-row-${testIdSlug(code)}`}>
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <MapPin className="size-4" />
-                      </span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <Link href={`/dashboard/locations/${l.locationId}`} className="block truncate font-mono text-sm font-medium hover:underline">
-                          {code}
-                        </Link>
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 w-full max-w-40 overflow-hidden rounded-full bg-muted" aria-hidden>
-                            <div className="h-full rounded-full bg-primary" style={{ width: `${share}%` }} />
-                          </div>
-                          <span className="shrink-0 text-xs text-muted-foreground">{l.quantity === 0 ? "Empty" : `${share}%`}</span>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right tabular-nums">
-                        <span className="text-lg font-semibold" data-testid="lot-location-quantity">
-                          {formatNumber(l.quantity)}
+              <>
+                <ul className="divide-y">
+                  {locationPager.pageRows.map((l) => {
+                    const code = l.locationCode ?? l.location?.code ?? "Unknown"
+                    const share = lot.quantity > 0 ? Math.round((l.quantity / lot.quantity) * 100) : 0
+                    return (
+                      <li key={l.id} className="flex items-center gap-3 px-4 py-3" data-testid={`lot-location-row-${testIdSlug(code)}`}>
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <MapPin className="size-4" />
                         </span>
-                        {unit && <span className="ml-1 text-xs text-muted-foreground">{unit}</span>}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        onClick={() =>
-                          setAdjusting({
-                            open: true,
-                            location: { locationId: l.locationId, locationCode: code, currentQuantity: l.quantity },
-                          })
-                        }
-                        aria-label={`Adjust stock in ${code}`}
-                      >
-                        <Diff />
-                        <span className="hidden sm:inline">Adjust</span>
-                      </Button>
-                    </li>
-                  )
-                })}
-              </ul>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <Link href={`/dashboard/locations/${l.locationId}`} className="block truncate font-mono text-sm font-medium hover:underline">
+                            {code}
+                          </Link>
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-full max-w-40 overflow-hidden rounded-full bg-muted" aria-hidden>
+                              <div className="h-full rounded-full bg-primary" style={{ width: `${share}%` }} />
+                            </div>
+                            <span className="shrink-0 text-xs text-muted-foreground">{l.quantity === 0 ? "Empty" : `${share}%`}</span>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right tabular-nums">
+                          <span className="text-lg font-semibold" data-testid="lot-location-quantity">
+                            {formatNumber(l.quantity)}
+                          </span>
+                          {unit && <span className="ml-1 text-xs text-muted-foreground">{unit}</span>}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() =>
+                            setAdjusting({
+                              open: true,
+                              location: { locationId: l.locationId, locationCode: code, currentQuantity: l.quantity },
+                            })
+                          }
+                          aria-label={`Adjust stock in ${code}`}
+                        >
+                          <Diff />
+                          <span className="hidden sm:inline">Adjust</span>
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+                <Pagination
+                  className="border-t px-4 py-3"
+                  page={locationPager.page}
+                  pageSize={PAGE_SIZE}
+                  total={locationPager.total}
+                  onPageChange={locationPager.setPage}
+                  noun="locations"
+                />
+              </>
             )}
           </section>
 
@@ -393,7 +409,17 @@ export default function LotDetailPage() {
           {transactions.length === 0 ? (
             <EmptyState bare icon={History} title="No movements yet" description="Adjustments and transfers of this lot will show up here." />
           ) : (
-            <TransactionList transactions={transactions} unit={unit} />
+            <>
+              <TransactionList transactions={movementPager.pageRows} unit={unit} />
+              <Pagination
+                className="border-t px-4 py-3"
+                page={movementPager.page}
+                pageSize={PAGE_SIZE}
+                total={movementPager.total}
+                onPageChange={movementPager.setPage}
+                noun="movements"
+              />
+            </>
           )}
         </section>
       </div>

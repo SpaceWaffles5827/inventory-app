@@ -37,7 +37,7 @@ import { StockStatusBadge } from "@/components/common/status-badge"
 import { useConfirm } from "@/components/common/confirm-provider"
 import { ActiveBadge } from "@/components/partners/contact-details"
 import { RowActions } from "@/components/partners/row-actions"
-import { Pagination, clampPage } from "@/components/partners/pagination"
+import { Pagination, clampPage } from "@/components/common/pagination"
 import { EditCustomerDialog } from "@/components/editCustomerDialog"
 import {
   deleteCustomerApi,

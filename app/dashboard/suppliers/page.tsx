@@ -11,6 +11,7 @@ import { StatCard } from "@/components/common/stat-card"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState, ListSkeleton, StatsSkeleton } from "@/components/common/states"
 import { SearchInput } from "@/components/common/search-input"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { useConfirm } from "@/components/common/confirm-provider"
 import { ListToolbar, OptionSelect, type Option } from "@/components/partners/list-toolbar"
 import { RowActions } from "@/components/partners/row-actions"
@@ -25,6 +26,8 @@ import { formatDate, formatNumber, getInitials } from "@/lib/format"
 
 type StatusFilter = "all" | "active" | "inactive"
 type SortKey = "name-asc" | "name-desc" | "items-desc" | "newest"
+
+const PAGE_SIZE = 25
 
 const STATUS_OPTIONS: Option<StatusFilter>[] = [
   { value: "all", label: "All suppliers" },
@@ -103,6 +106,8 @@ export default function SuppliersPage() {
       }
     })
   }, [suppliers, query, status, sort])
+
+  const { page, total, pageRows, setPage } = usePagination(visible, PAGE_SIZE, `${query}|${status}|${sort}`)
 
   const setPending = (id: string, pending: boolean) =>
     setPendingIds((prev) => {
@@ -299,7 +304,7 @@ export default function SuppliersPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {visible.map((supplier) => (
+                          {pageRows.map((supplier) => (
                             <TableRow
                               key={supplier.id}
                               className={supplier.isActive ? undefined : "text-muted-foreground"}
@@ -345,13 +350,21 @@ export default function SuppliersPage() {
 
                     <div className="md:hidden">
                       <SupplierMobileView
-                        suppliers={visible}
+                        suppliers={pageRows}
                         onEditClick={openEdit}
                         onDeleteClick={isAdmin ? handleDelete : undefined}
                         onToggleStatus={toggleActive}
                         pendingIds={pendingIds}
                       />
                     </div>
+
+                    <Pagination
+                      page={page}
+                      pageSize={PAGE_SIZE}
+                      total={total}
+                      onPageChange={setPage}
+                      noun="suppliers"
+                    />
                   </>
                 )}
               </section>

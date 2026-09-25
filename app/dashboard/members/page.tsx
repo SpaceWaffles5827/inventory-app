@@ -10,6 +10,7 @@ import { PageContainer, PageHeader, SectionHeader } from "@/components/common/pa
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState, ListSkeleton } from "@/components/common/states"
 import { SearchInput } from "@/components/common/search-input"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { useConfirm } from "@/components/common/confirm-provider"
 import { MembersList } from "@/components/workspace/members-list"
 import { InvitationsList, type InvitationRow } from "@/components/workspace/invitations-list"
@@ -31,6 +32,8 @@ import { useWorkspace, type WorkspaceRole } from "@/lib/workspace-context"
 import { formatNumber } from "@/lib/format"
 
 type RoleFilter = "ALL" | WorkspaceRole
+
+const PAGE_SIZE = 25
 
 function memberName(member: WorkspaceMember) {
   return member.user.name?.trim() || member.user.email
@@ -122,6 +125,9 @@ export default function MembersPage() {
   }, [members, query, roleFilter])
 
   const filtersActive = query.trim() !== "" || roleFilter !== "ALL"
+
+  const membersPagination = usePagination(filteredMembers, PAGE_SIZE, `${query.trim().toLowerCase()}|${roleFilter}`)
+  const invitesPagination = usePagination(invitations, PAGE_SIZE)
 
   // ---------- actions ----------
 
@@ -299,15 +305,24 @@ export default function MembersPage() {
           }
         />
       ) : (
-        <MembersList
-          members={filteredMembers}
-          currentUserId={user?.id}
-          actorRole={role}
-          ownerCount={ownerCount}
-          pendingId={pendingMemberId}
-          onChangeRole={handleChangeRole}
-          onRemove={handleRemove}
-        />
+        <>
+          <MembersList
+            members={membersPagination.pageRows}
+            currentUserId={user?.id}
+            actorRole={role}
+            ownerCount={ownerCount}
+            pendingId={pendingMemberId}
+            onChangeRole={handleChangeRole}
+            onRemove={handleRemove}
+          />
+          <Pagination
+            page={membersPagination.page}
+            pageSize={membersPagination.pageSize}
+            total={membersPagination.total}
+            onPageChange={membersPagination.setPage}
+            noun="members"
+          />
+        </>
       )}
     </div>
   )
@@ -328,12 +343,21 @@ export default function MembersPage() {
       }
     />
   ) : (
-    <InvitationsList
-      invitations={invitations}
-      pending={pendingInvite}
-      onResend={handleResend}
-      onCancel={handleCancelInvite}
-    />
+    <div className="space-y-4">
+      <InvitationsList
+        invitations={invitesPagination.pageRows}
+        pending={pendingInvite}
+        onResend={handleResend}
+        onCancel={handleCancelInvite}
+      />
+      <Pagination
+        page={invitesPagination.page}
+        pageSize={invitesPagination.pageSize}
+        total={invitesPagination.total}
+        onPageChange={invitesPagination.setPage}
+        noun="invitations"
+      />
+    </div>
   )
 
   return (

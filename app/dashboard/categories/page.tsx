@@ -13,6 +13,7 @@ import { StatCard } from "@/components/common/stat-card"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState, ListSkeleton, StatsSkeleton } from "@/components/common/states"
 import { SearchInput } from "@/components/common/search-input"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { useConfirm } from "@/components/common/confirm-provider"
 import { ListToolbar, OptionSelect, type Option } from "@/components/partners/list-toolbar"
 import { RowActions } from "@/components/partners/row-actions"
@@ -28,6 +29,8 @@ import { formatCurrency, formatCurrencyCompact, formatDate, formatNumber } from 
 
 type SortKey = "name-asc" | "name-desc" | "items-desc" | "value-desc" | "newest"
 type UsageFilter = "all" | "in-use" | "empty"
+
+const PAGE_SIZE = 25
 
 const SORT_OPTIONS: Option<SortKey>[] = [
   { value: "name-asc", label: "Name (A–Z)" },
@@ -140,6 +143,8 @@ export default function CategoriesPage() {
       }
     })
   }, [rows, query, usage, sort])
+
+  const { page, total, pageRows, setPage } = usePagination(visible, PAGE_SIZE, `${query}|${usage}|${sort}`)
 
   const clearFilters = () => {
     setQuery("")
@@ -303,7 +308,7 @@ export default function CategoriesPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {visible.map((category) => {
+                          {pageRows.map((category) => {
                             const href = `/dashboard/categories/${category.id}`
                             return (
                               <TableRow
@@ -376,11 +381,19 @@ export default function CategoriesPage() {
 
                     <div className="md:hidden">
                       <CategoryMobileView
-                        categories={visible}
+                        categories={pageRows}
                         onEditClick={openEdit}
                         onDeleteClick={isAdmin ? handleDelete : undefined}
                       />
                     </div>
+
+                    <Pagination
+                      page={page}
+                      pageSize={PAGE_SIZE}
+                      total={total}
+                      onPageChange={setPage}
+                      noun="categories"
+                    />
                   </>
                 )}
               </section>

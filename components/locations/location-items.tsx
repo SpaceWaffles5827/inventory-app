@@ -37,7 +37,7 @@ export interface StoredItem {
 }
 
 interface LocationItemsProps {
-  rows: StoredItem[]
+  rows: readonly StoredItem[]
   onAdjust: (row: LocationItemRow) => void
   onRemove: (row: LocationItemRow) => void
 }

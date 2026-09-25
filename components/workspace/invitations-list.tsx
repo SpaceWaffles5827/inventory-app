@@ -29,7 +29,7 @@ function isExpired(invite: InvitationRow) {
 type Action = "resend" | "cancel"
 
 interface InvitationsListProps {
-  invitations: InvitationRow[]
+  invitations: readonly InvitationRow[]
   pending: { id: string; action: Action } | null
   onResend: (invite: InvitationRow) => void
   onCancel: (invite: InvitationRow) => void

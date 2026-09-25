@@ -1,13 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { ArrowUpRight, History, Loader2 } from "lucide-react"
+import { ArrowUpRight, History } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/common/empty-state"
 import { ListSkeleton } from "@/components/common/states"
 import { SectionHeader } from "@/components/common/page"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { TransactionList } from "@/components/items/transaction-list"
 import { toTransactionEntries, type InventoryItemDetails } from "@/components/items/item-utils"
 import { getTransactionsApi, type TransactionEntry } from "@/lib/api/transactions.api"
@@ -35,6 +36,7 @@ export function ItemHistoryTab({ item, lots = [] }: ItemHistoryTabProps) {
   const { workspaceId } = useWorkspace()
   const [state, setState] = useState<HistoryState | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const lotNumbers = useMemo(() => new Map(lots.map((l) => [l.id, l.lotNumber])), [lots])
 
@@ -55,28 +57,42 @@ export function ItemHistoryTab({ item, lots = [] }: ItemHistoryTabProps) {
     }
   }, [workspaceId, item])
 
-  const loadMore = async () => {
-    if (!state?.nextCursor) return
-    setLoadingMore(true)
-    try {
-      const res = await getTransactionsApi({ workspaceId, itemId: item.id, limit: PAGE_SIZE, cursor: state.nextCursor })
-      setState((s) =>
-        s ? { ...s, rows: [...s.rows, ...res.data.transactions], nextCursor: res.data.nextCursor ?? null } : s
-      )
-    } catch (err) {
-      toast.error(getErrorMessage(err, "Couldn't load more history"))
-    } finally {
-      setLoadingMore(false)
-    }
-  }
-
   // Embedded transactions only carry a lotId — fill in lot numbers we already know
-  const rows = (state?.rows ?? []).map((tx) =>
-    tx.lot || !lotNumbers.size ? tx : withLot(tx, item, lotNumbers)
+  const rows = useMemo(
+    () => (state?.rows ?? []).map((tx) => (tx.lot || !lotNumbers.size ? tx : withLot(tx, item, lotNumbers))),
+    [state, item, lotNumbers]
   )
 
+  // Fetched cursor pages accumulate; one PAGE_SIZE slice is shown. Without a cursor
+  // (the embedded-transactions fallback) this is plain client-side paging.
+  const pager = usePagination(rows, PAGE_SIZE, item.id)
+
+  const goToPage = async (next: number) => {
+    const cursor = state?.nextCursor
+    if (next > Math.ceil(rows.length / PAGE_SIZE)) {
+      // Past the last loaded page — fetch the next cursor page first
+      if (!cursor || loadingMore) return
+      setLoadingMore(true)
+      try {
+        const res = await getTransactionsApi({ workspaceId, itemId: item.id, limit: PAGE_SIZE, cursor })
+        setState((s) =>
+          s ? { ...s, rows: [...s.rows, ...res.data.transactions], nextCursor: res.data.nextCursor ?? null } : s
+        )
+        if (res.data.transactions.length === 0) return
+      } catch (err) {
+        toast.error(getErrorMessage(err, "Couldn't load more history"))
+        return
+      } finally {
+        setLoadingMore(false)
+      }
+    }
+    pager.setPage(next)
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    listRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" })
+  }
+
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
+    <div ref={listRef} className="scroll-mt-20 lg:scroll-mt-8 overflow-hidden rounded-xl border bg-card">
       <SectionHeader
         className="border-b px-4 py-3"
         title="Stock movements"
@@ -97,15 +113,17 @@ export function ItemHistoryTab({ item, lots = [] }: ItemHistoryTabProps) {
         <EmptyState bare icon={History} title="No movements yet" description="Adjustments, transfers and received lots will show up here." />
       ) : (
         <>
-          <TransactionList transactions={rows} unit={item.unit} showLot={item.lotTracking} showBalance />
-          {state.nextCursor && (
-            <div className="border-t p-3 text-center">
-              <Button variant="outline" size="sm" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore && <Loader2 className="animate-spin" />}
-                Load more
-              </Button>
-            </div>
-          )}
+          <TransactionList transactions={pager.pageRows} unit={item.unit} showLot={item.lotTracking} showBalance />
+          <Pagination
+            className="border-t px-4 py-3"
+            page={pager.page}
+            pageSize={PAGE_SIZE}
+            total={pager.total}
+            onPageChange={goToPage}
+            noun="movements"
+            hasMore={!!state.nextCursor}
+            loading={loadingMore}
+          />
         </>
       )}
     </div>

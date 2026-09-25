@@ -11,6 +11,7 @@ import { StatCard } from "@/components/common/stat-card"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState } from "@/components/common/states"
 import { SearchInput } from "@/components/common/search-input"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { useConfirm } from "@/components/common/confirm-provider"
 import { ListToolbar, OptionSelect, type Option } from "@/components/partners/list-toolbar"
 import { EditCategoryDialog } from "@/components/editCategoryDialog"
@@ -31,6 +32,8 @@ import CategoryDetailLoading from "./loading"
 
 type StatusFilter = "all" | StockStatus
 type SortKey = "name" | "itemNumber" | "stock-asc" | "stock-desc" | "value-desc"
+
+const PAGE_SIZE = 25
 
 const STATUS_OPTIONS: Option<StatusFilter>[] = [
   { value: "all", label: "All statuses" },
@@ -156,6 +159,8 @@ export default function CategoryDetailPage() {
       }
     })
   }, [items, query, status, sort])
+
+  const { page, total, pageRows, setPage } = usePagination(visible, PAGE_SIZE, `${query}|${status}|${sort}`)
 
   const handleDeleteItem = (item: ItemWithRelations) => {
     if (!isAdmin) {
@@ -348,7 +353,7 @@ export default function CategoryDetailPage() {
                 <>
                   <div className="hidden md:block">
                     <ItemTableView
-                      items={visible}
+                      items={pageRows}
                       onAdjustmentClick={setAdjustItem}
                       onTransferClick={setTransferItem}
                       onDeleteClick={handleDeleteItem}
@@ -356,12 +361,13 @@ export default function CategoryDetailPage() {
                   </div>
                   <div className="overflow-hidden rounded-xl border bg-card md:hidden">
                     <ItemMobileView
-                      items={visible}
+                      items={pageRows}
                       onAdjustmentClick={setAdjustItem}
                       onTransferClick={setTransferItem}
                       onDeleteClick={handleDeleteItem}
                     />
                   </div>
+                  <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} noun="items" />
                 </>
               )}
             </>

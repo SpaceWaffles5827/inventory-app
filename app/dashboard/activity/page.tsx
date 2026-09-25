@@ -1,14 +1,15 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Download, History, Loader2 } from "lucide-react"
+import { Download, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PageContainer, PageHeader } from "@/components/common/page"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState, ListSkeleton } from "@/components/common/states"
+import { Pagination, usePagination } from "@/components/common/pagination"
 import { TransactionRow } from "@/components/activity/transaction-row"
 import { useWorkspace } from "@/lib/workspace-context"
 import { getTransactionsApi, type TransactionEntry, type TransactionType } from "@/lib/api/transactions.api"
@@ -70,6 +71,7 @@ function ActivityView() {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
 
   const fetchPage = useCallback(
     (after?: string) =>
@@ -103,30 +105,42 @@ function ActivityView() {
     load()
   }, [load])
 
-  const loadMore = async () => {
-    if (!cursor) return
-    setLoadingMore(true)
-    try {
-      const res = await fetchPage(cursor)
-      setRows((prev) => [...prev, ...res.data.transactions])
-      setCursor(res.data.nextCursor ?? null)
-    } catch (err) {
-      setError(getErrorMessage(err, "Couldn't load more activity"))
-    } finally {
-      setLoadingMore(false)
+  // Rows accumulate across fetched cursor pages; the view shows one PAGE_SIZE slice.
+  // A filter change refetches from scratch, so the page snaps back to 1.
+  const pager = usePagination(rows, PAGE_SIZE, [workspaceId, itemId, locationId, type, range].join("|"))
+
+  const goToPage = async (next: number) => {
+    if (next > Math.ceil(rows.length / PAGE_SIZE)) {
+      // Past the last loaded page — fetch the next cursor page first
+      if (!cursor || loadingMore) return
+      setLoadingMore(true)
+      try {
+        const res = await fetchPage(cursor)
+        setRows((prev) => [...prev, ...res.data.transactions])
+        setCursor(res.data.nextCursor ?? null)
+        if (res.data.transactions.length === 0) return
+      } catch (err) {
+        setError(getErrorMessage(err, "Couldn't load more activity"))
+        return
+      } finally {
+        setLoadingMore(false)
+      }
     }
+    pager.setPage(next)
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    listRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" })
   }
 
   const groups = useMemo(() => {
     const out: { key: string; label: string; rows: TransactionEntry[] }[] = []
-    for (const tx of rows) {
+    for (const tx of pager.pageRows) {
       const key = dayKey(tx.createdAt)
       const last = out[out.length - 1]
       if (last && last.key === key) last.rows.push(tx)
       else out.push({ key, label: dayLabel(tx.createdAt), rows: [tx] })
     }
     return out
-  }, [rows])
+  }, [pager.pageRows])
 
   const exportCsv = () => {
     const header = ["Date", "Type", "Item", "Item number", "Quantity", "Unit", "Lot", "From", "To", "Reason", "User"]
@@ -208,7 +222,7 @@ function ActivityView() {
           description="Try a longer time range or a different movement type."
         />
       ) : (
-        <div className="space-y-6">
+        <div ref={listRef} className="scroll-mt-20 lg:scroll-mt-8 space-y-6">
           {groups.map((group) => (
             <section key={group.key}>
               <h2 className="mb-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -221,14 +235,15 @@ function ActivityView() {
               </div>
             </section>
           ))}
-          {cursor && (
-            <div className="flex justify-center">
-              <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore && <Loader2 className="animate-spin" />}
-                Load more
-              </Button>
-            </div>
-          )}
+          <Pagination
+            page={pager.page}
+            pageSize={PAGE_SIZE}
+            total={pager.total}
+            onPageChange={goToPage}
+            noun="movements"
+            hasMore={!!cursor}
+            loading={loadingMore}
+          />
         </div>
       )}
     </PageContainer>

@@ -20,7 +20,7 @@ export function ItemGridView({ items, onAdjustmentClick, onTransferClick, onDele
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-4 2xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 lg:gap-4 xl:grid-cols-5 2xl:grid-cols-6 min-[1920px]:grid-cols-8">
       {items.map((item) => (
         <div
           key={item.id}

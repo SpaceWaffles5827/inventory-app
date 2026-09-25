@@ -2,9 +2,9 @@ import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-/** Standard page width + padding. Every dashboard page should render inside one. */
+/** Standard page padding; pages use the full width beside the sidebar. Every dashboard page should render inside one. */
 export function PageContainer({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn("mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8", className)}>{children}</div>
+  return <div className={cn("w-full px-4 py-5 sm:px-6 lg:px-8 lg:py-8", className)}>{children}</div>
 }
 
 interface PageHeaderProps {
