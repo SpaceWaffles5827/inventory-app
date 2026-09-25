@@ -1,0 +1,50 @@
+{
+  "status": "success",
+  "data": {
+    "location": {
+      "id": "cmug81er00006tepyo0zw1xdw",
+      "code": "A-01-01",
+      "barcode": "LOC-A-01-01",
+      "structure": [
+        {
+          "label": "Zone",
+          "value": "A"
+        },
+        {
+          "label": "Aisle",
+          "value": "01"
+        },
+        {
+          "label": "Shelf",
+          "value": "1"
+        },
+        {
+          "label": "Bin",
+          "value": "1"
+        }
+      ],
+      "capacity": 400,
+      "description": "Small parts",
+      "createdAt": "2026-09-25T00:27:21.709Z",
+      "updatedAt": "2026-09-25T00:27:21.709Z",
+      "workspaceId": "cmug81em30000tepy5lffyk4g",
+      "_count": {
+        "items": 1
+      },
+      "items": [
+        {
+          "id": "cmug81ez7000ytepynaewqmzd",
+          "itemNumber": "ITM-001",
+          "name": "USB-C Cable 2m",
+          "status": "IN_STOCK",
+          "unit": "EA",
+          "quantity": 92,
+          "minStock": 0,
+          "maxStock": 0,
+          "notes": null
+        }
+      ],
+      "totalUnits": 92
+    }
+  }
+}

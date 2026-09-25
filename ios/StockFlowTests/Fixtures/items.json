@@ -1,0 +1,493 @@
+{
+  "status": "success",
+  "data": {
+    "items": [
+      {
+        "id": "cmug81f7k0034tepy6ujgmif3",
+        "itemNumber": "ITM-010",
+        "name": "Label Printer 4in",
+        "barcode": null,
+        "unit": "EA",
+        "description": "Thermal, USB + Wi-Fi",
+        "cost": 289,
+        "status": "IN_STOCK",
+        "reorderPoint": 2,
+        "lotTracking": false,
+        "createdAt": "2026-09-25T00:27:22.305Z",
+        "updatedAt": "2026-09-25T00:27:22.315Z",
+        "workspaceId": "cmug81em30000tepy5lffyk4g",
+        "categoryId": "cmug81euc000itepynvdb506o",
+        "supplierId": "cmug81exf000stepy9cdxfpyp",
+        "category": {
+          "id": "cmug81euc000itepynvdb506o",
+          "name": "Electronics",
+          "description": null,
+          "itemCount": 0,
+          "createdAt": "2026-09-25T00:27:21.828Z",
+          "updatedAt": "2026-09-25T00:27:21.828Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "supplier": {
+          "id": "cmug81exf000stepy9cdxfpyp",
+          "name": "Acme Supply Co",
+          "contactPerson": null,
+          "email": "orders@acme.test",
+          "phone": null,
+          "address": null,
+          "isActive": true,
+          "createdAt": "2026-09-25T00:27:21.939Z",
+          "updatedAt": "2026-09-25T00:27:21.939Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "customers": [],
+        "locations": [
+          {
+            "id": "cmug81f7k0036tepyvwu77i3o",
+            "quantity": 3,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.305Z",
+            "updatedAt": "2026-09-25T00:27:22.314Z",
+            "itemId": "cmug81f7k0034tepy6ujgmif3",
+            "locationId": "cmug81ero0008tepy44vyiuam",
+            "location": {
+              "id": "cmug81ero0008tepy44vyiuam",
+              "code": "A-01-02",
+              "barcode": "LOC-A-01-02",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "A"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "01"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "2"
+                }
+              ],
+              "capacity": 300,
+              "description": "Electronics",
+              "createdAt": "2026-09-25T00:27:21.733Z",
+              "updatedAt": "2026-09-25T00:27:21.733Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          }
+        ],
+        "onHand": 3
+      },
+      {
+        "id": "cmug81f6u002ytepymkdnczz5",
+        "itemNumber": "ITM-009",
+        "name": "Isopropyl Alcohol 99%",
+        "barcode": "0761234567890",
+        "unit": "BOTTLE",
+        "description": "1 quart",
+        "cost": 6.25,
+        "status": "LOW_STOCK",
+        "reorderPoint": 12,
+        "lotTracking": true,
+        "createdAt": "2026-09-25T00:27:22.278Z",
+        "updatedAt": "2026-09-25T00:27:22.509Z",
+        "workspaceId": "cmug81em30000tepy5lffyk4g",
+        "categoryId": "cmug81ewt000qtepyi2bcunjb",
+        "supplierId": "cmug81eyg000wtepy7x71dgvy",
+        "category": {
+          "id": "cmug81ewt000qtepyi2bcunjb",
+          "name": "Consumables",
+          "description": null,
+          "itemCount": 0,
+          "createdAt": "2026-09-25T00:27:21.917Z",
+          "updatedAt": "2026-09-25T00:27:21.917Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "supplier": {
+          "id": "cmug81eyg000wtepy7x71dgvy",
+          "name": "Globex Industrial",
+          "contactPerson": null,
+          "email": "hello@globex.test",
+          "phone": null,
+          "address": null,
+          "isActive": true,
+          "createdAt": "2026-09-25T00:27:21.977Z",
+          "updatedAt": "2026-09-25T00:27:21.977Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "customers": [],
+        "locations": [
+          {
+            "id": "cmug81f6u0030tepyac6xg1l7",
+            "quantity": 10,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.278Z",
+            "updatedAt": "2026-09-25T00:27:22.508Z",
+            "itemId": "cmug81f6u002ytepymkdnczz5",
+            "locationId": "cmug81est000ctepy9qqwxcdb",
+            "location": {
+              "id": "cmug81est000ctepy9qqwxcdb",
+              "code": "B-01-03",
+              "barcode": "LOC-B-01-03",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "B"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "01"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "3"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 250,
+              "description": "Tools cage",
+              "createdAt": "2026-09-25T00:27:21.773Z",
+              "updatedAt": "2026-09-25T00:27:21.773Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          },
+          {
+            "id": "cmug81f9r003itepy8ajqtxpo",
+            "quantity": 0,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.384Z",
+            "updatedAt": "2026-09-25T00:27:22.384Z",
+            "itemId": "cmug81f6u002ytepymkdnczz5",
+            "locationId": "cmug81etb000etepy2l6bxtbr",
+            "location": {
+              "id": "cmug81etb000etepy2l6bxtbr",
+              "code": "B-02-01",
+              "barcode": "LOC-B-02-01",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "B"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "02"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 500,
+              "description": "Safety & PPE",
+              "createdAt": "2026-09-25T00:27:21.791Z",
+              "updatedAt": "2026-09-25T00:27:21.791Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          },
+          {
+            "id": "cmug81f9s003ktepyr1dthv3h",
+            "quantity": 0,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.384Z",
+            "updatedAt": "2026-09-25T00:27:22.384Z",
+            "itemId": "cmug81f6u002ytepymkdnczz5",
+            "locationId": "cmug81ets000gtepyz3keazba",
+            "location": {
+              "id": "cmug81ets000gtepyz3keazba",
+              "code": "RECV",
+              "barcode": "LOC-RECV",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "Dock"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "R"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 1000,
+              "description": "Receiving dock",
+              "createdAt": "2026-09-25T00:27:21.809Z",
+              "updatedAt": "2026-09-25T00:27:21.809Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          }
+        ],
+        "onHand": 10
+      },
+      {
+        "id": "cmug81f63002stepy1slppxlq",
+        "itemNumber": "ITM-008",
+        "name": "Nitrile Gloves (M)",
+        "barcode": "0303801234567",
+        "unit": "BOX",
+        "description": "Powder-free, 100/box",
+        "cost": 9.5,
+        "status": "IN_STOCK",
+        "reorderPoint": 30,
+        "lotTracking": true,
+        "createdAt": "2026-09-25T00:27:22.251Z",
+        "updatedAt": "2026-09-25T00:27:22.463Z",
+        "workspaceId": "cmug81em30000tepy5lffyk4g",
+        "categoryId": "cmug81ew7000otepymtx2tdaw",
+        "supplierId": "cmug81exz000utepyth5ji04h",
+        "category": {
+          "id": "cmug81ew7000otepymtx2tdaw",
+          "name": "Safety",
+          "description": null,
+          "itemCount": 0,
+          "createdAt": "2026-09-25T00:27:21.896Z",
+          "updatedAt": "2026-09-25T00:27:21.896Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "supplier": {
+          "id": "cmug81exz000utepyth5ji04h",
+          "name": "Northwind Traders",
+          "contactPerson": null,
+          "email": "sales@northwind.test",
+          "phone": null,
+          "address": null,
+          "isActive": true,
+          "createdAt": "2026-09-25T00:27:21.959Z",
+          "updatedAt": "2026-09-25T00:27:21.959Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "customers": [],
+        "locations": [
+          {
+            "id": "cmug81f63002utepygakcj3rp",
+            "quantity": 64,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.251Z",
+            "updatedAt": "2026-09-25T00:27:22.461Z",
+            "itemId": "cmug81f63002stepy1slppxlq",
+            "locationId": "cmug81etb000etepy2l6bxtbr",
+            "location": {
+              "id": "cmug81etb000etepy2l6bxtbr",
+              "code": "B-02-01",
+              "barcode": "LOC-B-02-01",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "B"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "02"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 500,
+              "description": "Safety & PPE",
+              "createdAt": "2026-09-25T00:27:21.791Z",
+              "updatedAt": "2026-09-25T00:27:21.791Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          },
+          {
+            "id": "cmug81f8r003etepywvblru8c",
+            "quantity": 20,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.347Z",
+            "updatedAt": "2026-09-25T00:27:22.462Z",
+            "itemId": "cmug81f63002stepy1slppxlq",
+            "locationId": "cmug81ets000gtepyz3keazba",
+            "location": {
+              "id": "cmug81ets000gtepyz3keazba",
+              "code": "RECV",
+              "barcode": "LOC-RECV",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "Dock"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "R"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 1000,
+              "description": "Receiving dock",
+              "createdAt": "2026-09-25T00:27:21.809Z",
+              "updatedAt": "2026-09-25T00:27:21.809Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          },
+          {
+            "id": "cmug81f8s003gtepy71wjs4ng",
+            "quantity": 0,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.348Z",
+            "updatedAt": "2026-09-25T00:27:22.348Z",
+            "itemId": "cmug81f63002stepy1slppxlq",
+            "locationId": "cmug81est000ctepy9qqwxcdb",
+            "location": {
+              "id": "cmug81est000ctepy9qqwxcdb",
+              "code": "B-01-03",
+              "barcode": "LOC-B-01-03",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "B"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "01"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "3"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 250,
+              "description": "Tools cage",
+              "createdAt": "2026-09-25T00:27:21.773Z",
+              "updatedAt": "2026-09-25T00:27:21.773Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          }
+        ],
+        "onHand": 84
+      },
+      {
+        "id": "cmug81f55002itepyl0bv2he8",
+        "itemNumber": "ITM-007",
+        "name": "Thermal Labels 4x6",
+        "barcode": "0850001234567",
+        "unit": "ROLL",
+        "description": "Direct thermal, 250 labels/roll",
+        "cost": 18,
+        "status": "LOW_STOCK",
+        "reorderPoint": 40,
+        "lotTracking": false,
+        "createdAt": "2026-09-25T00:27:22.217Z",
+        "updatedAt": "2026-09-25T00:27:22.228Z",
+        "workspaceId": "cmug81em30000tepy5lffyk4g",
+        "categoryId": "cmug81eux000ktepycbtlufmm",
+        "supplierId": "cmug81exf000stepy9cdxfpyp",
+        "category": {
+          "id": "cmug81eux000ktepycbtlufmm",
+          "name": "Packaging",
+          "description": null,
+          "itemCount": 0,
+          "createdAt": "2026-09-25T00:27:21.850Z",
+          "updatedAt": "2026-09-25T00:27:21.850Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "supplier": {
+          "id": "cmug81exf000stepy9cdxfpyp",
+          "name": "Acme Supply Co",
+          "contactPerson": null,
+          "email": "orders@acme.test",
+          "phone": null,
+          "address": null,
+          "isActive": true,
+          "createdAt": "2026-09-25T00:27:21.939Z",
+          "updatedAt": "2026-09-25T00:27:21.939Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "customers": [],
+        "locations": [
+          {
+            "id": "cmug81f55002ktepyqydz1h2v",
+            "quantity": 26,
+            "minStock": 0,
+            "maxStock": 0,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.217Z",
+            "updatedAt": "2026-09-25T00:27:22.661Z",
+            "itemId": "cmug81f55002itepyl0bv2he8",
+            "locationId": "cmug81es8000atepyxyod41ib",
+            "location": {
+              "id": "cmug81es8000atepyxyod41ib",
+              "code": "A-02-01",
+              "barcode": "LOC-A-02-01",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "A"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "02"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 600,
+              "description": "Packaging",
+              "createdAt": "2026-09-25T00:27:21.753Z",
+              "updatedAt": "2026-09-25T00:27:21.753Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            }
+          }
+        ],
+        "onHand": 26
+      }
+    ],
+    "nextCursor": "cmug81f55002itepyl0bv2he8",
+    "pageInfo": {
+      "limit": 4,
+      "hasMore": true,
+      "nextCursor": "cmug81f55002itepyl0bv2he8"
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "status": "success",
+  "data": {
+    "workspaces": [
+      {
+        "id": "cmug81em30000tepy5lffyk4g",
+        "name": "Riverside Warehouse",
+        "description": "Your personal workspace",
+        "defaultLocationStructure": {
+          "levels": [
+            {
+              "label": "Zone"
+            },
+            {
+              "label": "Aisle"
+            },
+            {
+              "label": "Shelf"
+            },
+            {
+              "label": "Bin"
+            }
+          ]
+        },
+        "createdAt": "2026-09-25T00:27:21.532Z",
+        "updatedAt": "2026-09-25T00:27:21.683Z",
+        "members": [
+          {
+            "role": "OWNER",
+            "lastActive": "2026-09-25T00:27:21.635Z"
+          }
+        ],
+        "subscription": {
+          "id": "cmug81em80004tepy527550mt",
+          "plan": "STARTER",
+          "status": "TRIALING",
+          "currentPeriodStart": "2026-09-25T00:27:21.535Z",
+          "currentPeriodEnd": "2026-10-02T00:27:21.515Z",
+          "cancelAtPeriodEnd": false,
+          "createdAt": "2026-09-25T00:27:21.536Z",
+          "updatedAt": "2026-09-25T00:27:21.536Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "_count": {
+          "items": 10,
+          "members": 1
+        }
+      }
+    ]
+  }
+}

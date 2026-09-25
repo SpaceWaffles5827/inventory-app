@@ -1,0 +1,223 @@
+{
+  "status": "success",
+  "data": {
+    "lots": [
+      {
+        "id": "cmug81f65002wtepy17r6ycsj",
+        "lotNumber": "EXISTING-STOCK",
+        "quantity": 0,
+        "initialQuantity": 0,
+        "receivedDate": "2026-09-25T00:27:22.253Z",
+        "manufactureDate": null,
+        "expirationDate": null,
+        "status": "DEPLETED",
+        "poNumber": null,
+        "notes": "Pre-existing inventory before lot tracking was enabled",
+        "isSystem": true,
+        "createdAt": "2026-09-25T00:27:22.253Z",
+        "updatedAt": "2026-09-25T00:27:22.341Z",
+        "itemId": "cmug81f63002stepy1slppxlq",
+        "workspaceId": "cmug81em30000tepy5lffyk4g",
+        "supplierId": null,
+        "createdBy": "H4XcnwBrWsq4r6whZkM7q",
+        "supplier": null,
+        "creator": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera",
+          "email": "demo@stockflow.app"
+        },
+        "locations": []
+      },
+      {
+        "id": "cmug81fal003mtepy0rep5um4",
+        "lotNumber": "NG-2409-A",
+        "quantity": 24,
+        "initialQuantity": 24,
+        "receivedDate": "2026-09-25T00:27:22.413Z",
+        "manufactureDate": null,
+        "expirationDate": "2026-10-07T00:00:00.000Z",
+        "status": "ACTIVE",
+        "poNumber": "PO-10431",
+        "notes": null,
+        "isSystem": false,
+        "createdAt": "2026-09-25T00:27:22.413Z",
+        "updatedAt": "2026-09-25T00:27:22.420Z",
+        "itemId": "cmug81f63002stepy1slppxlq",
+        "workspaceId": "cmug81em30000tepy5lffyk4g",
+        "supplierId": "cmug81exz000utepyth5ji04h",
+        "createdBy": "H4XcnwBrWsq4r6whZkM7q",
+        "supplier": {
+          "id": "cmug81exz000utepyth5ji04h",
+          "name": "Northwind Traders",
+          "contactPerson": null,
+          "email": "sales@northwind.test",
+          "phone": null,
+          "address": null,
+          "isActive": true,
+          "createdAt": "2026-09-25T00:27:21.959Z",
+          "updatedAt": "2026-09-25T00:27:21.959Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "creator": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera",
+          "email": "demo@stockflow.app"
+        },
+        "locations": [
+          {
+            "id": "cmug81fao003otepyuqer1pss",
+            "quantity": 24,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.417Z",
+            "updatedAt": "2026-09-25T00:27:22.417Z",
+            "lotId": "cmug81fal003mtepy0rep5um4",
+            "locationId": "cmug81etb000etepy2l6bxtbr",
+            "location": {
+              "id": "cmug81etb000etepy2l6bxtbr",
+              "code": "B-02-01",
+              "barcode": "LOC-B-02-01",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "B"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "02"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 500,
+              "description": "Safety & PPE",
+              "createdAt": "2026-09-25T00:27:21.791Z",
+              "updatedAt": "2026-09-25T00:27:21.791Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            },
+            "locationCode": "B-02-01"
+          }
+        ]
+      },
+      {
+        "id": "cmug81fbl003stepy577f9l5j",
+        "lotNumber": "NG-2502-C",
+        "quantity": 60,
+        "initialQuantity": 60,
+        "receivedDate": "2026-09-25T00:27:22.449Z",
+        "manufactureDate": null,
+        "expirationDate": "2027-11-19T00:00:00.000Z",
+        "status": "ACTIVE",
+        "poNumber": "PO-10502",
+        "notes": null,
+        "isSystem": false,
+        "createdAt": "2026-09-25T00:27:22.450Z",
+        "updatedAt": "2026-09-25T00:27:22.459Z",
+        "itemId": "cmug81f63002stepy1slppxlq",
+        "workspaceId": "cmug81em30000tepy5lffyk4g",
+        "supplierId": "cmug81exz000utepyth5ji04h",
+        "createdBy": "H4XcnwBrWsq4r6whZkM7q",
+        "supplier": {
+          "id": "cmug81exz000utepyth5ji04h",
+          "name": "Northwind Traders",
+          "contactPerson": null,
+          "email": "sales@northwind.test",
+          "phone": null,
+          "address": null,
+          "isActive": true,
+          "createdAt": "2026-09-25T00:27:21.959Z",
+          "updatedAt": "2026-09-25T00:27:21.959Z",
+          "workspaceId": "cmug81em30000tepy5lffyk4g"
+        },
+        "creator": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera",
+          "email": "demo@stockflow.app"
+        },
+        "locations": [
+          {
+            "id": "cmug81fbo003utepywkvha0fo",
+            "quantity": 40,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.452Z",
+            "updatedAt": "2026-09-25T00:27:22.452Z",
+            "lotId": "cmug81fbl003stepy577f9l5j",
+            "locationId": "cmug81etb000etepy2l6bxtbr",
+            "location": {
+              "id": "cmug81etb000etepy2l6bxtbr",
+              "code": "B-02-01",
+              "barcode": "LOC-B-02-01",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "B"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "02"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 500,
+              "description": "Safety & PPE",
+              "createdAt": "2026-09-25T00:27:21.791Z",
+              "updatedAt": "2026-09-25T00:27:21.791Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            },
+            "locationCode": "B-02-01"
+          },
+          {
+            "id": "cmug81fbq003ytepyqb3mnzqt",
+            "quantity": 20,
+            "notes": null,
+            "createdAt": "2026-09-25T00:27:22.455Z",
+            "updatedAt": "2026-09-25T00:27:22.455Z",
+            "lotId": "cmug81fbl003stepy577f9l5j",
+            "locationId": "cmug81ets000gtepyz3keazba",
+            "location": {
+              "id": "cmug81ets000gtepyz3keazba",
+              "code": "RECV",
+              "barcode": "LOC-RECV",
+              "structure": [
+                {
+                  "label": "Zone",
+                  "value": "Dock"
+                },
+                {
+                  "label": "Aisle",
+                  "value": "R"
+                },
+                {
+                  "label": "Shelf",
+                  "value": "1"
+                },
+                {
+                  "label": "Bin",
+                  "value": "1"
+                }
+              ],
+              "capacity": 1000,
+              "description": "Receiving dock",
+              "createdAt": "2026-09-25T00:27:21.809Z",
+              "updatedAt": "2026-09-25T00:27:21.809Z",
+              "workspaceId": "cmug81em30000tepy5lffyk4g"
+            },
+            "locationCode": "RECV"
+          }
+        ]
+      }
+    ]
+  }
+}

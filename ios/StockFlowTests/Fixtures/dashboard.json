@@ -1,0 +1,309 @@
+{
+  "status": "success",
+  "data": {
+    "totalSkus": 10,
+    "totalUnits": 434,
+    "inventoryValue": 6050.5,
+    "lowStockCount": 3,
+    "outOfStockCount": 1,
+    "locationsCount": 6,
+    "recentTransactions": [
+      {
+        "id": "cmug81fk4004utepy969pbchk",
+        "type": "TRANSFER",
+        "quantity": 20,
+        "reason": "Transfer: RECV → B-02-01",
+        "previousStock": 65,
+        "newStock": 65,
+        "createdAt": "2026-09-25T00:27:22.757Z",
+        "item": {
+          "id": "cmug81f440028tepyn1vt4g9n",
+          "name": "Hi-Vis Safety Vest",
+          "itemNumber": "ITM-006",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81ets000gtepyz3keazba",
+          "code": "RECV"
+        },
+        "toLocation": {
+          "id": "cmug81etb000etepy2l6bxtbr",
+          "code": "B-02-01"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fj8004stepyclk9ndpp",
+        "type": "TRANSFER",
+        "quantity": 30,
+        "reason": "Transfer: A-01-01 → A-01-02",
+        "previousStock": 122,
+        "newStock": 122,
+        "createdAt": "2026-09-25T00:27:22.725Z",
+        "item": {
+          "id": "cmug81ez7000ytepynaewqmzd",
+          "name": "USB-C Cable 2m",
+          "itemNumber": "ITM-001",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81er00006tepyo0zw1xdw",
+          "code": "A-01-01"
+        },
+        "toLocation": {
+          "id": "cmug81ero0008tepy44vyiuam",
+          "code": "A-01-02"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fib004mtepyktup1zqv",
+        "type": "OUTPUT",
+        "quantity": 1,
+        "reason": "Damaged",
+        "previousStock": 6,
+        "newStock": 5,
+        "createdAt": "2026-09-25T00:27:22.692Z",
+        "item": {
+          "id": "cmug81f36001ytepywo1lbwa5",
+          "name": "Cordless Drill 18V",
+          "itemNumber": "ITM-005",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81est000ctepy9qqwxcdb",
+          "code": "B-01-03"
+        },
+        "toLocation": null,
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fhh004ktepyndrg3j1p",
+        "type": "OUTPUT",
+        "quantity": 6,
+        "reason": "Used",
+        "previousStock": 32,
+        "newStock": 26,
+        "createdAt": "2026-09-25T00:27:22.662Z",
+        "item": {
+          "id": "cmug81f55002itepyl0bv2he8",
+          "name": "Thermal Labels 4x6",
+          "itemNumber": "ITM-007",
+          "unit": "ROLL"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81es8000atepyxyod41ib",
+          "code": "A-02-01"
+        },
+        "toLocation": null,
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fgm004itepyir4wymvo",
+        "type": "INPUT",
+        "quantity": 20,
+        "reason": "Received",
+        "previousStock": 45,
+        "newStock": 65,
+        "createdAt": "2026-09-25T00:27:22.630Z",
+        "item": {
+          "id": "cmug81f440028tepyn1vt4g9n",
+          "name": "Hi-Vis Safety Vest",
+          "itemNumber": "ITM-006",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": null,
+        "toLocation": {
+          "id": "cmug81ets000gtepyz3keazba",
+          "code": "RECV"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81ffr004ctepyn0mhygk8",
+        "type": "OUTPUT",
+        "quantity": 40,
+        "reason": "Used",
+        "previousStock": 150,
+        "newStock": 110,
+        "createdAt": "2026-09-25T00:27:22.600Z",
+        "item": {
+          "id": "cmug81f1g001itepyx379w4zq",
+          "name": "Shipping Box 12x12x12",
+          "itemNumber": "ITM-003",
+          "unit": "BOX"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81es8000atepyxyod41ib",
+          "code": "A-02-01"
+        },
+        "toLocation": null,
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fex004atepyxk3mc4lf",
+        "type": "OUTPUT",
+        "quantity": 3,
+        "reason": "Sold",
+        "previousStock": 12,
+        "newStock": 9,
+        "createdAt": "2026-09-25T00:27:22.569Z",
+        "item": {
+          "id": "cmug81f0h0018tepyzytai31s",
+          "name": "Wireless Barcode Scanner",
+          "itemNumber": "ITM-002",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81ero0008tepy44vyiuam",
+          "code": "A-01-02"
+        },
+        "toLocation": null,
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fe30048tepyugbwvvi2",
+        "type": "OUTPUT",
+        "quantity": 18,
+        "reason": "Sold",
+        "previousStock": 140,
+        "newStock": 122,
+        "createdAt": "2026-09-25T00:27:22.540Z",
+        "item": {
+          "id": "cmug81ez7000ytepynaewqmzd",
+          "name": "USB-C Cable 2m",
+          "itemNumber": "ITM-001",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81er00006tepyo0zw1xdw",
+          "code": "A-01-01"
+        },
+        "toLocation": null,
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fd20046tepy0imymfz1",
+        "type": "INPUT",
+        "quantity": 10,
+        "reason": "Lot IPA-7781 received",
+        "previousStock": 0,
+        "newStock": 10,
+        "createdAt": "2026-09-25T00:27:22.503Z",
+        "item": {
+          "id": "cmug81f6u002ytepymkdnczz5",
+          "name": "Isopropyl Alcohol 99%",
+          "itemNumber": "ITM-009",
+          "unit": "BOTTLE"
+        },
+        "lot": {
+          "id": "cmug81fcz0042tepyzmxwui7u",
+          "lotNumber": "IPA-7781"
+        },
+        "fromLocation": null,
+        "toLocation": {
+          "id": "cmug81est000ctepy9qqwxcdb",
+          "code": "B-01-03"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fbr0040tepyt7s64gtp",
+        "type": "INPUT",
+        "quantity": 20,
+        "reason": "Lot NG-2502-C received",
+        "previousStock": 64,
+        "newStock": 84,
+        "createdAt": "2026-09-25T00:27:22.456Z",
+        "item": {
+          "id": "cmug81f63002stepy1slppxlq",
+          "name": "Nitrile Gloves (M)",
+          "itemNumber": "ITM-008",
+          "unit": "BOX"
+        },
+        "lot": {
+          "id": "cmug81fbl003stepy577f9l5j",
+          "lotNumber": "NG-2502-C"
+        },
+        "fromLocation": null,
+        "toLocation": {
+          "id": "cmug81ets000gtepyz3keazba",
+          "code": "RECV"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      }
+    ],
+    "lowStockItems": [
+      {
+        "id": "cmug81f2f001stepyka68lktk",
+        "name": "Packing Tape 48mm",
+        "itemNumber": "ITM-004",
+        "onHand": 0,
+        "reorderPoint": 50,
+        "unit": "ROLL"
+      },
+      {
+        "id": "cmug81f1g001itepyx379w4zq",
+        "name": "Shipping Box 12x12x12",
+        "itemNumber": "ITM-003",
+        "onHand": 110,
+        "reorderPoint": 200,
+        "unit": "BOX"
+      },
+      {
+        "id": "cmug81f55002itepyl0bv2he8",
+        "name": "Thermal Labels 4x6",
+        "itemNumber": "ITM-007",
+        "onHand": 26,
+        "reorderPoint": 40,
+        "unit": "ROLL"
+      },
+      {
+        "id": "cmug81f6u002ytepymkdnczz5",
+        "name": "Isopropyl Alcohol 99%",
+        "itemNumber": "ITM-009",
+        "onHand": 10,
+        "reorderPoint": 12,
+        "unit": "BOTTLE"
+      }
+    ]
+  }
+}

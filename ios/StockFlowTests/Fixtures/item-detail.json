@@ -1,0 +1,224 @@
+{
+  "status": "success",
+  "data": {
+    "item": {
+      "id": "cmug81ez7000ytepynaewqmzd",
+      "itemNumber": "ITM-001",
+      "name": "USB-C Cable 2m",
+      "barcode": "0885909950805",
+      "unit": "EA",
+      "description": "Braided USB-C to USB-C, 100W",
+      "cost": 8.5,
+      "status": "IN_STOCK",
+      "reorderPoint": 20,
+      "lotTracking": false,
+      "createdAt": "2026-09-25T00:27:22.003Z",
+      "updatedAt": "2026-09-25T00:27:22.021Z",
+      "workspaceId": "cmug81em30000tepy5lffyk4g",
+      "categoryId": "cmug81euc000itepynvdb506o",
+      "supplierId": "cmug81exf000stepy9cdxfpyp",
+      "category": {
+        "id": "cmug81euc000itepynvdb506o",
+        "name": "Electronics",
+        "description": null,
+        "itemCount": 0,
+        "createdAt": "2026-09-25T00:27:21.828Z",
+        "updatedAt": "2026-09-25T00:27:21.828Z",
+        "workspaceId": "cmug81em30000tepy5lffyk4g"
+      },
+      "supplier": {
+        "id": "cmug81exf000stepy9cdxfpyp",
+        "name": "Acme Supply Co",
+        "contactPerson": null,
+        "email": "orders@acme.test",
+        "phone": null,
+        "address": null,
+        "isActive": true,
+        "createdAt": "2026-09-25T00:27:21.939Z",
+        "updatedAt": "2026-09-25T00:27:21.939Z",
+        "workspaceId": "cmug81em30000tepy5lffyk4g"
+      },
+      "customers": [],
+      "locations": [
+        {
+          "id": "cmug81ez70010tepy4sv6exf7",
+          "quantity": 92,
+          "minStock": 0,
+          "maxStock": 0,
+          "notes": null,
+          "createdAt": "2026-09-25T00:27:22.003Z",
+          "updatedAt": "2026-09-25T00:27:22.723Z",
+          "itemId": "cmug81ez7000ytepynaewqmzd",
+          "locationId": "cmug81er00006tepyo0zw1xdw",
+          "location": {
+            "id": "cmug81er00006tepyo0zw1xdw",
+            "code": "A-01-01",
+            "barcode": "LOC-A-01-01",
+            "structure": [
+              {
+                "label": "Zone",
+                "value": "A"
+              },
+              {
+                "label": "Aisle",
+                "value": "01"
+              },
+              {
+                "label": "Shelf",
+                "value": "1"
+              },
+              {
+                "label": "Bin",
+                "value": "1"
+              }
+            ],
+            "capacity": 400,
+            "description": "Small parts",
+            "createdAt": "2026-09-25T00:27:21.709Z",
+            "updatedAt": "2026-09-25T00:27:21.709Z",
+            "workspaceId": "cmug81em30000tepy5lffyk4g"
+          }
+        },
+        {
+          "id": "cmug81fj7004qtepyg8nyzi7k",
+          "quantity": 30,
+          "minStock": 0,
+          "maxStock": 0,
+          "notes": null,
+          "createdAt": "2026-09-25T00:27:22.724Z",
+          "updatedAt": "2026-09-25T00:27:22.724Z",
+          "itemId": "cmug81ez7000ytepynaewqmzd",
+          "locationId": "cmug81ero0008tepy44vyiuam",
+          "location": {
+            "id": "cmug81ero0008tepy44vyiuam",
+            "code": "A-01-02",
+            "barcode": "LOC-A-01-02",
+            "structure": [
+              {
+                "label": "Zone",
+                "value": "A"
+              },
+              {
+                "label": "Aisle",
+                "value": "01"
+              },
+              {
+                "label": "Shelf",
+                "value": "1"
+              },
+              {
+                "label": "Bin",
+                "value": "2"
+              }
+            ],
+            "capacity": 300,
+            "description": "Electronics",
+            "createdAt": "2026-09-25T00:27:21.733Z",
+            "updatedAt": "2026-09-25T00:27:21.733Z",
+            "workspaceId": "cmug81em30000tepy5lffyk4g"
+          }
+        }
+      ],
+      "workspace": {
+        "id": "cmug81em30000tepy5lffyk4g",
+        "name": "Riverside Warehouse",
+        "description": "Your personal workspace",
+        "defaultLocationStructure": {
+          "levels": [
+            {
+              "label": "Zone"
+            },
+            {
+              "label": "Aisle"
+            },
+            {
+              "label": "Shelf"
+            },
+            {
+              "label": "Bin"
+            }
+          ]
+        },
+        "createdAt": "2026-09-25T00:27:21.532Z",
+        "updatedAt": "2026-09-25T00:27:21.683Z"
+      },
+      "transactions": [
+        {
+          "id": "cmug81fj8004stepyclk9ndpp",
+          "type": "TRANSFER",
+          "quantity": 30,
+          "previousStock": 122,
+          "newStock": 122,
+          "reason": "Transfer: A-01-01 → A-01-02",
+          "lotId": "cmug81ezb0012tepysdg7pkua",
+          "createdAt": "2026-09-25T00:27:22.725Z",
+          "fromLocationId": "cmug81er00006tepyo0zw1xdw",
+          "toLocationId": "cmug81ero0008tepy44vyiuam",
+          "itemId": "cmug81ez7000ytepynaewqmzd",
+          "workspaceId": "cmug81em30000tepy5lffyk4g",
+          "userId": "H4XcnwBrWsq4r6whZkM7q",
+          "user": {
+            "id": "H4XcnwBrWsq4r6whZkM7q",
+            "name": "Jordan Rivera",
+            "email": "demo@stockflow.app"
+          },
+          "fromLocation": {
+            "code": "A-01-01"
+          },
+          "toLocation": {
+            "code": "A-01-02"
+          }
+        },
+        {
+          "id": "cmug81fe30048tepyugbwvvi2",
+          "type": "OUTPUT",
+          "quantity": 18,
+          "previousStock": 140,
+          "newStock": 122,
+          "reason": "Sold",
+          "lotId": "cmug81ezb0012tepysdg7pkua",
+          "createdAt": "2026-09-25T00:27:22.540Z",
+          "fromLocationId": "cmug81er00006tepyo0zw1xdw",
+          "toLocationId": null,
+          "itemId": "cmug81ez7000ytepynaewqmzd",
+          "workspaceId": "cmug81em30000tepy5lffyk4g",
+          "userId": "H4XcnwBrWsq4r6whZkM7q",
+          "user": {
+            "id": "H4XcnwBrWsq4r6whZkM7q",
+            "name": "Jordan Rivera",
+            "email": "demo@stockflow.app"
+          },
+          "fromLocation": {
+            "code": "A-01-01"
+          },
+          "toLocation": null
+        },
+        {
+          "id": "cmug81eze0016tepytlxl96fk",
+          "type": "INPUT",
+          "quantity": 140,
+          "previousStock": 0,
+          "newStock": 140,
+          "reason": "Initial stock",
+          "lotId": "cmug81ezb0012tepysdg7pkua",
+          "createdAt": "2026-09-25T00:27:22.011Z",
+          "fromLocationId": null,
+          "toLocationId": "cmug81er00006tepyo0zw1xdw",
+          "itemId": "cmug81ez7000ytepynaewqmzd",
+          "workspaceId": "cmug81em30000tepy5lffyk4g",
+          "userId": "H4XcnwBrWsq4r6whZkM7q",
+          "user": {
+            "id": "H4XcnwBrWsq4r6whZkM7q",
+            "name": "Jordan Rivera",
+            "email": "demo@stockflow.app"
+          },
+          "fromLocation": null,
+          "toLocation": {
+            "code": "A-01-01"
+          }
+        }
+      ],
+      "onHand": 122
+    }
+  }
+}

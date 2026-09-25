@@ -1,0 +1,343 @@
+{
+  "status": "success",
+  "data": {
+    "keyMetrics": {
+      "totalStockValue": 6050.5,
+      "stockTurnover": 1.1,
+      "inStockCount": 6,
+      "lowStockCount": 3,
+      "outOfStockCount": 1,
+      "totalSkus": 10,
+      "totalUnits": 434,
+      "unitsIn": 502,
+      "unitsOut": 68,
+      "netMovement": 434,
+      "unitsTransferred": 50,
+      "transactionCount": 19
+    },
+    "stockTrendData": [
+      {
+        "month": "Sep 19",
+        "label": "Sep 19",
+        "periodStart": "2026-09-19T00:00:00.000Z",
+        "periodEnd": "2026-09-20T00:00:00.000Z",
+        "inStock": 0,
+        "lowStock": 0,
+        "outOfStock": 0,
+        "value": 0,
+        "units": 0,
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 20",
+        "label": "Sep 20",
+        "periodStart": "2026-09-20T00:00:00.000Z",
+        "periodEnd": "2026-09-21T00:00:00.000Z",
+        "inStock": 0,
+        "lowStock": 0,
+        "outOfStock": 0,
+        "value": 0,
+        "units": 0,
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 21",
+        "label": "Sep 21",
+        "periodStart": "2026-09-21T00:00:00.000Z",
+        "periodEnd": "2026-09-22T00:00:00.000Z",
+        "inStock": 0,
+        "lowStock": 0,
+        "outOfStock": 0,
+        "value": 0,
+        "units": 0,
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 22",
+        "label": "Sep 22",
+        "periodStart": "2026-09-22T00:00:00.000Z",
+        "periodEnd": "2026-09-23T00:00:00.000Z",
+        "inStock": 0,
+        "lowStock": 0,
+        "outOfStock": 0,
+        "value": 0,
+        "units": 0,
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 23",
+        "label": "Sep 23",
+        "periodStart": "2026-09-23T00:00:00.000Z",
+        "periodEnd": "2026-09-24T00:00:00.000Z",
+        "inStock": 0,
+        "lowStock": 0,
+        "outOfStock": 0,
+        "value": 0,
+        "units": 0,
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 24",
+        "label": "Sep 24",
+        "periodStart": "2026-09-24T00:00:00.000Z",
+        "periodEnd": "2026-09-25T00:00:00.000Z",
+        "inStock": 0,
+        "lowStock": 0,
+        "outOfStock": 0,
+        "value": 0,
+        "units": 0,
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 25",
+        "label": "Sep 25",
+        "periodStart": "2026-09-25T00:00:00.000Z",
+        "periodEnd": "2026-09-25T00:27:41.658Z",
+        "inStock": 6,
+        "lowStock": 3,
+        "outOfStock": 1,
+        "value": 6050.5,
+        "units": 434,
+        "stockIn": 502,
+        "stockOut": 68,
+        "net": 434,
+        "transfers": 50
+      }
+    ],
+    "movementData": [
+      {
+        "month": "Sep 19",
+        "label": "Sep 19",
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 20",
+        "label": "Sep 20",
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 21",
+        "label": "Sep 21",
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 22",
+        "label": "Sep 22",
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 23",
+        "label": "Sep 23",
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 24",
+        "label": "Sep 24",
+        "stockIn": 0,
+        "stockOut": 0,
+        "net": 0,
+        "transfers": 0
+      },
+      {
+        "month": "Sep 25",
+        "label": "Sep 25",
+        "stockIn": 502,
+        "stockOut": 68,
+        "net": 434,
+        "transfers": 50
+      }
+    ],
+    "inventoryValueData": [
+      {
+        "month": "Sep 19",
+        "label": "Sep 19",
+        "value": 0
+      },
+      {
+        "month": "Sep 20",
+        "label": "Sep 20",
+        "value": 0
+      },
+      {
+        "month": "Sep 21",
+        "label": "Sep 21",
+        "value": 0
+      },
+      {
+        "month": "Sep 22",
+        "label": "Sep 22",
+        "value": 0
+      },
+      {
+        "month": "Sep 23",
+        "label": "Sep 23",
+        "value": 0
+      },
+      {
+        "month": "Sep 24",
+        "label": "Sep 24",
+        "value": 0
+      },
+      {
+        "month": "Sep 25",
+        "label": "Sep 25",
+        "value": 6050.5
+      }
+    ],
+    "categoryDistribution": [
+      {
+        "name": "Electronics",
+        "value": 3,
+        "categoryId": "cmug81euc000itepynvdb506o",
+        "itemCount": 3,
+        "units": 134,
+        "inventoryValue": 3065
+      },
+      {
+        "name": "Safety",
+        "value": 2,
+        "categoryId": "cmug81ew7000otepymtx2tdaw",
+        "itemCount": 2,
+        "units": 149,
+        "inventoryValue": 1578
+      },
+      {
+        "name": "Tools",
+        "value": 1,
+        "categoryId": "cmug81evj000mtepyx0kjffl7",
+        "itemCount": 1,
+        "units": 5,
+        "inventoryValue": 745
+      },
+      {
+        "name": "Packaging",
+        "value": 3,
+        "categoryId": "cmug81eux000ktepycbtlufmm",
+        "itemCount": 3,
+        "units": 136,
+        "inventoryValue": 600
+      },
+      {
+        "name": "Consumables",
+        "value": 1,
+        "categoryId": "cmug81ewt000qtepyi2bcunjb",
+        "itemCount": 1,
+        "units": 10,
+        "inventoryValue": 62.5
+      }
+    ],
+    "topMovingItems": [
+      {
+        "itemId": "cmug81f1g001itepyx379w4zq",
+        "name": "Shipping Box 12x12x12",
+        "itemNumber": "ITM-003",
+        "moved": 190,
+        "unitsIn": 150,
+        "unitsOut": 40,
+        "transferred": 0,
+        "transactions": 2,
+        "previousMoved": 0,
+        "changePct": null,
+        "trend": "up",
+        "change": "New"
+      },
+      {
+        "itemId": "cmug81ez7000ytepynaewqmzd",
+        "name": "USB-C Cable 2m",
+        "itemNumber": "ITM-001",
+        "moved": 188,
+        "unitsIn": 140,
+        "unitsOut": 18,
+        "transferred": 30,
+        "transactions": 3,
+        "previousMoved": 0,
+        "changePct": null,
+        "trend": "up",
+        "change": "New"
+      },
+      {
+        "itemId": "cmug81f440028tepyn1vt4g9n",
+        "name": "Hi-Vis Safety Vest",
+        "itemNumber": "ITM-006",
+        "moved": 85,
+        "unitsIn": 65,
+        "unitsOut": 0,
+        "transferred": 20,
+        "transactions": 3,
+        "previousMoved": 0,
+        "changePct": null,
+        "trend": "up",
+        "change": "New"
+      },
+      {
+        "itemId": "cmug81f63002stepy1slppxlq",
+        "name": "Nitrile Gloves (M)",
+        "itemNumber": "ITM-008",
+        "moved": 84,
+        "unitsIn": 84,
+        "unitsOut": 0,
+        "transferred": 0,
+        "transactions": 3,
+        "previousMoved": 0,
+        "changePct": null,
+        "trend": "up",
+        "change": "New"
+      },
+      {
+        "itemId": "cmug81f55002itepyl0bv2he8",
+        "name": "Thermal Labels 4x6",
+        "itemNumber": "ITM-007",
+        "moved": 38,
+        "unitsIn": 32,
+        "unitsOut": 6,
+        "transferred": 0,
+        "transactions": 2,
+        "previousMoved": 0,
+        "changePct": null,
+        "trend": "up",
+        "change": "New"
+      }
+    ],
+    "period": {
+      "timeRange": "7days",
+      "granularity": "day",
+      "start": "2026-09-19T00:00:00.000Z",
+      "end": "2026-09-25T00:27:41.658Z",
+      "previousStart": "2026-09-12T23:32:18.342Z",
+      "previousEnd": "2026-09-19T00:00:00.000Z"
+    }
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "status": "success",
+  "data": {
+    "transactions": [
+      {
+        "id": "cmug81fk4004utepy969pbchk",
+        "type": "TRANSFER",
+        "quantity": 20,
+        "reason": "Transfer: RECV → B-02-01",
+        "previousStock": 65,
+        "newStock": 65,
+        "createdAt": "2026-09-25T00:27:22.757Z",
+        "item": {
+          "id": "cmug81f440028tepyn1vt4g9n",
+          "name": "Hi-Vis Safety Vest",
+          "itemNumber": "ITM-006",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81ets000gtepyz3keazba",
+          "code": "RECV"
+        },
+        "toLocation": {
+          "id": "cmug81etb000etepy2l6bxtbr",
+          "code": "B-02-01"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fj8004stepyclk9ndpp",
+        "type": "TRANSFER",
+        "quantity": 30,
+        "reason": "Transfer: A-01-01 → A-01-02",
+        "previousStock": 122,
+        "newStock": 122,
+        "createdAt": "2026-09-25T00:27:22.725Z",
+        "item": {
+          "id": "cmug81ez7000ytepynaewqmzd",
+          "name": "USB-C Cable 2m",
+          "itemNumber": "ITM-001",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81er00006tepyo0zw1xdw",
+          "code": "A-01-01"
+        },
+        "toLocation": {
+          "id": "cmug81ero0008tepy44vyiuam",
+          "code": "A-01-02"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fib004mtepyktup1zqv",
+        "type": "OUTPUT",
+        "quantity": 1,
+        "reason": "Damaged",
+        "previousStock": 6,
+        "newStock": 5,
+        "createdAt": "2026-09-25T00:27:22.692Z",
+        "item": {
+          "id": "cmug81f36001ytepywo1lbwa5",
+          "name": "Cordless Drill 18V",
+          "itemNumber": "ITM-005",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81est000ctepy9qqwxcdb",
+          "code": "B-01-03"
+        },
+        "toLocation": null,
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fhh004ktepyndrg3j1p",
+        "type": "OUTPUT",
+        "quantity": 6,
+        "reason": "Used",
+        "previousStock": 32,
+        "newStock": 26,
+        "createdAt": "2026-09-25T00:27:22.662Z",
+        "item": {
+          "id": "cmug81f55002itepyl0bv2he8",
+          "name": "Thermal Labels 4x6",
+          "itemNumber": "ITM-007",
+          "unit": "ROLL"
+        },
+        "lot": null,
+        "fromLocation": {
+          "id": "cmug81es8000atepyxyod41ib",
+          "code": "A-02-01"
+        },
+        "toLocation": null,
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      },
+      {
+        "id": "cmug81fgm004itepyir4wymvo",
+        "type": "INPUT",
+        "quantity": 20,
+        "reason": "Received",
+        "previousStock": 45,
+        "newStock": 65,
+        "createdAt": "2026-09-25T00:27:22.630Z",
+        "item": {
+          "id": "cmug81f440028tepyn1vt4g9n",
+          "name": "Hi-Vis Safety Vest",
+          "itemNumber": "ITM-006",
+          "unit": "EA"
+        },
+        "lot": null,
+        "fromLocation": null,
+        "toLocation": {
+          "id": "cmug81ets000gtepyz3keazba",
+          "code": "RECV"
+        },
+        "user": {
+          "id": "H4XcnwBrWsq4r6whZkM7q",
+          "name": "Jordan Rivera"
+        }
+      }
+    ],
+    "nextCursor": "cmug81fgm004itepyir4wymvo"
+  }
+}
